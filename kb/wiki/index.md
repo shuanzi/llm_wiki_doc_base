@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [半导体产业链](sources/src_sha256_b9eea30d.md) <!-- dedup:index_source_src_sha256_b9eea30d -->
 - [刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」](sources/src_sha256_e1362439.md) <!-- dedup:index_source_src_sha256_e1362439 -->
 - [u-boot是什么？](sources/src_sha256_909eda4b.md) <!-- dedup:index_source_src_sha256_909eda4b -->
 - [[翻譯] 認識 x64 程式碼模型（code model）](sources/src_sha256_381eec28.md) <!-- dedup:index_source_src_sha256_381eec28 -->

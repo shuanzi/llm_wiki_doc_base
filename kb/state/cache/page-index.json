@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」 <!-- dedup:indexsourcesrcsha256e1362439 -->\n- u-boot是什么？ <!-- dedup:indexsourcesrcsha256909eda4b -->\n- [[翻譯] 認識 x64 程式碼模型（code model）](sources/srcsha2563..."
+      "body_excerpt": "- 半导体产业链 <!-- dedup:indexsourcesrcsha256b9eea30d -->\n- 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」 <!-- dedup:indexsourcesrcsha256e1362439 -->\n- u-boot是什么？ <!-- dedup:indexsourcesrcsha256909eda4b -->..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256e1362439 → wiki/sources/srcsha256e1362439.md <!-- dedup:logingestsrcsha256e1362439 -->\n- 2026-04-11: Ingested source srcsha256909eda4b → wiki/sources/srcsha25690..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256b9eea30d → wiki/sources/srcsha256b9eea30d.md <!-- dedup:logingestsrcsha256b9eea30d -->\n- 2026-04-11: Ingested source srcsha256e1362439 → wiki/sources/srcsha256e1..."
     },
     {
       "page_id": "reports_index",
@@ -188,6 +188,20 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha256b0079051\n- Kind: markdown\n- Content Hash: sha256:b0079051c03556dfe6e0dd03d7ffe563df63f650abca07c83182f8426b4df50a\n- Ingested: 2026-04-11\nApple launched “Apple Intelligence” yeste..."
+    },
+    {
+      "page_id": "src_sha256_b9eea30d",
+      "path": "wiki/sources/src_sha256_b9eea30d.md",
+      "type": "source",
+      "title": "半导体产业链",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "半导体产业链",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha256b9eea30d\n- Kind: markdown\n- Content Hash: sha256:b9eea30d160cf2520e6ba2d58619ece21ea9759f5adab0c787b8098b91534253\n- Ingested: 2026-04-11\n2025年7月23日 17:21\n!图片\n半导体产业链，本质上是一个高度复杂、覆盖..."
     },
     {
       "page_id": "src_sha256_bed29132",
