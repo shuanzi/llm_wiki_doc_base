@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_f8cfbf96fd0df8fb",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_e1362439.md",
+      "content": "---\nid: src_sha256_e1362439\ntype: source\ntitle: 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」\nsource_ids: [src_sha256_e1362439]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」\n\n## Source Info\n\n- **Source ID**: src_sha256_e1362439\n- **Kind**: markdown\n- **Content Hash**: sha256:e1362439ed2c4e627154548b3f0af378dea793fd9035fab12e7be066a55c2f14\n- **Ingested**: 2026-04-11\n\n## Summary\n\n> 真实的 AI 商战，往往就是这样朴实无华。  \nAnthropic 封杀第三方工具的同一天， OpenAI 和 GitHub Copilot 主动开门。\n1 月 9 日，Anthropic 对第三方工具动刀。\n所有通过非 Claude Code 官方客户端使用 Claude 订阅的开发者，突然看到这条报错：\n> 「This credential is only authorized for use with Claude Code and cannot be used for other API requests.」  \n![](https://pic4.zhimg.com/v2-df48c74188f16db09fc754cf0060f9d51440w.jpg)\n说人话：你的订阅只能用我们自己的工具。\nOpenCode 首当其冲。\n超 6.1 万 GitHub stars，本月即将突破 100 万月活。\n很多用户开通 Claude 订阅，在 OpenCode 里使用。一夜之间，这条路被 Anthropic 堵死了。\n接下来发生的事，让所有人都没想到。\n---\nOpenAI Cod...\n\n## Structure\n\n- 01｜OpenAI 主动开门\n- 02｜GitHub Copilot 也来了\n- 03｜对比太强烈了\n- 04｜xAI 网线被 Anthropic 拔了\n- 05｜为什么 Anthropic 要这么做\n- 06｜DHH：Anthropic，自信点\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」](sources/src_sha256_e1362439.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_e1362439"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_e1362439` → [wiki/sources/src_sha256_e1362439.md](sources/src_sha256_e1362439.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_e1362439"
+    }
+  ]
+}

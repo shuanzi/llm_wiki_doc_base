@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- u-boot是什么？ <!-- dedup:indexsourcesrcsha256909eda4b -->\n- [[翻譯] 認識 x64 程式碼模型（code model）](sources/srcsha256381eec28.md) <!-- dedup:indexsourcesrcsha256381eec28 -->\n- Windows 11安全手册 - 硬件安全性 <!-- dedup..."
+      "body_excerpt": "- 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」 <!-- dedup:indexsourcesrcsha256e1362439 -->\n- u-boot是什么？ <!-- dedup:indexsourcesrcsha256909eda4b -->\n- [[翻譯] 認識 x64 程式碼模型（code model）](sources/srcsha2563..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256909eda4b → wiki/sources/srcsha256909eda4b.md <!-- dedup:logingestsrcsha256909eda4b -->\n- 2026-04-11: Ingested source srcsha256381eec28 → wiki/sources/srcsha25638..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256e1362439 → wiki/sources/srcsha256e1362439.md <!-- dedup:logingestsrcsha256e1362439 -->\n- 2026-04-11: Ingested source srcsha256909eda4b → wiki/sources/srcsha25690..."
     },
     {
       "page_id": "reports_index",
@@ -217,6 +217,21 @@
         "Summary"
       ],
       "body_excerpt": "- Source ID: srcsha256c6066312\n- Kind: markdown\n- Content Hash: sha256:c6066312cafaadb94ed627a09fad9f0314f57e5b7b24b445fa57fcf27455ba02\n- Ingested: 2026-04-11\nzhengwenbin\n背景\n在数字化浪潮汹涌澎湃的当下，计算机已深度融入人们生活..."
+    },
+    {
+      "page_id": "src_sha256_e1362439",
+      "path": "wiki/sources/src_sha256_e1362439.md",
+      "type": "source",
+      "title": "刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256e1362439\n- Kind: markdown\n- Content Hash: sha256:e1362439ed2c4e627154548b3f0af378dea793fd9035fab12e7be066a55c2f14\n- Ingested: 2026-04-11\n> 真实的 AI 商战，往往就是这样朴实无华。  \nAnthropic 封杀第三方..."
     },
     {
       "page_id": "src_sha256_e4e3e218",
