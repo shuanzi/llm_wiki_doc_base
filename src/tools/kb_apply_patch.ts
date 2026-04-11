@@ -269,18 +269,19 @@ async function applyFile(
 }
 
 /**
- * Check dirty state of kb/ excluding kb/state/runs/.
+ * Check dirty state of kb/wiki/ only.
+ * Other kb/ subdirectories (raw/, state/) are modified by earlier pipeline
+ * steps (source_add, plan, draft) and should not block apply.
  */
 function checkDirtyState(kbRoot: string): string[] {
   try {
-    const result = execSync("git status --porcelain -- kb/", {
+    const result = execSync("git status --porcelain -- kb/wiki/", {
       cwd: path.dirname(kbRoot),
       encoding: "utf8",
     });
     return result
       .split("\n")
-      .filter((line) => line.trim() !== "")
-      .filter((line) => !line.includes("kb/state/runs/"));
+      .filter((line) => line.trim() !== "");
   } catch {
     return [];
   }

@@ -45,8 +45,8 @@ export async function kbPlanIngest(
       };
     }
 
-    // Derive a page_id from source_id
-    const pageId = `src_${input.source_id}`;
+    // Use source_id directly as page_id (already globally unique)
+    const pageId = input.source_id;
 
     // Determine the wiki path for the source summary page
     const sourcePage = `wiki/sources/${input.source_id}.md`;
