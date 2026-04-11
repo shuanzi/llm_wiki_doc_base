@@ -1,3 +1,59 @@
 {
-  "pages": []
+  "pages": [
+    {
+      "page_id": "wiki_index",
+      "path": "wiki/index.md",
+      "type": "index",
+      "title": "Knowledge Base Index",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Knowledge Base Index",
+        "Sources",
+        "Concepts",
+        "Entities",
+        "Analyses"
+      ],
+      "body_excerpt": "- Docker Containers on RISC-V Architecture <!-- dedup:indexsourcesrcsha256bed29132 -->"
+    },
+    {
+      "page_id": "wiki_log",
+      "path": "wiki/log.md",
+      "type": "index",
+      "title": "Change Log",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Change Log"
+      ],
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256bed29132 → wiki/sources/srcsha256bed29132.md <!-- dedup:logingestsrcsha256bed29132 -->"
+    },
+    {
+      "page_id": "reports_index",
+      "path": "wiki/reports/index.md",
+      "type": "index",
+      "title": "Reports Index",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Reports"
+      ],
+      "body_excerpt": ""
+    },
+    {
+      "page_id": "src_sha256_bed29132",
+      "path": "wiki/sources/src_sha256_bed29132.md",
+      "type": "source",
+      "title": "Docker Containers on RISC-V Architecture",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Docker Containers on RISC-V Architecture",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256bed29132\n- Kind: markdown\n- Content Hash: sha256:bed291327c977a35c2f75db393221cbb18c56ec472663d18994beee39b1a37ee\n- Ingested: 2026-04-11\nContainers are part of the vast majority ..."
+    }
+  ]
 }

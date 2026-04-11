@@ -1,0 +1,27 @@
+{
+  "plan_id": "plan_194bff417dda51d6",
+  "source_id": "src_sha256_bed29132",
+  "status": "planned",
+  "create": [
+    {
+      "page_id": "src_sha256_bed29132",
+      "path": "wiki/sources/src_sha256_bed29132.md",
+      "kind": "source_summary"
+    }
+  ],
+  "update": [
+    {
+      "path": "wiki/index.md",
+      "reason": "Add link to new source page: src_sha256_bed29132"
+    },
+    {
+      "path": "wiki/log.md",
+      "reason": "Log ingestion of source: src_sha256_bed29132"
+    }
+  ],
+  "moves": [],
+  "delete": [],
+  "conflicts": [],
+  "risk_level": "low",
+  "notes": "MVP ingest: create source summary page for src_sha256_bed29132, update index and log."
+}
