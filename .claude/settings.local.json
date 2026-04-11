@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Skill(codex:rescue)"
+      "Skill(codex:rescue)",
+      "Bash(npm --version)",
+      "Bash(npm init:*)"
     ]
   }
 }
