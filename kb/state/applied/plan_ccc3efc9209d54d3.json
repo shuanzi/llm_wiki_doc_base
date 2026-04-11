@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_ccc3efc9209d54d3",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_381eec28.md",
+      "content": "---\nid: src_sha256_381eec28\ntype: source\ntitle: [翻譯] 認識 x64 程式碼模型（code model）\nsource_ids: [src_sha256_381eec28]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# [翻譯] 認識 x64 程式碼模型（code model）\n\n## Source Info\n\n- **Source ID**: src_sha256_381eec28\n- **Kind**: markdown\n- **Content Hash**: sha256:381eec28c3192c32249181e7135ece54cd6033ca9b3440595ab509a84b76c4f1\n- **Ingested**: 2026-04-11\n\n## Summary\n\n- 原文標題：Understanding the x64 code models\n- 原文網址： http://eli.thegreenplace.net/2012/01/03/understanding-the-x64-code-models\n- 原文作者：Eli Bendersky\n- 原文發表時間：2012 年 01 月 03 日\n- 譯註：  \n\t- 文中的反組譯內容使用的是 AT&T 格式的 組合語言語法 。\n\t\t- 關於「code model」的正體中文翻譯，有 程式碼模型 、 程式碼模式 、 編碼式樣 等，在本文中，一律採取「程式碼模型」。\n==↓↓↓↓↓↓ 正文開始 ↓↓↓↓↓↓==\n在撰寫用於 x64 架構程式碼的時候，一個會出現的有趣議題是要使用哪個程式碼模型（code model），儘管這可能不是一個廣為人知的主題，但如果有人想要理解編譯器所產生的 x64 機器碼，則熟悉程式碼模型就有了教育意義；而對於那些真的很在乎效能，直到每個細小指令的人來說，該主題對最佳化（optimization）也會有影響。\n無論在網路或其他地方，關於這個主題都只有很少的資訊，到目前為止...\n\n## Structure\n\n- 程式碼模型——源起\n- 此處將涵蓋什麼\n- 範例 C 原始碼\n- 小型程式碼模型（small code model）\n- 大型程式碼模型（large code model）\n- 中型程式碼模型（medium code model）\n- 小型 PIC 程式碼模型（small PIC code model）\n- 大型 PIC 程式碼模型（large PIC code model）\n- 中型 PIC 程式碼模型（medium PIC code model）\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [[翻譯] 認識 x64 程式碼模型（code model）](sources/src_sha256_381eec28.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_381eec28"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_381eec28` → [wiki/sources/src_sha256_381eec28.md](sources/src_sha256_381eec28.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_381eec28"
+    }
+  ]
+}

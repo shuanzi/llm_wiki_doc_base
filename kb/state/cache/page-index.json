@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- Windows 11安全手册 - 硬件安全性 <!-- dedup:indexsourcesrcsha2568f375822 -->\n- RISC-V”安全”那些事儿（二） - RISC-V <!-- dedup:indexsourcesrcsha2565c602904 -->\n- RISC-V”安全”那些事儿（三） - RISC-V <!-- dedup:indexsourcesrcsha2..."
+      "body_excerpt": "- [[翻譯] 認識 x64 程式碼模型（code model）](sources/srcsha256381eec28.md) <!-- dedup:indexsourcesrcsha256381eec28 -->\n- Windows 11安全手册 - 硬件安全性 <!-- dedup:indexsourcesrcsha2568f375822 -->\n- RISC-V”安全”那些事儿（二） - R..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2568f375822 → wiki/sources/srcsha2568f375822.md <!-- dedup:logingestsrcsha2568f375822 -->\n- 2026-04-11: Ingested source srcsha2565c602904 → wiki/sources/srcsha2565c..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256381eec28 → wiki/sources/srcsha256381eec28.md <!-- dedup:logingestsrcsha256381eec28 -->\n- 2026-04-11: Ingested source srcsha2568f375822 → wiki/sources/srcsha2568f..."
     },
     {
       "page_id": "reports_index",
@@ -69,6 +69,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha25623d8fea9\n- Kind: markdown\n- Content Hash: sha256:23d8fea99d732c6e3a289d84decbbc7e82bcf266e6138c0a72c5894f7fccd09c\n- Ingested: 2026-04-11\nAlibaba Dragonwell \\[1\\] 是一 款免费的 OpenJDK ..."
+    },
+    {
+      "page_id": "src_sha256_381eec28",
+      "path": "wiki/sources/src_sha256_381eec28.md",
+      "type": "source",
+      "title": "[翻譯] 認識 x64 程式碼模型（code model）",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "[翻譯] 認識 x64 程式碼模型（code model）",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256381eec28\n- Kind: markdown\n- Content Hash: sha256:381eec28c3192c32249181e7135ece54cd6033ca9b3440595ab509a84b76c4f1\n- Ingested: 2026-04-11\n- 原文標題：Understanding the x64 code models\n..."
     },
     {
       "page_id": "src_sha256_44ea060c",
