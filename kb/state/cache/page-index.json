@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V”安全”那些事儿（二） - RISC-V <!-- dedup:indexsourcesrcsha2565c602904 -->\n- RISC-V”安全”那些事儿（三） - RISC-V <!-- dedup:indexsourcesrcsha2561af814f9 -->\n- RISC-V\\\"安全\\\"那些事儿（一） - RISC-V <!-- dedup:indexsources..."
+      "body_excerpt": "- Windows 11安全手册 - 硬件安全性 <!-- dedup:indexsourcesrcsha2568f375822 -->\n- RISC-V”安全”那些事儿（二） - RISC-V <!-- dedup:indexsourcesrcsha2565c602904 -->\n- RISC-V”安全”那些事儿（三） - RISC-V <!-- dedup:indexsourcesrcsha2..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2565c602904 → wiki/sources/srcsha2565c602904.md <!-- dedup:logingestsrcsha2565c602904 -->\n- 2026-04-11: Ingested source srcsha2561af814f9 → wiki/sources/srcsha2561a..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2568f375822 → wiki/sources/srcsha2568f375822.md <!-- dedup:logingestsrcsha2568f375822 -->\n- 2026-04-11: Ingested source srcsha2565c602904 → wiki/sources/srcsha2565c..."
     },
     {
       "page_id": "reports_index",
@@ -114,6 +114,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha2565d99456c\n- Kind: markdown\n- Content Hash: sha256:5d99456cf9ae5f2bd60278cd14df4d48a6cd1d0cc37f01bdb2c418529dcae282\n- Ingested: 2026-04-11\n联系邮箱：dahogn@sdu.edu.cn, yeqianyang1998@gm..."
+    },
+    {
+      "page_id": "src_sha256_8f375822",
+      "path": "wiki/sources/src_sha256_8f375822.md",
+      "type": "source",
+      "title": "Windows 11安全手册 - 硬件安全性",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Windows 11安全手册 - 硬件安全性",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2568f375822\n- Kind: markdown\n- Content Hash: sha256:8f3758227baa9ae21b45c91855308631d373b1cc2eab5a2d8d2f7b4a76d0b901\n- Ingested: 2026-04-11\n!硬件安全一章的封面。\n当今不断发展的威胁要求硬件和软件之间保持紧密的一致性，才能..."
     },
     {
       "page_id": "src_sha256_990e1e16",
