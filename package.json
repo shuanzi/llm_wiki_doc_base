@@ -1,0 +1,21 @@
+{
+  "name": "@openclaw/kb",
+  "version": "0.1.0",
+  "description": "OpenClaw knowledge base native plugin — LLM-maintained knowledge compilation system",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shuanzi/llm_doc_base.git"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.2"
+  }
+}
