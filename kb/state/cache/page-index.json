@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答 <!-- dedup:indexsourcesrcsha25623d8fea9 -->\n- RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技 <!-- dedup:indexsourcesrcsha256f04df3b5 -->\n- RI..."
+      "body_excerpt": "- RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技 <!-- dedup:indexsourcesrcsha256e4e3e218 -->\n- RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答 <!-- dedup:indexsourcesrcsha25623d8fea9 -->\n- RISC-V UEFI 架构支持详解，第 1 部分 - Ope..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha25623d8fea9 → wiki/sources/srcsha25623d8fea9.md <!-- dedup:logingestsrcsha25623d8fea9 -->\n- 2026-04-11: Ingested source srcsha256f04df3b5 → wiki/sources/srcsha256f0..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256e4e3e218 → wiki/sources/srcsha256e4e3e218.md <!-- dedup:logingestsrcsha256e4e3e218 -->\n- 2026-04-11: Ingested source srcsha25623d8fea9 → wiki/sources/srcsha25623..."
     },
     {
       "page_id": "reports_index",
@@ -129,6 +129,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha256bed29132\n- Kind: markdown\n- Content Hash: sha256:bed291327c977a35c2f75db393221cbb18c56ec472663d18994beee39b1a37ee\n- Ingested: 2026-04-11\nContainers are part of the vast majority ..."
+    },
+    {
+      "page_id": "src_sha256_e4e3e218",
+      "path": "wiki/sources/src_sha256_e4e3e218.md",
+      "type": "source",
+      "title": "RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256e4e3e218\n- Kind: markdown\n- Content Hash: sha256:e4e3e218b2bd39289996b66eaa77d84b866c46293b1cb2a183d366a09d5d6d0b\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
     },
     {
       "page_id": "src_sha256_f04df3b5",

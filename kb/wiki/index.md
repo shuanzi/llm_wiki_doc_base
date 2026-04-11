@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技](sources/src_sha256_e4e3e218.md) <!-- dedup:index_source_src_sha256_e4e3e218 -->
 - [RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答](sources/src_sha256_23d8fea9.md) <!-- dedup:index_source_src_sha256_23d8fea9 -->
 - [RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技](sources/src_sha256_f04df3b5.md) <!-- dedup:index_source_src_sha256_f04df3b5 -->
 - [RISC-V TEE标准制定及安全可信3.0启动方案技术分享](sources/src_sha256_5d99456c.md) <!-- dedup:index_source_src_sha256_5d99456c -->
