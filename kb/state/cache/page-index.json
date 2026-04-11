@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技 <!-- dedup:indexsourcesrcsha256f04df3b5 -->\n- RISC-V TEE标准制定及安全可信3.0启动方案技术分享 <!-- dedup:indexsourcesrcsha2565d99456c -->\n- RISC-V Linux 启动流程..."
+      "body_excerpt": "- RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答 <!-- dedup:indexsourcesrcsha25623d8fea9 -->\n- RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技 <!-- dedup:indexsourcesrcsha256f04df3b5 -->\n- RI..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256f04df3b5 → wiki/sources/srcsha256f04df3b5.md <!-- dedup:logingestsrcsha256f04df3b5 -->\n- 2026-04-11: Ingested source srcsha2565d99456c → wiki/sources/srcsha2565d..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha25623d8fea9 → wiki/sources/srcsha25623d8fea9.md <!-- dedup:logingestsrcsha25623d8fea9 -->\n- 2026-04-11: Ingested source srcsha256f04df3b5 → wiki/sources/srcsha256f0..."
     },
     {
       "page_id": "reports_index",
@@ -39,6 +39,21 @@
         "Reports"
       ],
       "body_excerpt": ""
+    },
+    {
+      "page_id": "src_sha256_23d8fea9",
+      "path": "wiki/sources/src_sha256_23d8fea9.md",
+      "type": "source",
+      "title": "RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha25623d8fea9\n- Kind: markdown\n- Content Hash: sha256:23d8fea99d732c6e3a289d84decbbc7e82bcf266e6138c0a72c5894f7fccd09c\n- Ingested: 2026-04-11\nAlibaba Dragonwell \\[1\\] 是一 款免费的 OpenJDK ..."
     },
     {
       "page_id": "src_sha256_44ea060c",
