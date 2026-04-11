@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V”安全”那些事儿（三） - RISC-V <!-- dedup:indexsourcesrcsha2561af814f9 -->\n- RISC-V\\\"安全\\\"那些事儿（一） - RISC-V <!-- dedup:indexsourcesrcsha256c6066312 -->\n- RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技 <!-- dedup:indexsourc..."
+      "body_excerpt": "- RISC-V”安全”那些事儿（二） - RISC-V <!-- dedup:indexsourcesrcsha2565c602904 -->\n- RISC-V”安全”那些事儿（三） - RISC-V <!-- dedup:indexsourcesrcsha2561af814f9 -->\n- RISC-V\\\"安全\\\"那些事儿（一） - RISC-V <!-- dedup:indexsources..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2561af814f9 → wiki/sources/srcsha2561af814f9.md <!-- dedup:logingestsrcsha2561af814f9 -->\n- 2026-04-11: Ingested source srcsha256c6066312 → wiki/sources/srcsha256c6..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2565c602904 → wiki/sources/srcsha2565c602904.md <!-- dedup:logingestsrcsha2565c602904 -->\n- 2026-04-11: Ingested source srcsha2561af814f9 → wiki/sources/srcsha2561a..."
     },
     {
       "page_id": "reports_index",
@@ -84,6 +84,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha25644ea060c\n- Kind: markdown\n- Content Hash: sha256:44ea060c2045f8963ef5fbb32d9dd1b7544a32b8bb9fa5e892f93e137c677a90\n- Ingested: 2026-04-11\n目录\n收起\n一、 计算机的存储体系\n二、内存使用演化\n三. 物理内存：连续分配存储..."
+    },
+    {
+      "page_id": "src_sha256_5c602904",
+      "path": "wiki/sources/src_sha256_5c602904.md",
+      "type": "source",
+      "title": "RISC-V”安全”那些事儿（二） - RISC-V",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V”安全”那些事儿（二） - RISC-V",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2565c602904\n- Kind: markdown\n- Content Hash: sha256:5c6029043af61f97c6f66d53e36104b9c0f3a33c50a2b4be72be1c0fa2928a25\n- Ingested: 2026-04-11\n- 活动比赛Competitions\n- 社区动态\n- K3\n- Eco Soft..."
     },
     {
       "page_id": "src_sha256_5d99456c",

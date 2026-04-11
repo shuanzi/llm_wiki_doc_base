@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [RISC-V”安全”那些事儿（二） - RISC-V](sources/src_sha256_5c602904.md) <!-- dedup:index_source_src_sha256_5c602904 -->
 - [RISC-V”安全”那些事儿（三） - RISC-V](sources/src_sha256_1af814f9.md) <!-- dedup:index_source_src_sha256_1af814f9 -->
 - [RISC-V\"安全\"那些事儿（一） - RISC-V](sources/src_sha256_c6066312.md) <!-- dedup:index_source_src_sha256_c6066312 -->
 - [RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技](sources/src_sha256_e4e3e218.md) <!-- dedup:index_source_src_sha256_e4e3e218 -->
