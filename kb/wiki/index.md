@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）](sources/src_sha256_d0516b4b.md) <!-- dedup:index_source_src_sha256_d0516b4b -->
 - [只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM](sources/src_sha256_7602e90d.md) <!-- dedup:index_source_src_sha256_7602e90d -->
 - [半导体产业链](sources/src_sha256_b9eea30d.md) <!-- dedup:index_source_src_sha256_b9eea30d -->
 - [刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」](sources/src_sha256_e1362439.md) <!-- dedup:index_source_src_sha256_e1362439 -->

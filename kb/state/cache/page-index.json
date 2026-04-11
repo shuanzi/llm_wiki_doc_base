@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- 只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM <!-- dedup:indexsourcesrcsha2567602e90d -->\n- 半导体产业链 <!-- dedup:indexsourcesrcsha256b9eea30d -->\n- 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」 <!-- d..."
+      "body_excerpt": "- 大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究） <!-- dedup:indexsourcesrcsha256d0516b4b -->\n- 只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM <!-- dedup:indexsourcesrcsha2567602e90d -->\n- 半导体产业链 <!-- dedup:ind..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2567602e90d → wiki/sources/srcsha2567602e90d.md <!-- dedup:logingestsrcsha2567602e90d -->\n- 2026-04-11: Ingested source srcsha256b9eea30d → wiki/sources/srcsha256b9..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256d0516b4b → wiki/sources/srcsha256d0516b4b.md <!-- dedup:logingestsrcsha256d0516b4b -->\n- 2026-04-11: Ingested source srcsha2567602e90d → wiki/sources/srcsha25676..."
     },
     {
       "page_id": "reports_index",
@@ -246,6 +246,21 @@
         "Summary"
       ],
       "body_excerpt": "- Source ID: srcsha256c6066312\n- Kind: markdown\n- Content Hash: sha256:c6066312cafaadb94ed627a09fad9f0314f57e5b7b24b445fa57fcf27455ba02\n- Ingested: 2026-04-11\nzhengwenbin\n背景\n在数字化浪潮汹涌澎湃的当下，计算机已深度融入人们生活..."
+    },
+    {
+      "page_id": "src_sha256_d0516b4b",
+      "path": "wiki/sources/src_sha256_d0516b4b.md",
+      "type": "source",
+      "title": "大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256d0516b4b\n- Kind: markdown\n- Content Hash: sha256:d0516b4b1c922cf35d2d080068ba3eed6ea3a452bc9f509064ddcde49226490d\n- Ingested: 2026-04-11\n原创 机器人三号 2025年3月30日 18:52\nAnthropic 的 AI ..."
     },
     {
       "page_id": "src_sha256_e1362439",
