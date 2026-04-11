@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V\\\"安全\\\"那些事儿（一） - RISC-V <!-- dedup:indexsourcesrcsha256c6066312 -->\n- RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技 <!-- dedup:indexsourcesrcsha256e4e3e218 -->\n- RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答 <!..."
+      "body_excerpt": "- RISC-V”安全”那些事儿（三） - RISC-V <!-- dedup:indexsourcesrcsha2561af814f9 -->\n- RISC-V\\\"安全\\\"那些事儿（一） - RISC-V <!-- dedup:indexsourcesrcsha256c6066312 -->\n- RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技 <!-- dedup:indexsourc..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256c6066312 → wiki/sources/srcsha256c6066312.md <!-- dedup:logingestsrcsha256c6066312 -->\n- 2026-04-11: Ingested source srcsha256e4e3e218 → wiki/sources/srcsha256e4..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2561af814f9 → wiki/sources/srcsha2561af814f9.md <!-- dedup:logingestsrcsha2561af814f9 -->\n- 2026-04-11: Ingested source srcsha256c6066312 → wiki/sources/srcsha256c6..."
     },
     {
       "page_id": "reports_index",
@@ -39,6 +39,21 @@
         "Reports"
       ],
       "body_excerpt": ""
+    },
+    {
+      "page_id": "src_sha256_1af814f9",
+      "path": "wiki/sources/src_sha256_1af814f9.md",
+      "type": "source",
+      "title": "RISC-V”安全”那些事儿（三） - RISC-V",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V”安全”那些事儿（三） - RISC-V",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2561af814f9\n- Kind: markdown\n- Content Hash: sha256:1af814f998b522a774c2060a14fe3b7f25064b1567a207391493db9446c0e507\n- Ingested: 2026-04-11\n- 活动比赛Competitions\n- 社区动态\n- K3\n- Eco Soft..."
     },
     {
       "page_id": "src_sha256_23d8fea9",

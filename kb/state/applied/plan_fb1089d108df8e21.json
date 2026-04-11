@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_fb1089d108df8e21",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_1af814f9.md",
+      "content": "---\nid: src_sha256_1af814f9\ntype: source\ntitle: RISC-V”安全”那些事儿（三） - RISC-V\nsource_ids: [src_sha256_1af814f9]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# RISC-V”安全”那些事儿（三） - RISC-V\n\n## Source Info\n\n- **Source ID**: src_sha256_1af814f9\n- **Kind**: markdown\n- **Content Hash**: sha256:1af814f998b522a774c2060a14fe3b7f25064b1567a207391493db9446c0e507\n- **Ingested**: 2026-04-11\n\n## Summary\n\n- 活动比赛Competitions\n- 社区动态\n- K3\n- Eco Software\n- SpacemiT Lab应用案例\n- Bianbu OS\n- BianbuCloud\n- Eco Hardware\n- K1MUSE PiPro\n- K1MUSE Book\n- K1MUSE Paper\n- AI\n- K1\n- P1\n- RISC-V。与专有架构不同，RISC-V 是一种向任何人开放的设计处理器的标准，向大家提供前所未有的革新。RISC-V 的意义、其对科技行业的影响以及 RISC-V International 在促进科技领域增长和发展方面的作用贯穿了从小型轻量级处理器到强大的高性能处理器的整个计算领域。从来自跨国公司的深度投资到与初创公司合伙的风险投资者，从大学课堂到国家，RISC-V 正在持续扩大市场份额。如今，RISC-V 社区拥有来自世界上 70 个国家和地区的数万名工程师为社区作出贡献。\")\n- 工具\n- 文档反馈\n- 其他\n- 所有板块\n> [!info] Info\n> 所有外发电子邮件已被管理员全局禁用。任何类型的电子邮件通知都不会发出。\nRISC-V\nRIS...\n\n## Structure\n\n- RISC-V”安全”那些事儿（三）\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [RISC-V”安全”那些事儿（三） - RISC-V](sources/src_sha256_1af814f9.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_1af814f9"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_1af814f9` → [wiki/sources/src_sha256_1af814f9.md](sources/src_sha256_1af814f9.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_1af814f9"
+    }
+  ]
+}
