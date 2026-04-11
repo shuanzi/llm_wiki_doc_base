@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- Linux操作系统内存管理(思维导图详解) <!-- dedup:indexsourcesrcsha25644ea060c -->\n- Docker Containers on RISC-V Architecture <!-- dedup:indexsourcesrcsha256bed29132 -->"
+      "body_excerpt": "- Observations on Siri, Apple Intelligence, and hiding in plain sight <!-- dedup:indexsourcesrcsha256b0079051 -->\n- Linux操作系统内存管理(思维导图详解) <!-- dedup:indexsourcesrcsha25644ea060c -->\n- Docker Container..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha25644ea060c → wiki/sources/srcsha25644ea060c.md <!-- dedup:logingestsrcsha25644ea060c -->\n- 2026-04-11: Ingested source srcsha256bed29132 → wiki/sources/srcsha256be..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256b0079051 → wiki/sources/srcsha256b0079051.md <!-- dedup:logingestsrcsha256b0079051 -->\n- 2026-04-11: Ingested source srcsha25644ea060c → wiki/sources/srcsha25644..."
     },
     {
       "page_id": "reports_index",
@@ -54,6 +54,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha25644ea060c\n- Kind: markdown\n- Content Hash: sha256:44ea060c2045f8963ef5fbb32d9dd1b7544a32b8bb9fa5e892f93e137c677a90\n- Ingested: 2026-04-11\n目录\n收起\n一、 计算机的存储体系\n二、内存使用演化\n三. 物理内存：连续分配存储..."
+    },
+    {
+      "page_id": "src_sha256_b0079051",
+      "path": "wiki/sources/src_sha256_b0079051.md",
+      "type": "source",
+      "title": "Observations on Siri, Apple Intelligence, and hiding in plain sight",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Observations on Siri, Apple Intelligence, and hiding in plain sight",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256b0079051\n- Kind: markdown\n- Content Hash: sha256:b0079051c03556dfe6e0dd03d7ffe563df63f650abca07c83182f8426b4df50a\n- Ingested: 2026-04-11\nApple launched “Apple Intelligence” yeste..."
     },
     {
       "page_id": "src_sha256_bed29132",
