@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V Linux 启动流程分析 - 泰晓科技 <!-- dedup:indexsourcesrcsha256990e1e16 -->\n- Observations on Siri, Apple Intelligence, and hiding in plain sight <!-- dedup:indexsourcesrcsha256b0079051 -->\n- Linux操作系统内存..."
+      "body_excerpt": "- RISC-V TEE标准制定及安全可信3.0启动方案技术分享 <!-- dedup:indexsourcesrcsha2565d99456c -->\n- RISC-V Linux 启动流程分析 - 泰晓科技 <!-- dedup:indexsourcesrcsha256990e1e16 -->\n- Observations on Siri, Apple Intelligence, and hi..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256990e1e16 → wiki/sources/srcsha256990e1e16.md <!-- dedup:logingestsrcsha256990e1e16 -->\n- 2026-04-11: Ingested source srcsha256b0079051 → wiki/sources/srcsha256b0..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2565d99456c → wiki/sources/srcsha2565d99456c.md <!-- dedup:logingestsrcsha2565d99456c -->\n- 2026-04-11: Ingested source srcsha256990e1e16 → wiki/sources/srcsha25699..."
     },
     {
       "page_id": "reports_index",
@@ -54,6 +54,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha25644ea060c\n- Kind: markdown\n- Content Hash: sha256:44ea060c2045f8963ef5fbb32d9dd1b7544a32b8bb9fa5e892f93e137c677a90\n- Ingested: 2026-04-11\n目录\n收起\n一、 计算机的存储体系\n二、内存使用演化\n三. 物理内存：连续分配存储..."
+    },
+    {
+      "page_id": "src_sha256_5d99456c",
+      "path": "wiki/sources/src_sha256_5d99456c.md",
+      "type": "source",
+      "title": "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2565d99456c\n- Kind: markdown\n- Content Hash: sha256:5d99456cf9ae5f2bd60278cd14df4d48a6cd1d0cc37f01bdb2c418529dcae282\n- Ingested: 2026-04-11\n联系邮箱：dahogn@sdu.edu.cn, yeqianyang1998@gm..."
     },
     {
       "page_id": "src_sha256_990e1e16",
