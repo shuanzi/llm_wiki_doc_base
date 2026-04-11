@@ -11,7 +11,7 @@ import type {
   WorkspaceConfig,
   PageFrontmatter,
 } from "../types";
-import { resolveKbPath } from "../utils/path_validator";
+import { resolveKbPath, validateSafeId } from "../utils/path_validator";
 import { parseFrontmatter, serializeFrontmatter, extractExcerpt, extractHeadings } from "../utils/frontmatter";
 
 export interface KbDraftPatchInput {
@@ -36,6 +36,10 @@ export async function kbDraftPatch(
 ): Promise<ToolResult<Draft>> {
   try {
     const { plan } = input;
+
+    // Validate IDs before using in file paths
+    validateSafeId(plan.plan_id, "plan_id");
+    validateSafeId(plan.source_id, "source_id");
 
     // Load manifest for source metadata
     const manifestPath = resolveKbPath(

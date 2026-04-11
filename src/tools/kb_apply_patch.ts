@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import type {
   Draft,
   DraftFile,
@@ -13,7 +13,7 @@ import type {
   ToolResult,
   WorkspaceConfig,
 } from "../types";
-import { resolveKbPath } from "../utils/path_validator";
+import { resolveKbPath, validateSafeId } from "../utils/path_validator";
 import { parseFrontmatter, extractHeadings, extractExcerpt } from "../utils/frontmatter";
 
 export interface KbApplyPatchInput {
@@ -55,10 +55,17 @@ export async function kbApplyPatch(
 ): Promise<ToolResult<KbApplyPatchOutput>> {
   try {
     const { draft, dry_run = false, recovery_action } = input;
+
+    // Validate plan_id before using in file paths
+    validateSafeId(draft.plan_id, "plan_id");
+
     const runsDir = resolveKbPath("state/runs", config.kb_root);
     const inProgressPath = path.join(runsDir, "in_progress.json");
 
     // --- Check for residual in_progress ---
+    let isResume = false;
+    let completedPaths = new Set<string>();
+
     if (fs.existsSync(inProgressPath)) {
       const residual: InProgressRecord = JSON.parse(
         fs.readFileSync(inProgressPath, "utf8")
@@ -86,11 +93,23 @@ export async function kbApplyPatch(
         // Fall through to normal execution
       }
 
-      // "resume" — fall through to normal execution, will skip already-completed files
+      if (recovery_action === "resume") {
+        isResume = true;
+        completedPaths = new Set(residual.completed_files.map((f) => f.path));
+        // On resume, move draft back from failed/ to drafts/ if needed
+        const draftInFailed = resolveKbPath(
+          `state/failed/${draft.plan_id}.json`,
+          config.kb_root
+        );
+        if (fs.existsSync(draftInFailed)) {
+          moveDraft(draft.plan_id, "failed", "drafts", config);
+        }
+      }
     }
 
     // --- Dirty check: git status --porcelain -- kb/ ---
-    if (!dry_run) {
+    // Skip dirty check on resume since partial apply left uncommitted changes
+    if (!dry_run && !isResume) {
       const gitStatus = checkDirtyState(config.kb_root);
       if (gitStatus.length > 0) {
         return {
@@ -100,20 +119,21 @@ export async function kbApplyPatch(
       }
     }
 
-    // --- Write in_progress marker ---
-    const runId = `run_${crypto.randomBytes(8).toString("hex")}`;
+    // --- Write/reuse in_progress marker ---
     if (!fs.existsSync(runsDir)) {
       fs.mkdirSync(runsDir, { recursive: true });
     }
 
-    const inProgress: InProgressRecord = {
-      run_id: runId,
-      plan_id: draft.plan_id,
-      started_at: new Date().toISOString(),
-      completed_files: [],
-    };
+    const inProgress: InProgressRecord = isResume && fs.existsSync(inProgressPath)
+      ? JSON.parse(fs.readFileSync(inProgressPath, "utf8"))
+      : {
+          run_id: `run_${crypto.randomBytes(8).toString("hex")}`,
+          plan_id: draft.plan_id,
+          started_at: new Date().toISOString(),
+          completed_files: [],
+        };
 
-    if (!dry_run) {
+    if (!dry_run && !isResume) {
       fs.writeFileSync(inProgressPath, JSON.stringify(inProgress, null, 2), "utf8");
     }
 
@@ -124,6 +144,12 @@ export async function kbApplyPatch(
       for (const file of draft.files) {
         if (dry_run) {
           appliedFiles.push(`[dry-run] ${file.action}: ${file.path}`);
+          continue;
+        }
+
+        // Skip files already completed in a previous run (resume)
+        if (completedPaths.has(file.path)) {
+          appliedFiles.push(file.path);
           continue;
         }
 
@@ -256,6 +282,7 @@ function moveDraft(
   to: string,
   config: WorkspaceConfig
 ): void {
+  validateSafeId(planId, "plan_id");
   const srcPath = resolveKbPath(`state/${from}/${planId}.json`, config.kb_root);
   const destDir = resolveKbPath(`state/${to}`, config.kb_root);
   if (!fs.existsSync(destDir)) {
@@ -280,7 +307,7 @@ async function rollback(
       fs.unlinkSync(absPath);
     } else if (file.op === "modified") {
       try {
-        execSync(`git checkout -- "${absPath}"`, {
+        execFileSync("git", ["checkout", "--", absPath], {
           cwd: path.dirname(config.kb_root),
           encoding: "utf8",
         });
