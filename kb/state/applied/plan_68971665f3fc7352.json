@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_68971665f3fc7352",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_f04df3b5.md",
+      "content": "---\nid: src_sha256_f04df3b5\ntype: source\ntitle: RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技\nsource_ids: [src_sha256_f04df3b5]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技\n\n## Source Info\n\n- **Source ID**: src_sha256_f04df3b5\n- **Kind**: markdown\n- **Content Hash**: sha256:f04df3b5a8c04f426ee20135e7ac10792ef16d6e15476d34e6302c96fe244ff3\n- **Ingested**: 2026-04-11\n\n## Summary\n\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：https://tinylab.org\n![  \n泰晓Linux实验盘，即刻上手内核与嵌入式开发](https://shop155917374.taobao.com/ \"支持 16GB-4TB，某宝检索 “泰晓 Linux” 或者 B 站搜索 “泰晓科技” 工房，即插即跑 Linux Lab，已支持 Mint, Ubuntu, Fedora, Deepin, Manjaro, Kali，高效做 Linux 内核实验与开发，也可以当普通 Linux 系统使用\")\n!请稍侯\n> Author: Jacob Wang jiangbo.jacob@outlook.com Date: 2022/03/19 Project: RISC-V Linux 内核剖析\n从 邮件列表 中找到了一笔 patchset： adds UEFI support for RISC-V 。该 patchset 实现 RISC-V 如下引导启动支撑:\nQemu (both RV32 & RV64) for the following bootflo...\n\n## Structure\n\n- 1 前言\n- 2 OpenSBI\n- 2.1 OpenSBI 加载过程涉及到的相关概念\n- 2.2 OpenSBI 加载过程\n- 3 U-Boot\n- 3.1 U-Boot 加载过程涉及的相关概念\n- 3.2 U-Boot 加载过程\n- 3.3 U-Boot 代码分析\n- 4 UEFI\n- 4.1 UEFI 与硬件及 OS 的关系\n- 4.2 UEFI 的引导流程\n- 4.3 EDK2\n- 5 引导程序生态系统\n- 5.1 Coreboot 引导阶段与 UEFI 对比\n- 6 参考文档\n- 猜你喜欢：\n- Read Album:\n- Read Related:\n- Read Latest:\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技](sources/src_sha256_f04df3b5.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_f04df3b5"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_f04df3b5` → [wiki/sources/src_sha256_f04df3b5.md](sources/src_sha256_f04df3b5.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_f04df3b5"
+    }
+  ]
+}

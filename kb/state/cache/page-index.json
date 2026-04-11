@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- RISC-V TEE标准制定及安全可信3.0启动方案技术分享 <!-- dedup:indexsourcesrcsha2565d99456c -->\n- RISC-V Linux 启动流程分析 - 泰晓科技 <!-- dedup:indexsourcesrcsha256990e1e16 -->\n- Observations on Siri, Apple Intelligence, and hi..."
+      "body_excerpt": "- RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技 <!-- dedup:indexsourcesrcsha256f04df3b5 -->\n- RISC-V TEE标准制定及安全可信3.0启动方案技术分享 <!-- dedup:indexsourcesrcsha2565d99456c -->\n- RISC-V Linux 启动流程..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2565d99456c → wiki/sources/srcsha2565d99456c.md <!-- dedup:logingestsrcsha2565d99456c -->\n- 2026-04-11: Ingested source srcsha256990e1e16 → wiki/sources/srcsha25699..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256f04df3b5 → wiki/sources/srcsha256f04df3b5.md <!-- dedup:logingestsrcsha256f04df3b5 -->\n- 2026-04-11: Ingested source srcsha2565d99456c → wiki/sources/srcsha2565d..."
     },
     {
       "page_id": "reports_index",
@@ -114,6 +114,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha256bed29132\n- Kind: markdown\n- Content Hash: sha256:bed291327c977a35c2f75db393221cbb18c56ec472663d18994beee39b1a37ee\n- Ingested: 2026-04-11\nContainers are part of the vast majority ..."
+    },
+    {
+      "page_id": "src_sha256_f04df3b5",
+      "path": "wiki/sources/src_sha256_f04df3b5.md",
+      "type": "source",
+      "title": "RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256f04df3b5\n- Kind: markdown\n- Content Hash: sha256:f04df3b5a8c04f426ee20135e7ac10792ef16d6e15476d34e6302c96fe244ff3\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
     }
   ]
 }
