@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- 用初中数学理解LLM工作原理 <!-- dedup:indexsourcesrcsha2563a5b77c6 -->\n- 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技 <!-- dedup:indexsourcesrcsha256a1c9e765 -->\n- 标六万字长文一次性说清LLM的后训练技术题 <!-- dedup:indexsourcesrcsha25651f2d174 -..."
+      "body_excerpt": "- 飞书Zara：工作中，如何推动事情发生 <!-- dedup:indexsourcesrcsha2560976343c -->\n- 用初中数学理解LLM工作原理 <!-- dedup:indexsourcesrcsha2563a5b77c6 -->\n- 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技 <!-- dedup:indexsourcesrcsha256a1c9e765 -->..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2563a5b77c6 → wiki/sources/srcsha2563a5b77c6.md <!-- dedup:logingestsrcsha2563a5b77c6 -->\n- 2026-04-11: Ingested source srcsha256a1c9e765 → wiki/sources/srcsha256a1..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2560976343c → wiki/sources/srcsha2560976343c.md <!-- dedup:logingestsrcsha2560976343c -->\n- 2026-04-11: Ingested source srcsha2563a5b77c6 → wiki/sources/srcsha2563a..."
     },
     {
       "page_id": "reports_index",
@@ -39,6 +39,20 @@
         "Reports"
       ],
       "body_excerpt": ""
+    },
+    {
+      "page_id": "src_sha256_0976343c",
+      "path": "wiki/sources/src_sha256_0976343c.md",
+      "type": "source",
+      "title": "飞书Zara：工作中，如何推动事情发生",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "飞书Zara：工作中，如何推动事情发生",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha2560976343c\n- Kind: markdown\n- Content Hash: sha256:0976343ca5558607b780a2cd62b4e325725959642882e3136d49a53dffed6c1d\n- Ingested: 2026-04-11\n大力哥 2021年11月30日 20:19\n我跟Zara不算认识，第一次知道她是在..."
     },
     {
       "page_id": "src_sha256_1af814f9",

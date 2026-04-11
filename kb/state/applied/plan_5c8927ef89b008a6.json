@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_5c8927ef89b008a6",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_0976343c.md",
+      "content": "---\nid: src_sha256_0976343c\ntype: source\ntitle: 飞书Zara：工作中，如何推动事情发生\nsource_ids: [src_sha256_0976343c]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# 飞书Zara：工作中，如何推动事情发生\n\n## Source Info\n\n- **Source ID**: src_sha256_0976343c\n- **Kind**: markdown\n- **Content Hash**: sha256:0976343ca5558607b780a2cd62b4e325725959642882e3136d49a53dffed6c1d\n- **Ingested**: 2026-04-11\n\n## Summary\n\n大力哥 2021年11月30日 20:19\n我跟Zara不算认识，第一次知道她是在飞书的播客节目“组织进化论”中，当时我们公司联合飞书做了一期播客节目，于是我在小宇宙订阅了这档节目。  \n在节目中，作为主持人的Zara会跟很多CEO或者创始人关于职场和管理话题做探讨，这种在深度沟通中学习的方式本就让我羡慕。\n后来在Zara的朋友圈看到她分享了一篇自己写的英文blog，关于在工作中，如何推动事情发生。我觉得写得不错，特地在大力哥的公众号与大家分享。\n所以，本文主要叙述来自Zara的blog，大力哥会在最后分享一些自己的思考。\n---\n近几年，我从一个职场萌新成长为一个小团队的leader，我发现优秀的年轻职场人往往都具备一种能力。而这个能力，如果你掌握了，可以帮助你在职场中加速成长，尤其是在大型组织中。  \n这个能力，我称之为“推动事情发生”。\n什么意思呢？\n对于很多知识工作者来说，跨团队协作是我们会经常遇到的。而在这种协作中，需要有一个人来own，对整个工作负责。这个人所拥有的品质，就是ownership。\n这个owner未必是职级最高的那个人，其实参与的每个人都有机会成为那个角色，就...\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [飞书Zara：工作中，如何推动事情发生](sources/src_sha256_0976343c.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_0976343c"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_0976343c` → [wiki/sources/src_sha256_0976343c.md](sources/src_sha256_0976343c.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_0976343c"
+    }
+  ]
+}

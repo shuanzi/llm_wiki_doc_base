@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [飞书Zara：工作中，如何推动事情发生](sources/src_sha256_0976343c.md) <!-- dedup:index_source_src_sha256_0976343c -->
 - [用初中数学理解LLM工作原理](sources/src_sha256_3a5b77c6.md) <!-- dedup:index_source_src_sha256_3a5b77c6 -->
 - [泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技](sources/src_sha256_a1c9e765.md) <!-- dedup:index_source_src_sha256_a1c9e765 -->
 - [标六万字长文一次性说清LLM的后训练技术题](sources/src_sha256_51f2d174.md) <!-- dedup:index_source_src_sha256_51f2d174 -->
