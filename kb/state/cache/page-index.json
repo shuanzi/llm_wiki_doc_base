@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- 半导体产业链 <!-- dedup:indexsourcesrcsha256b9eea30d -->\n- 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」 <!-- dedup:indexsourcesrcsha256e1362439 -->\n- u-boot是什么？ <!-- dedup:indexsourcesrcsha256909eda4b -->..."
+      "body_excerpt": "- 只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM <!-- dedup:indexsourcesrcsha2567602e90d -->\n- 半导体产业链 <!-- dedup:indexsourcesrcsha256b9eea30d -->\n- 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」 <!-- d..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256b9eea30d → wiki/sources/srcsha256b9eea30d.md <!-- dedup:logingestsrcsha256b9eea30d -->\n- 2026-04-11: Ingested source srcsha256e1362439 → wiki/sources/srcsha256e1..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2567602e90d → wiki/sources/srcsha2567602e90d.md <!-- dedup:logingestsrcsha2567602e90d -->\n- 2026-04-11: Ingested source srcsha256b9eea30d → wiki/sources/srcsha256b9..."
     },
     {
       "page_id": "reports_index",
@@ -129,6 +129,21 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha2565d99456c\n- Kind: markdown\n- Content Hash: sha256:5d99456cf9ae5f2bd60278cd14df4d48a6cd1d0cc37f01bdb2c418529dcae282\n- Ingested: 2026-04-11\n联系邮箱：dahogn@sdu.edu.cn, yeqianyang1998@gm..."
+    },
+    {
+      "page_id": "src_sha256_7602e90d",
+      "path": "wiki/sources/src_sha256_7602e90d.md",
+      "type": "source",
+      "title": "只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2567602e90d\n- Kind: markdown\n- Content Hash: sha256:7602e90deb6472a314769c63d4b26e3207082eab59f153fe0364b207e68d00a7\n- Ingested: 2026-04-11\n在最新版本的Windows 10和Windows 11中，用户可以在PC的初始启动..."
     },
     {
       "page_id": "src_sha256_8f375822",

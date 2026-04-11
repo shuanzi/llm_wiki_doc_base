@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_a3faab422af54c15",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_7602e90d.md",
+      "content": "---\nid: src_sha256_7602e90d\ntype: source\ntitle: 只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM\nsource_ids: [src_sha256_7602e90d]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# 只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM\n\n## Source Info\n\n- **Source ID**: src_sha256_7602e90d\n- **Kind**: markdown\n- **Content Hash**: sha256:7602e90deb6472a314769c63d4b26e3207082eab59f153fe0364b207e68d00a7\n- **Ingested**: 2026-04-11\n\n## Summary\n\n在最新版本的Windows 10和Windows 11中，用户可以在PC的初始启动过程中通过按F8来激活熟悉的高级启动选项菜单已被删除，微软决定通过其他方法更容易访问该启动菜单上列出的选项。\n![](https://s2.51cto.com/oss/202201/24/07b93e233fa72f53a9e737ee795a9384b171bd.jpg)\n通过从命令提示符运行特定命令，无论运行的是Windows 10还是Windows 11，我们都可以找回“高级启动选项”菜单。\n要将旧版高级启动选项添加到任一当前版本的Windows，请在Windows搜索工具中键入“cmd”，然后使用“以管理员身份运行”选项打开命令提示符。\n在命令提示符下，键入以下BCDEdit命令并按Enter：\nbcdedit/set{default}bootmenupolicy legacy\n1.\n如果你正确键入(或复制和粘贴)命令，系统会通知你成功。\n![](https://s7.51cto.com/oss/202201/24/68ca7e95177510d364f4735607b9ba4a3db9b2.jp...\n\n## Structure\n\n- 相关知识\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM](sources/src_sha256_7602e90d.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_7602e90d"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_7602e90d` → [wiki/sources/src_sha256_7602e90d.md](sources/src_sha256_7602e90d.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_7602e90d"
+    }
+  ]
+}

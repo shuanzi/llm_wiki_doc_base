@@ -1,0 +1,27 @@
+{
+  "plan_id": "plan_a3faab422af54c15",
+  "source_id": "src_sha256_7602e90d",
+  "status": "planned",
+  "create": [
+    {
+      "page_id": "src_sha256_7602e90d",
+      "path": "wiki/sources/src_sha256_7602e90d.md",
+      "kind": "source_summary"
+    }
+  ],
+  "update": [
+    {
+      "path": "wiki/index.md",
+      "reason": "Add link to new source page: src_sha256_7602e90d"
+    },
+    {
+      "path": "wiki/log.md",
+      "reason": "Log ingestion of source: src_sha256_7602e90d"
+    }
+  ],
+  "moves": [],
+  "delete": [],
+  "conflicts": [],
+  "risk_level": "low",
+  "notes": "MVP ingest: create source summary page for src_sha256_7602e90d, update index and log."
+}

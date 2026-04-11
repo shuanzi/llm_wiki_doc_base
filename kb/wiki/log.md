@@ -7,6 +7,7 @@ status: active
 ---
 
 # Change Log
+- 2026-04-11: Ingested source `src_sha256_7602e90d` → [wiki/sources/src_sha256_7602e90d.md](sources/src_sha256_7602e90d.md) <!-- dedup:log_ingest_src_sha256_7602e90d -->
 - 2026-04-11: Ingested source `src_sha256_b9eea30d` → [wiki/sources/src_sha256_b9eea30d.md](sources/src_sha256_b9eea30d.md) <!-- dedup:log_ingest_src_sha256_b9eea30d -->
 - 2026-04-11: Ingested source `src_sha256_e1362439` → [wiki/sources/src_sha256_e1362439.md](sources/src_sha256_e1362439.md) <!-- dedup:log_ingest_src_sha256_e1362439 -->
 - 2026-04-11: Ingested source `src_sha256_909eda4b` → [wiki/sources/src_sha256_909eda4b.md](sources/src_sha256_909eda4b.md) <!-- dedup:log_ingest_src_sha256_909eda4b -->
