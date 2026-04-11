@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技](sources/src_sha256_a1c9e765.md) <!-- dedup:index_source_src_sha256_a1c9e765 -->
 - [标六万字长文一次性说清LLM的后训练技术题](sources/src_sha256_51f2d174.md) <!-- dedup:index_source_src_sha256_51f2d174 -->
 - [大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）](sources/src_sha256_d0516b4b.md) <!-- dedup:index_source_src_sha256_d0516b4b -->
 - [只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM](sources/src_sha256_7602e90d.md) <!-- dedup:index_source_src_sha256_7602e90d -->
