@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技 <!-- dedup:indexsourcesrcsha256a1c9e765 -->\n- 标六万字长文一次性说清LLM的后训练技术题 <!-- dedup:indexsourcesrcsha25651f2d174 -->\n- 大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究） <!-- dedup:indexsou..."
+      "body_excerpt": "- 用初中数学理解LLM工作原理 <!-- dedup:indexsourcesrcsha2563a5b77c6 -->\n- 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技 <!-- dedup:indexsourcesrcsha256a1c9e765 -->\n- 标六万字长文一次性说清LLM的后训练技术题 <!-- dedup:indexsourcesrcsha25651f2d174 -..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256a1c9e765 → wiki/sources/srcsha256a1c9e765.md <!-- dedup:logingestsrcsha256a1c9e765 -->\n- 2026-04-11: Ingested source srcsha25651f2d174 → wiki/sources/srcsha25651..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha2563a5b77c6 → wiki/sources/srcsha2563a5b77c6.md <!-- dedup:logingestsrcsha2563a5b77c6 -->\n- 2026-04-11: Ingested source srcsha256a1c9e765 → wiki/sources/srcsha256a1..."
     },
     {
       "page_id": "reports_index",
@@ -84,6 +84,20 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha256381eec28\n- Kind: markdown\n- Content Hash: sha256:381eec28c3192c32249181e7135ece54cd6033ca9b3440595ab509a84b76c4f1\n- Ingested: 2026-04-11\n- 原文標題：Understanding the x64 code models\n..."
+    },
+    {
+      "page_id": "src_sha256_3a5b77c6",
+      "path": "wiki/sources/src_sha256_3a5b77c6.md",
+      "type": "source",
+      "title": "用初中数学理解LLM工作原理",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "用初中数学理解LLM工作原理",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha2563a5b77c6\n- Kind: markdown\n- Content Hash: sha256:3a5b77c6461a3f3d4af5adf7691ec64be2a0bc09e13c06a29b00ed8b8149e848\n- Ingested: 2026-04-11\n2024年12月19日 00:01\n点击上方“ 图灵人工智能 ”，选择“星标”公众..."
     },
     {
       "page_id": "src_sha256_44ea060c",
