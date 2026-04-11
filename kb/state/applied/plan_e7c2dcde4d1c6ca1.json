@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_e7c2dcde4d1c6ca1",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_909eda4b.md",
+      "content": "---\nid: src_sha256_909eda4b\ntype: source\ntitle: u-boot是什么？\nsource_ids: [src_sha256_909eda4b]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# u-boot是什么？\n\n## Source Info\n\n- **Source ID**: src_sha256_909eda4b\n- **Kind**: markdown\n- **Content Hash**: sha256:909eda4b565a0a77d058e5ecba57d5bc8d18daae3ea53133f63e5a3f3fd719c5\n- **Ingested**: 2026-04-11\n\n## Summary\n\n查看剩余 2 条回答\n伊朗局势 481 万 热\n全红婵网暴案群主被行拘 401 万 热\n李小冉拉王濛起来被甩开 363 万 热\n阿耳忒弥斯二号在太平洋海域成功溅落 325 万 热\n美伊代表团举行谈判 315 万 新\n为什么超光速不能实现 305 万\n西北大学通报贾浅浅论文涉嫌抄袭 286 万\n郭帆称孩子们普遍反奋斗不想听鸡汤 284 万 热\n美伊谈判 252 万\n男子拔除祖坟旁被亲戚种的槟榔苗被判刑 248 万\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [u-boot是什么？](sources/src_sha256_909eda4b.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_909eda4b"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_909eda4b` → [wiki/sources/src_sha256_909eda4b.md](sources/src_sha256_909eda4b.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_909eda4b"
+    }
+  ]
+}

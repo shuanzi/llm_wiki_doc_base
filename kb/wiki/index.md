@@ -9,6 +9,7 @@ status: active
 # Knowledge Base Index
 
 ## Sources
+- [u-boot是什么？](sources/src_sha256_909eda4b.md) <!-- dedup:index_source_src_sha256_909eda4b -->
 - [[翻譯] 認識 x64 程式碼模型（code model）](sources/src_sha256_381eec28.md) <!-- dedup:index_source_src_sha256_381eec28 -->
 - [Windows 11安全手册 - 硬件安全性](sources/src_sha256_8f375822.md) <!-- dedup:index_source_src_sha256_8f375822 -->
 - [RISC-V”安全”那些事儿（二） - RISC-V](sources/src_sha256_5c602904.md) <!-- dedup:index_source_src_sha256_5c602904 -->

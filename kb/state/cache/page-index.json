@@ -14,7 +14,7 @@
         "Entities",
         "Analyses"
       ],
-      "body_excerpt": "- [[翻譯] 認識 x64 程式碼模型（code model）](sources/srcsha256381eec28.md) <!-- dedup:indexsourcesrcsha256381eec28 -->\n- Windows 11安全手册 - 硬件安全性 <!-- dedup:indexsourcesrcsha2568f375822 -->\n- RISC-V”安全”那些事儿（二） - R..."
+      "body_excerpt": "- u-boot是什么？ <!-- dedup:indexsourcesrcsha256909eda4b -->\n- [[翻譯] 認識 x64 程式碼模型（code model）](sources/srcsha256381eec28.md) <!-- dedup:indexsourcesrcsha256381eec28 -->\n- Windows 11安全手册 - 硬件安全性 <!-- dedup..."
     },
     {
       "page_id": "wiki_log",
@@ -26,7 +26,7 @@
       "headings": [
         "Change Log"
       ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha256381eec28 → wiki/sources/srcsha256381eec28.md <!-- dedup:logingestsrcsha256381eec28 -->\n- 2026-04-11: Ingested source srcsha2568f375822 → wiki/sources/srcsha2568f..."
+      "body_excerpt": "- 2026-04-11: Ingested source srcsha256909eda4b → wiki/sources/srcsha256909eda4b.md <!-- dedup:logingestsrcsha256909eda4b -->\n- 2026-04-11: Ingested source srcsha256381eec28 → wiki/sources/srcsha25638..."
     },
     {
       "page_id": "reports_index",
@@ -144,6 +144,20 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha2568f375822\n- Kind: markdown\n- Content Hash: sha256:8f3758227baa9ae21b45c91855308631d373b1cc2eab5a2d8d2f7b4a76d0b901\n- Ingested: 2026-04-11\n!硬件安全一章的封面。\n当今不断发展的威胁要求硬件和软件之间保持紧密的一致性，才能..."
+    },
+    {
+      "page_id": "src_sha256_909eda4b",
+      "path": "wiki/sources/src_sha256_909eda4b.md",
+      "type": "source",
+      "title": "u-boot是什么？",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "u-boot是什么？",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha256909eda4b\n- Kind: markdown\n- Content Hash: sha256:909eda4b565a0a77d058e5ecba57d5bc8d18daae3ea53133f63e5a3f3fd719c5\n- Ingested: 2026-04-11\n查看剩余 2 条回答\n伊朗局势 481 万 热\n全红婵网暴案群主被行拘 401 万..."
     },
     {
       "page_id": "src_sha256_990e1e16",
