@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_677632271288ebc0",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_990e1e16.md",
+      "content": "---\nid: src_sha256_990e1e16\ntype: source\ntitle: RISC-V Linux 启动流程分析 - 泰晓科技\nsource_ids: [src_sha256_990e1e16]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# RISC-V Linux 启动流程分析 - 泰晓科技\n\n## Source Info\n\n- **Source ID**: src_sha256_990e1e16\n- **Kind**: markdown\n- **Content Hash**: sha256:990e1e16e14a28e8657ed6839de9663dd9613f08a906233ed0ce84f17671b937\n- **Ingested**: 2026-04-11\n\n## Summary\n\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：https://tinylab.org\n![  \n泰晓Linux实验盘，即刻上手内核与嵌入式开发](https://shop155917374.taobao.com/ \"支持 16GB-4TB，某宝检索 “泰晓 Linux” 或者 B 站搜索 “泰晓科技” 工房，即插即跑 Linux Lab，已支持 Mint, Ubuntu, Fedora, Deepin, Manjaro, Kali，高效做 Linux 内核实验与开发，也可以当普通 Linux 系统使用\")\n!请稍侯\n> Author: 通天塔 985400330@qq.com Date: 2022/05/15 Revisor: lzufalcon falcon@tinylab.org Project: RISC-V Linux 内核剖析\n通过文章 将 Linux 移植到新的处理器架构，第 1 部分：基础 可知，我们进行一个新的处理器架构的移植，需要做到以下 3 点：\n1. 确定这是不是一个新的架构移植。\n2. 了解我们要移植的硬件。\n3. 了解内核的基本概念...\n\n## Structure\n\n- 1 RISC-V Linux 目录分布\n- 2 内核第一个运行的地方——head.S\n- 3 内核运行的第一个 C 文件——init/main.c\n- 3.1 setup\\_arch()\n- 3.1.1 parse\\_dtb()\n- 3.1.2 setup\\_initial\\_init\\_mm()\n- 3.1.3 early\\_ioremap\\_setup()\n- 3.1.4 jump\\_label\\_init()\n- 3.1.5 parse\\_early\\_param()\n- 3.1.6 efi\\_init()\n- 3.1.7 paging\\_init()\n- 3.1.8 misc\\_mem\\_init()\n- 3.1.9 init\\_resources()\n- 3.1.10 sbi\\_init()\n- 3.1.11 kasan\\_init()\n- 3.1.12 setup\\_smp()\n- 3.1.13 riscv\\_fill\\_hwcap()\n- 3.2 trap\\_init()\n- 3.3 mem\\_init()\n- 3.4 init\\_IRQ()\n- 3.5 time\\_init()\n- 4 关于设备树匹配函数分析\n- 4.1 循环匹配函数\n- 4.2 匹配函数入参 table 的由来\n- 4.3 \\_\\_of\\_table\\_timer 如何被生成为表\n- 4.4 如何查看数据段变量\n- 5 小结\n- 6 延申阅读\n- 猜你喜欢：\n- Read Album:\n- Read Related:\n- Read Latest:\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [RISC-V Linux 启动流程分析 - 泰晓科技](sources/src_sha256_990e1e16.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_990e1e16"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_990e1e16` → [wiki/sources/src_sha256_990e1e16.md](sources/src_sha256_990e1e16.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_990e1e16"
+    }
+  ]
+}
