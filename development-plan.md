@@ -1,975 +1,653 @@
-# LLM Wiki v1 开发计划
+# OpenClaw 知识库系统 — 开发计划
 
-> 基于 `llm-wiki-engineering-plan-v1.md`  
-> 创建日期：2026-04-10  
-> 技术栈：Python 3.11+ / SQLite / Git / Markdown
+> 基于 `openclaw_kb_architecture_plan.md` 原始方案，经两轮 review 调整后的最终开发计划。
 
 ---
 
-## 总览
+## 1. 项目概述
 
-整个 v1 开发分为 5 个 Phase，每个 Phase 内部按任务拆解为若干步骤。每个步骤标注：
+构建一套基于 OpenClaw 的"LLM 持续维护型知识库"系统：
 
-- **产出物**：完成后应存在的文件或可运行的能力
-- **前置依赖**：必须先完成的步骤
-- **验收标准**：怎样算"做完了"
+- **raw sources** 为事实底座
+- **wiki** 为持续演化的知识层
+- **schema** 为规则层
+- **OpenClaw skills + tools** 为执行层
+- **native plugin** 为分发与集成层
+- **workspace 文件系统 + Git** 为可审计落盘层
 
-依赖关系图：
+核心闭环：`添加资料 → 生成 plan → 渲染 draft → 应用 patch → 搜索 wiki → 回答 → Git 留痕`
+
+---
+
+## 2. 设计原则（含 review 修正）
+
+### 2.1 Patch-first
+
+所有涉及 `kb/wiki/` 的多文件知识变更，都先生成 Patch Plan，再渲染内容，再确定性落盘。
+例外：`kb_source_add` 可先登记 `kb/raw/` 中的原始资料与 manifest。
+
+### 2.2 Raw 只读，Wiki 可编辑
+
+- `kb/raw/`：事实底座，只读或追加
+- `kb/wiki/`：知识层，可被持续维护
+
+### 2.3 Skills 负责编排，Tools 负责确定性动作
+
+- **Skill**：告诉 agent 什么时候做什么（编排逻辑）
+- **Tool**：确定性、可测试、可幂等的动作
+- **Plugin**：工具与资源的分发形态
+
+> **review 修正**：内容生成（LLM 调用）由专用 tool `kb_draft_patch` 承担并持久化产出物，不在 skill 层 ad hoc 完成。这确保了审计链的完整性。
+
+### 2.4 文件系统是事实层，LLM 不是事实层
+
+知识库最终状态必须体现在文件系统中。
+
+### 2.5 Git 是审计与回滚底座
+
+出错可回滚比永不出错更重要。
+
+### 2.6 标识优先于路径
+
+- 页面以 frontmatter 中的 `id` 作为权威标识，文件路径只是可变投影
+- `source_id` 使用稳定指纹：`src_sha256_<8位hash前缀>`（保留算法标识）
+- patch 支持 `move` / `rename` 语义
+
+### 2.7 写目标路径校验（纵深防御）
+
+> **review 新增**：所有 tool 实现内部必须校验——写目标（write destinations）和 wiki 相对路径参数必须解析到 `workspace/kb/**` 范围内；外部 source locator（URL、外部文件路径）作为只读输入允许传入，但不得作为写入目标。不依赖宿主层单一限制。
+
+---
+
+## 3. 工作区目录结构
 
 ```
-Phase 0 (基础设施)
-  │
-  ├─► Phase 1 (Ingest MVP)
-  │     │
-  │     ├─► Phase 2 (Query MVP)
-  │     │
-  │     └─► Phase 3 (Lint MVP)
-  │
-  └─► Phase 4 (增强与演进)
+workspace/
+  AGENTS.md
+  kb/
+    raw/
+      inbox/              # 待处理资料
+      processed/          # 已归档资料
+      assets/             # 图片、附件、原文副本
+    wiki/
+      index.md            # 总索引（人类导航）
+      log.md              # 变更日志
+      entities/           # 人物、组织、产品等实体页
+      concepts/           # 概念、方法、主题页
+      sources/            # 每篇原始资料对应的摘要页
+      analyses/           # 问答沉淀出的分析页
+      reports/
+        index.md          # 报告目录页
+    schema/
+      page-types/
+      templates/
+      vocab/
+      lint-rules.yaml
+      version.yaml        # schema 版本（仓库级唯一权威）
+    state/
+      plans/              # kb_plan_ingest 输出（status: planned）
+      drafts/             # kb_draft_patch 输出（status: drafted）
+      applied/            # kb_apply_patch 完成后移入（status: applied）
+      failed/             # kb_apply_patch 失败后移入（status: failed）
+      manifests/          # source 元数据
+      runs/               # 任务执行记录 + in_progress 标记（dirty check 排除此目录）
+      cache/
+        page-index.json   # 机器检索索引
 ```
 
----
-
-## Phase 0：基础设施搭建
-
-> 目标：建立项目骨架，让后续所有模块有统一的目录规范、数据库、配置和 schema 约束。
-
-### 0.1 项目结构与包初始化
-
-**前置依赖**：无
-
-**工作内容**：
-
-1. 初始化 Python 项目结构：
-
-   ```
-   llm_doc_base/
-     pyproject.toml          # 项目元数据、依赖声明
-     src/
-       kb/                   # 主包
-         __init__.py
-         cli.py              # CLI 入口
-         config.py            # 配置加载
-         models.py            # 数据模型 (dataclass / Pydantic)
-         db.py                # SQLite 操作封装
-         git_ops.py           # Git 操作封装
-         source_manager.py
-         parser/
-           __init__.py
-           markdown.py
-           web.py
-           pdf.py
-         compiler.py          # Wiki Compiler (patch plan 生成)
-         patch.py             # Patch Applier
-         query.py             # Query Engine
-         lint.py              # Lint Engine
-         llm/
-           __init__.py
-           base.py            # 模型抽象接口
-           openai_compat.py   # OpenAI-compatible 适配器
-     tests/
-       __init__.py
-       conftest.py
-       test_source_manager.py
-       test_parser.py
-       test_compiler.py
-       test_patch.py
-       test_query.py
-       test_lint.py
-   ```
-
-2. 配置 `pyproject.toml`，声明依赖：
-   - `click`（CLI 框架）
-   - `pyyaml`（YAML 读写）
-   - `trafilatura`（网页正文提取）
-   - `pymupdf` 或 `pdfplumber`（PDF 文本提取）
-   - `openai`（OpenAI-compatible 模型调用）
-   - `gitpython`（Git 操作）
-   - `pytest`（测试）
-
-3. 配置 CLI 入口点 `kb`
-
-**产出物**：
-
-- `pyproject.toml`
-- `src/kb/` 包骨架（各文件可以只有占位）
-- `tests/` 测试目录
-- 可运行 `kb --help`
-
-**验收标准**：
-
-- `pip install -e .` 成功
-- `kb --help` 输出帮助信息
-- `pytest` 通过（即使没有实际测试用例）
+> **review 修正**：
+> - 原方案的 `kb/state/patches/` 拆分为 `plans/` / `drafts/` / `applied/` 三个目录，对应 patch 生命周期的三个状态
+> - 新增 `page-index.json` 作为机器检索索引，与 `index.md`（人类导航）职责分离
+> - 新增 `schema/version.yaml` 作为仓库级 schema 版本
 
 ---
 
-### 0.2 Workspace 初始化命令
+## 4. 工具面设计
 
-**前置依赖**：0.1
+### 4.1 MVP 工具清单（7 个）
 
-**工作内容**：
+原方案 MVP 为 6 个工具，review 后调整为 7 个：
 
-1. 实现 `kb init --workspace <path>` 命令
-2. 创建标准 workspace 目录结构：
+| 工具 | 职责 | 确定性 |
+|------|------|--------|
+| `kb_source_add` | 注册 source（MVP 仅支持 .md/.txt），写入 raw，生成 manifest | 是 |
+| `kb_plan_ingest` | 根据 source + wiki 上下文输出结构化 plan | 否（LLM） |
+| `kb_draft_patch` | 将 plan 渲染为完整 patch payload 并归档 | 否（LLM） |
+| `kb_apply_patch` | 确定性写入文件 + 同步更新 page-index.json | 是 |
+| `kb_search_wiki` | 基于 page-index.json 搜索页面 | 是 |
+| `kb_read_page` | 精读页面，返回 frontmatter + 正文 | 是 |
+| `kb_commit` | 提交 Git | 是 |
 
-   ```
-   <workspace>/
-     config.yaml             # workspace 级配置
-     kb/                     # 知识域容器（空）
-   ```
+### 4.2 Phase 2 工具
 
-3. 实现 `kb create-kb <name>` 命令，在 workspace 下创建一个 kb：
-
-   ```
-   kb/<name>/
-     raw/
-       inbox/
-       processed/
-       assets/
-     wiki/
-       index.md
-       log.md
-       overview.md
-       sources/
-       concepts/
-       entities/
-       topics/
-       analyses/
-       reports/
-     schema/
-       AGENTS.md
-       page_templates/
-         source_summary.md
-         concept.md
-         entity.md
-         topic.md
-         analysis.md
-       workflows/
-       lint_rules.yaml
-     state/
-       manifests/
-       patches/
-       runs/
-   ```
-
-4. 初始化 Git 仓库（如果 workspace 尚未 git init）
-5. 生成初始 `index.md`、`log.md`、`overview.md` 占位内容
-
-**产出物**：
-
-- `src/kb/cli.py` 中 `init` 和 `create-kb` 命令实现
-- 初始模板文件
-
-**验收标准**：
-
-- `kb init --workspace ./test_ws` 生成完整目录
-- `kb create-kb riscv-tee` 在 workspace 下生成一个完整的 kb 目录
-- 生成的目录结构与方案文档第 6 节一致
-- Git 仓库已初始化
+| 工具 | 职责 |
+|------|------|
+| `kb_source_parse` | 复杂格式解析（PDF、富文本等） |
+| `kb_run_lint` | wiki 健康度巡检（注意：skill 名为 `kb_lint`，tool 名为 `kb_run_lint`） |
+| `kb_repair` | 根据 lint 报告做修复 |
+| `kb_rebuild_index` | 从 `kb/wiki/` 全量重建 `page-index.json`（灾难恢复用） |
 
 ---
 
-### 0.3 配置系统
+## 5. 各工具详细设计
 
-**前置依赖**：0.1
+### 5.1 `kb_source_add`
 
-**工作内容**：
+**MVP 支持的输入格式**：
+- `.md`（Markdown 文件）
+- `.txt`（纯文本文件）
 
-1. 定义 `config.yaml` schema：
+**后续扩展**（不在 MVP 范围内）：
+- URL / 网页正文
+- 粘贴文本
+- PDF / 富文本 / 附件等（配合 Phase 2 的 `kb_source_parse`）
 
-   ```yaml
-   workspace_path: /path/to/workspace
-   default_kb: llm-infra
-   models:
-     planner:
-       provider: openai
-       model: gpt-4o
-       api_key_env: OPENAI_API_KEY
-     writer:
-       provider: openai
-       model: gpt-4o
-       api_key_env: OPENAI_API_KEY
-     query:
-       provider: openai
-       model: gpt-4o
-       api_key_env: OPENAI_API_KEY
-   review:
-     auto_approve:
-       - source_summary
-       - index
-       - log
-     require_review:
-       - concept
-       - entity
-       - topic
-       - analysis
-     force_review_threshold: 5   # 修改文件数超过此值强制审核
-   ```
+**输出**：`source_id`、保存位置、`content_hash`、初始 metadata
 
-2. 实现 `config.py`：加载、校验、合并默认值
-3. CLI 所有命令从 config 中读取 workspace 路径和模型配置
+**职责**：
+- 校验输入文件格式为 `.md` 或 `.txt`，其他格式拒绝并提示"当前版本不支持"
+- 写入 `kb/raw/inbox/` 或 `kb/raw/processed/`
+- 生成 `kb/state/manifests/<source_id>.json`
+- 去重（基于规范化内容 hash + canonical locator）
+- 同一 source 二次导入复用既有 `source_id`
+- MVP 中同时承担基础文本规范化
+- 格式分发设计上预留扩展点，后续通过 `source_kind` 字段路由到不同解析逻辑
 
-**产出物**：
+**`source_id` 格式**：`src_sha256_<hash前缀>`（默认 8 位，碰撞时自动扩展到 12 位）
 
-- `src/kb/config.py`
-- 默认 `config.yaml` 模板
+**manifest 必填字段**：
+```json
+{
+  "source_id": "src_sha256_8f3a1c2d",
+  "source_locator": "/path/to/input/article.md",
+  "source_kind": "markdown",
+  "content_hash": "sha256:8f3a1c2d...",
+  "canonical_path": "kb/raw/processed/src_sha256_8f3a1c2d.md",
+  "ingest_status": "registered"
+}
+```
 
-**验收标准**：
+### 5.2 `kb_plan_ingest`
 
-- 配置文件缺失时给出明确错误提示
-- 配置项可被 CLI 参数覆盖（如 `--kb`）
+**输入**：`source_id` + 当前 wiki 上下文
 
----
+**输出**：结构化 plan JSON（不含内容正文）
 
-### 0.4 SQLite 状态数据库
+```json
+{
+  "plan_id": "plan_20260408_8f3a1c2d",
+  "source_id": "src_sha256_8f3a1c2d",
+  "status": "planned",
+  "create": [
+    {
+      "page_id": "source_src_sha256_8f3a1c2d",
+      "path": "kb/wiki/sources/src_sha256_8f3a1c2d.md",
+      "kind": "source_summary"
+    }
+  ],
+  "update": [
+    { "path": "kb/wiki/index.md", "reason": "link new source summary" },
+    { "path": "kb/wiki/log.md", "reason": "record ingest event" }
+  ],
+  "moves": [],
+  "delete": [],
+  "conflicts": [],
+  "risk_level": "low",
+  "notes": ""
+}
+```
 
-**前置依赖**：0.1
+**落盘位置**：`kb/state/plans/<plan_id>.json`
 
-**工作内容**：
+**MVP 收敛**：只生成 source 摘要页 + `index.md` / `log.md` 更新。不自动生成 concept / entity / analysis 页。
 
-1. 编写 `state/schema.sql`：
+### 5.3 `kb_draft_patch`（review 新增）
 
-   ```sql
-   CREATE TABLE IF NOT EXISTS sources (
-       source_id TEXT PRIMARY KEY,
-       kb_id TEXT NOT NULL,
-       title TEXT,
-       source_type TEXT NOT NULL,
-       content_hash TEXT NOT NULL,
-       status TEXT NOT NULL DEFAULT 'registered',
-       created_at TEXT NOT NULL,
-       origin_url TEXT,
-       file_path TEXT
-   );
+**输入**：plan JSON
 
-   CREATE TABLE IF NOT EXISTS pages (
-       page_id TEXT PRIMARY KEY,
-       kb_id TEXT NOT NULL,
-       path TEXT NOT NULL UNIQUE,
-       page_type TEXT NOT NULL,
-       title TEXT,
-       updated_at TEXT NOT NULL,
-       review_state TEXT DEFAULT 'auto'
-   );
+**输出**：完整 patch payload（含 markdown 正文）
 
-   CREATE TABLE IF NOT EXISTS patches (
-       patch_id TEXT PRIMARY KEY,
-       kb_id TEXT NOT NULL,
-       operation TEXT NOT NULL,
-       source_id TEXT,
-       risk_level TEXT DEFAULT 'low',
-       requires_review INTEGER DEFAULT 0,
-       status TEXT NOT NULL DEFAULT 'pending',
-       created_at TEXT NOT NULL,
-       commit_hash TEXT
-   );
+**职责**：
+- 根据 plan 中的 `create` 条目，调用 LLM 生成 wiki 页面正文
+- 根据 plan 中的 `update` 条目，生成 `index.md` / `log.md` 的更新内容
+- 产出**最终、完整、可回放**的文件变更集合——`kb_apply_patch` 不再生成任何内容
+- 归档完整 draft 到 `kb/state/drafts/<plan_id>.json`
 
-   CREATE TABLE IF NOT EXISTS runs (
-       run_id TEXT PRIMARY KEY,
-       kb_id TEXT NOT NULL,
-       run_type TEXT NOT NULL,
-       status TEXT NOT NULL DEFAULT 'running',
-       started_at TEXT NOT NULL,
-       ended_at TEXT,
-       artifact_path TEXT
-   );
+**draft 输出结构**：
+```json
+{
+  "plan_id": "plan_20260408_8f3a1c2d",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "kb/wiki/sources/src_sha256_8f3a1c2d.md",
+      "content": "---\nid: source_src_sha256_8f3a1c2d\ntype: source\n..."
+    },
+    {
+      "action": "ensure_entry",
+      "path": "kb/wiki/index.md",
+      "entry": "- [src_sha256_8f3a1c2d](sources/src_sha256_8f3a1c2d.md)",
+      "anchor": "## Sources",
+      "dedup_key": "src_sha256_8f3a1c2d"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "kb/wiki/log.md",
+      "entry": "- 2026-04-08: ingest src_sha256_8f3a1c2d — added source summary",
+      "anchor": null,
+      "dedup_key": "src_sha256_8f3a1c2d"
+    }
+  ]
+}
+```
 
-   CREATE TABLE IF NOT EXISTS page_sources (
-       page_id TEXT NOT NULL,
-       source_id TEXT NOT NULL,
-       PRIMARY KEY (page_id, source_id),
-       FOREIGN KEY (page_id) REFERENCES pages(page_id),
-       FOREIGN KEY (source_id) REFERENCES sources(source_id)
-   );
-   ```
+**操作语义**：
+- `create`：创建新文件，文件已存在则报错
+- `ensure_entry`：幂等插入——按 `dedup_key` 检查目标文件中是否已存在该条目，存在则跳过，不存在则在 `anchor`（指定的标题/位置）之后插入。如 `anchor` 为 null 则追加到文件末尾
+- `overwrite`：覆盖整个文件（用于 Phase 2 的大改场景）
 
-2. 实现 `db.py`：
-   - `init_db(kb_path)` — 创建或迁移数据库
-   - `get_db(kb_path)` — 获取连接
-   - 基础 CRUD 函数
+> **设计理由**：
+> 1. `kb_draft_patch` 是审计链上最后一个人工可 review 的稳定产物。draft 即为最终可执行变更集，`kb_apply_patch` 不再生成任何内容。
+> 2. 使用 `ensure_entry` 替代 `append`，保证重试安全——即使 apply 中途失败后重试，也不会在 `index.md` / `log.md` 中产生重复条目。
 
-3. 在 `kb create-kb` 时自动初始化数据库
+### 5.4 `kb_apply_patch`
 
-**产出物**：
+**输入**：draft JSON
 
-- `src/kb/db.py`
-- 数据库自动创建逻辑
+**定位**：纯执行器。不生成任何内容，只校验、写入、迁移状态、同步索引。
 
-**验收标准**：
+**前置检查**：
+- `git status --porcelain -- kb/` 确认 kb 路径下 worktree 干净，**但排除 `kb/state/runs/`**（避免残留 in_progress 标记导致死锁）
+- 在 `kb/state/runs/` 写入 `<run_id>_in_progress.json` 标记（结构见下文）
 
-- `create-kb` 后 `state/state.db` 存在且表结构正确
-- 基础 CRUD 通过单元测试
+**职责**：
+- 按 draft 中的 `files` 列表确定性执行（`create` / `ensure_entry` / `overwrite`）
+- 同步更新 `kb/state/cache/page-index.json`
+- 将 draft 从 `kb/state/drafts/` 移入 `kb/state/applied/`
+- 删除 `<run_id>_in_progress.json` 标记
+- 支持 dry-run 模式
 
----
+**`in_progress.json` 结构**：
 
-### 0.5 Schema 文件：AGENTS.md 与页面模板
+```json
+{
+  "run_id": "run_20260408_001",
+  "plan_id": "plan_20260408_8f3a1c2d",
+  "started_at": "2026-04-08T10:30:00Z",
+  "completed_files": [
+    { "path": "kb/wiki/sources/src_sha256_8f3a1c2d.md", "op": "created" },
+    { "path": "kb/wiki/index.md", "op": "modified" }
+  ]
+}
+```
 
-**前置依赖**：0.2
+每完成一个文件写入，立即追加到 `completed_files`，并标记操作类型（`created` / `modified`）。这使得恢复操作能按类型正确处理。
 
-**工作内容**：
+**失败处理与恢复**：
 
-1. 编写 `schema/AGENTS.md` 初稿，覆盖方案第 9 节要求的全部 10 项内容
-2. 编写页面模板文件：
-   - `page_templates/source_summary.md`
-   - `page_templates/concept.md`
-   - `page_templates/entity.md`
-   - `page_templates/topic.md`
-   - `page_templates/analysis.md`
-3. 每个模板包含标准 frontmatter 和正文骨架
-4. 编写 `lint_rules.yaml` 初始版本
+apply 中途失败时：
+1. draft 移入 `kb/state/failed/`（不留在 `drafts/`，物理隔离）
+2. `in_progress.json` 保留
 
-**产出物**：
+下次运行检测到残留 `in_progress` 时，提供三种处理路径：
+- **resume**：读取 `in_progress.json`，跳过已完成文件，继续执行剩余操作
+- **rollback**：按操作类型分别处理——对 `modified` 文件执行 `git checkout -- <file>` 恢复；对 `created` 文件执行删除（因为新建文件尚未被 Git 跟踪，`git checkout` 无法处理）
+- **force-clear**：清除 `in_progress` 标记，由用户手动处理（适合用户已通过 git 自行恢复的情况）
 
-- `schema/AGENTS.md`
-- `schema/page_templates/*.md`（5 个模板）
-- `schema/lint_rules.yaml`
+系统默认行为：提示用户选择，不自动执行任何恢复操作。
 
-**验收标准**：
+> **review 修正**：
+> - dirty check 排除 `kb/state/runs/`，避免残留标记导致恢复死锁
+> - `failed` 状态的 draft 移入独立的 `kb/state/failed/` 目录，与待应用的 `drafts/` 物理隔离
+> - 定义了 resume / rollback / force-clear 三种恢复路径
+> - `in_progress.json` 中按操作类型（`created` / `modified`）记录已完成文件，rollback 据此分别处理
 
-- AGENTS.md 覆盖方案第 9.2 节列出的全部 10 项
-- 每个模板 frontmatter 字段与方案第 7.4 节一致
-- 模板正文结构与方案第 7.5 / 7.6 节一致
+### 5.5 `kb_search_wiki`
 
----
+**输入**：query、page type filter、tags
 
-### 0.6 模型层抽象
+**输出**：匹配页面列表 + 摘要 + 相关度说明
 
-**前置依赖**：0.1, 0.3
+**实现**：基于 `kb/state/cache/page-index.json` 做关键词匹配和 type/tag 过滤
 
-**工作内容**：
+**索引字段**：
+```json
+{
+  "pages": [
+    {
+      "page_id": "source_src_sha256_8f3a1c2d",
+      "path": "kb/wiki/sources/src_sha256_8f3a1c2d.md",
+      "type": "source",
+      "title": "...",
+      "aliases": [],
+      "tags": ["ml", "architecture"],
+      "headings": ["TL;DR", "Key facts", "Sources"],
+      "body_excerpt": "前200字正文摘要..."
+    }
+  ]
+}
+```
 
-1. 定义模型抽象接口 `src/kb/llm/base.py`：
+> **review 修正**：
+> - `index.md` = 人类导航，`page-index.json` = 机器检索，职责明确分离
+> - `kb_apply_patch` 每次写入后同步更新索引（正常路径），`kb_rebuild_index` 仅用于灾难恢复
+> - 索引字段包含 `page_id`、`path`、`type`、`title`、`aliases`、`tags`、`headings`、`body_excerpt`
 
-   ```python
-   class BaseLLM(ABC):
-       @abstractmethod
-       def complete(self, messages: list[dict], **kwargs) -> str: ...
+### 5.6 `kb_read_page`
 
-   class ParserModel(ABC):
-       @abstractmethod
-       def summarize_source(self, parsed_source: dict) -> dict: ...
+**输入**：page path 或 page_id
 
-   class PlannerModel(ABC):
-       @abstractmethod
-       def plan_ingest(self, source: dict, wiki_context: dict) -> dict: ...
+**输出**：frontmatter + 正文分离结构
 
-   class WriterModel(ABC):
-       @abstractmethod
-       def render_pages(self, patch_plan: dict, wiki_context: dict) -> dict: ...
+### 5.7 `kb_commit`
 
-   class QueryModel(ABC):
-       @abstractmethod
-       def answer(self, question: str, page_context: dict) -> dict: ...
-   ```
+**输入**：变更描述
 
-2. 实现 `openai_compat.py`：通过 `openai` SDK 调用任何 OpenAI-compatible API
-3. 根据 `config.yaml` 中的 `models` 配置动态实例化对应模型
+**commit message 模板**：
+```
+kb: ingest src_sha256_8f3a1c2d and create source summary
+kb: update concept pages from src_sha256_8f3a1c2d
+kb: repair orphan pages and broken links
+```
 
-**产出物**：
-
-- `src/kb/llm/base.py`
-- `src/kb/llm/openai_compat.py`
-
-**验收标准**：
-
-- 可通过配置切换不同 provider/model
-- 单元测试中可用 mock 替代真实 API 调用
-
----
-
-### 0.7 Git 操作封装
-
-**前置依赖**：0.1
-
-**工作内容**：
-
-1. 实现 `git_ops.py`：
-   - `commit(kb_path, message, files)` — 暂存指定文件并提交
-   - `revert(kb_path, commit_hash)` — 回滚指定 commit
-   - `log(kb_path, n)` — 获取最近 n 条提交
-   - `diff(kb_path, commit_hash)` — 获取指定 commit 的 diff
-
-2. Commit message 遵循方案第 13.3 节规范：
-   ```
-   ingest(src_xxx): ...
-   query(saveback): ...
-   lint(repair): ...
-   ```
-
-**产出物**：
-
-- `src/kb/git_ops.py`
-
-**验收标准**：
-
-- 在测试用临时 Git 仓库中执行 commit / revert / log 通过
-- Commit message 格式符合规范
+> **review 修正**：commit message 中统一使用 `src_sha256_<prefix>` 格式，不再使用时间戳格式 `src_20260408_001`。
 
 ---
 
-## Phase 1：Ingest MVP
+## 6. Skills 设计
 
-> 目标：跑通 source -> parse -> summary -> patch plan -> review -> apply -> index/log 更新 -> git commit 全链路。
+### 6.1 MVP Skills（2 个）
 
-### 1.1 Source Manager：登记与去重
+#### `kb_ingest`
 
-**前置依赖**：0.4
+触发："把这篇文章纳入知识库"
 
-**工作内容**：
+执行链：
+1. `kb_source_add` → 注册 source，获得 `source_id`
+2. `kb_plan_ingest` → 生成结构化 plan
+3. `kb_draft_patch` → 渲染完整 patch payload 并归档
+4. 高风险任务：先展示 patch 摘要等待确认
+5. `kb_apply_patch` → 确定性写入
+6. `kb_commit` → Git 留痕
 
-1. 实现 `source_manager.py`：
-   - `register_source(kb_path, input_path_or_url)`:
-     - 判断来源类型（local file / URL）
-     - 计算 `content_hash`（SHA-256）
-     - 查询数据库去重
-     - 分配 `source_id`（格式 `src_YYYYMMDD_NNNN`）
-     - 复制原件到 `raw/processed/`
-     - 写入 `state/manifests/<source_id>.yaml`
-     - 在 `sources` 表中插入记录
+约束：
+- 不能绕过 plan → draft → apply 流程直接写 wiki
+- 必须更新 `log.md`
+- 新页面必须被 `index.md` 或某父页面引用
 
-2. 实现 `kb ingest <path_or_url> --kb <name>` 命令的第一阶段（仅登记）
+#### `kb_query`
 
-**产出物**：
+触发："根据知识库回答这个问题"
 
-- `src/kb/source_manager.py`
-- CLI `ingest` 命令（登记部分）
+执行链：
+1. `kb_search_wiki` → 索引召回
+2. `kb_read_page` → 精读相关页面
+3. 基于 wiki 组织回答
+4. 如果答案缺乏充分依据，明确说明
 
-**验收标准**：
+约束：
+- 先读 wiki，不确定时说明"当前 wiki 未沉淀充分"
+- 不允许把猜测包装成已知事实
 
-- 导入一个本地 Markdown 文件后：
-  - `raw/processed/` 下有原件副本
-  - `state/manifests/` 下有对应 manifest YAML
-  - `sources` 表中有记录
-  - `content_hash` 正确
-- 重复导入同一文件时，提示已存在，不重复登记
+> **review 修正**：当查询命中多个相关 source 页时，建议用户手动触发 `kb_ingest` 来沉淀 concept 页，而不是自动创建。
 
----
+### 6.2 Phase 2 Skills
 
-### 1.2 Parser：文档解析
+#### `kb_lint`
 
-**前置依赖**：0.1
+执行链：
+1. 调用 `kb_run_lint` tool
+2. 汇总问题
+3. 建议调用 `kb_repair`
 
-**工作内容**：
+> **review 修正**：skill 名 `kb_lint`，tool 名 `kb_run_lint`，避免命名冲突。
 
-1. 实现 `parser/markdown.py`：
-   - 按 heading 切分 sections
-   - 提取 frontmatter（如有）
-   - 输出标准中间格式（方案第 7.2 节）
+#### `kb_repair`
 
-2. 实现 `parser/web.py`：
-   - 使用 trafilatura 提取网页正文
-   - 下载页面并保存到 `raw/processed/`
-   - 输出标准中间格式
-
-3. 实现 `parser/pdf.py`：
-   - 使用 pymupdf/pdfplumber 提取文本
-   - 按页或按段落切分
-   - 输出标准中间格式
-
-4. 统一输出格式：
-
-   ```json
-   {
-     "source_id": "src_20260407_0001",
-     "title": "...",
-     "source_type": "markdown|web|pdf",
-     "sections": [{"heading": "...", "text": "..."}],
-     "full_text": "...",
-     "metadata": {"lang": "...", "author": "..."}
-   }
-   ```
-
-**产出物**：
-
-- `src/kb/parser/markdown.py`
-- `src/kb/parser/web.py`
-- `src/kb/parser/pdf.py`
-
-**验收标准**：
-
-- Markdown 文件解析后 sections 拆分正确
-- 网页 URL 解析后得到正文（不含导航/广告）
-- PDF 解析后得到完整文本
-- 三种格式输出结构一致
+执行链：
+1. 读取 lint 报告
+2. 生成小 patch
+3. `kb_apply_patch`
+4. `kb_commit`
 
 ---
 
-### 1.3 Wiki Compiler：Patch Plan 生成
+## 7. Patch 生命周期（review 新增）
 
-**前置依赖**：1.1, 1.2, 0.6
-
-**工作内容**：
-
-1. 实现 `compiler.py`：
-   - `generate_patch_plan(kb_path, source_id)`:
-     - 读取 parsed source 内容
-     - 读取当前 `wiki/index.md`
-     - 读取相关现有页面（通过关键词匹配标题）
-     - 调用 PlannerModel 生成 patch plan
-     - 返回结构化 patch plan
-
-2. Patch plan 格式（方案第 10.2 节）：
-
-   ```json
-   {
-     "patch_id": "patch_YYYYMMDD_NNN",
-     "source_id": "src_xxx",
-     "create": ["wiki/sources/src_xxx.md"],
-     "update": ["wiki/index.md", "wiki/log.md", ...],
-     "reasoning_summary": ["..."],
-     "risk_level": "low|medium|high",
-     "requires_review": true|false
-   }
-   ```
-
-3. 为 PlannerModel 编写 system prompt，约束输出格式
-
-**产出物**：
-
-- `src/kb/compiler.py`
-- Planner system prompt 模板
-
-**验收标准**：
-
-- 给定一个 parsed source，能生成格式正确的 patch plan
-- patch plan 中 create/update 的文件路径合法
-- risk_level 和 requires_review 根据影响范围正确判定
-
----
-
-### 1.4 Writer：页面内容生成
-
-**前置依赖**：1.3, 0.5
-
-**工作内容**：
-
-1. 在 `compiler.py` 中扩展或新建 writer 逻辑：
-   - `render_patch(kb_path, patch_plan)`:
-     - 对 `create` 列表中的文件：调用 WriterModel 生成完整页面内容
-     - 对 `update` 列表中的文件：读取现有内容，调用 WriterModel 生成更新后内容
-     - 输出包含新建文件内容和更新后文件内容的结果
-
-2. 新建页面必须遵循对应模板的 frontmatter 和正文结构
-3. `index.md` 更新：在对应分类下追加新条目
-4. `log.md` 更新：在文件末尾追加本次操作记录
-
-**产出物**：
-
-- Writer 逻辑（在 `compiler.py` 中）
-- Writer system prompt 模板
-
-**验收标准**：
-
-- 生成的 source summary 页面 frontmatter 完整且正确
-- index.md 更新后保持分类结构
-- log.md 追加的条目格式符合方案第 8.2 节
-
----
-
-### 1.5 Patch Applier：审核与执行
-
-**前置依赖**：1.4, 0.4, 0.7
-
-**工作内容**：
-
-1. 实现 `patch.py`：
-   - `save_patch(kb_path, patch_plan, rendered_content)`:
-     - 将 patch plan 保存到 `state/patches/<patch_id>.yaml`
-     - 将各文件 diff 保存到 `state/patches/<patch_id>/` 目录
-     - 在 `patches` 表中插入记录
-
-   - `apply_patch(kb_path, patch_id)`:
-     - 读取 patch 数据
-     - 写入新建文件
-     - 覆盖更新文件
-     - 更新 `pages` 表和 `page_sources` 表
-     - 调用 `git_ops.commit()` 提交
-     - 更新 patch 状态为 `applied`，记录 `commit_hash`
-
-2. 实现审核判断逻辑：
-   - 根据 `config.yaml` 中的 `review` 配置判定是否需要审核
-   - 仅更新 source_summary + index + log → 自动通过
-   - 影响 concept/topic/analysis → 待审核
-   - 修改文件数超过阈值 → 强制审核
-
-3. 实现 CLI 命令：
-   - `kb patch list --kb <name>` — 列出 pending patches
-   - `kb patch show <patch_id>` — 显示 patch 详情和 diff
-   - `kb patch approve <patch_id>` — 标记为 approved
-   - `kb patch apply <patch_id>` — 执行 patch
-
-**产出物**：
-
-- `src/kb/patch.py`
-- CLI patch 子命令
-
-**验收标准**：
-
-- 低风险 patch 自动 apply 并生成 git commit
-- 高风险 patch 进入 pending 状态，需手动 approve 后 apply
-- `git log` 可看到规范的 commit message
-- patch 元数据保存完整
-- 重复 apply 同一 patch 时不产生重复操作
-
----
-
-### 1.6 Ingest 全链路串联
-
-**前置依赖**：1.1 - 1.5 全部
-
-**工作内容**：
-
-1. 将 `kb ingest` 命令串联完整流程：
-
-   ```
-   kb ingest <path_or_url> --kb <name>
-     → register source
-     → parse
-     → generate patch plan
-     → render pages
-     → 判断是否需要审核
-       → 自动通过：立即 apply + commit
-       → 需要审核：保存为 pending patch，提示用户
-   ```
-
-2. 处理边界情况：
-   - 重复 source 的检测与跳过
-   - 解析失败的错误处理
-   - LLM 调用失败的重试逻辑
-
-3. 编写端到端测试
-
-**产出物**：
-
-- 完整的 `kb ingest` 命令
-- 端到端测试用例
-
-**验收标准**（方案第 10.4 节）：
-
-- Ingest 一个 Markdown 文件后：
-  - `sources` 表中有记录，status = processed
-  - `wiki/sources/` 下有 source summary 页面
-  - `index.md` 已更新
-  - `log.md` 已追加
-  - `git log` 有对应 commit
-  - 变更可追溯到 patch 和 commit
-- Ingest 同一文件两次不产生重复页面
-
----
-
-## Phase 2：Query MVP
-
-> 目标：基于现有 Wiki 稳定回答问题，并给出导航建议。
-
-### 2.1 Index 读取与页面定位
-
-**前置依赖**：Phase 1 完成（需要有 Wiki 内容可查询）
-
-**工作内容**：
-
-1. 实现 `query.py` 中的页面定位逻辑：
-   - 解析 `index.md`，提取所有页面链接和分类信息
-   - 根据用户问题，从 index 中筛选候选页面
-   - 支持两种定位策略：
-     - 关键词匹配（从问题中提取关键词，匹配 index 条目）
-     - LLM 辅助选择（将问题和 index 内容交给模型判断）
-
-**产出物**：
-
-- `src/kb/query.py` 中的页面定位部分
-
-**验收标准**：
-
-- 给定一个问题，能返回相关页面路径列表
-- 优先从 index 导航，不直接遍历文件系统
-
----
-
-### 2.2 页面读取与答案合成
-
-**前置依赖**：2.1, 0.6
-
-**工作内容**：
-
-1. 实现 query 核心流程：
-   - 读取定位到的页面内容
-   - 将页面内容 + 问题交给 QueryModel
-   - 输出结构化回答：
-
-     ```markdown
-     ## Answer
-     <结论>
-
-     ## Sources Used
-     - [[concepts/transformer]] — Transformer 架构概念页
-     - [[topics/attention]] — Attention 相关主题页
-
-     ## Gaps & Conflicts
-     - 当前知识库中缺少关于 ... 的内容
-
-     ## Suggested Reading
-     - [[topics/xxx]]
-     - [[analyses/yyy]]
-     ```
-
-2. 为 QueryModel 编写 system prompt，强制要求：
-   - 优先基于 Wiki 页面回答
-   - 标注引用了哪些页面
-   - 指出知识空白
-
-**产出物**：
-
-- `src/kb/query.py` 完整实现
-- Query system prompt 模板
-
-**验收标准**（方案第 11.4 节）：
-
-- 回答基于 Wiki 页面内容
-- 回答中包含引用页面列表
-- 能发现知识空白并给出建议
-
----
-
-### 2.3 Save-back 提案
-
-**前置依赖**：2.2
-
-**工作内容**：
-
-1. 在 query 流程末尾增加回写判断：
-   - 让 LLM 评估回答是否具备长期价值
-   - 如果是，生成 save-back proposal：
-
-     ```yaml
-     save_back_proposal:
-       suggested_page_type: analysis
-       suggested_path: wiki/analyses/xxx.md
-       reason: ...
-       requires_user_confirmation: true
-     ```
-
-2. 实现 `kb save-answer <answer_id> --as <page_type> --kb <name>` 命令：
-   - 将回答内容转换为对应模板格式
-   - 生成 patch plan
-   - 走正常的 patch 审核与应用流程
-
-**产出物**：
-
-- Save-back 提案逻辑
-- `kb save-answer` 命令
-
-**验收标准**：
-
-- 高价值回答能触发保存提案
-- 用户确认后回答被正确回写为 Wiki 页面
-- 回写走 patch 流程，有 commit 记录
-
----
-
-### 2.4 Query CLI 命令
-
-**前置依赖**：2.1 - 2.3
-
-**工作内容**：
-
-1. 实现 `kb query "<question>" --kb <name>` 完整命令：
-   - 输出结构化 Markdown 回答到终端
-   - 如果有 save-back 提案，提示用户是否保存
-   - 记录 query 到 `log.md`
-
-**产出物**：
-
-- 完整的 `kb query` 命令
-
-**验收标准**：
-
-- 命令行可交互式提问
-- 回答格式清晰可读
-- `log.md` 记录了 query 操作
-
----
-
-## Phase 3：Lint MVP
-
-> 目标：让 Wiki 具备基本的健康检查能力。
-
-### 3.1 Lint 检查项实现
-
-**前置依赖**：Phase 1 完成
-
-**工作内容**：
-
-1. 实现 `lint.py` 中的各项检查（方案第 12.2 节）：
-
-   - **坏链接检测**：扫描所有页面中的 `[[...]]` 链接，检查目标文件是否存在
-   - **孤儿页检测**：找出没有被任何其他页面链接的页面
-   - **未收录页面检测**：找出存在于文件系统但未出现在 `index.md` 中的页面
-   - **Source 缺失检测**：找出 frontmatter 中未声明 `source_ids` 的页面
-   - **页面空壳检测**：找出正文内容少于阈值（如 50 字）的页面
-   - **长期未更新检测**（可选）：找出 `updated_at` 超过 N 天的页面
-
-**产出物**：
-
-- `src/kb/lint.py` 中各检查函数
-
-**验收标准**：
-
-- 每项检查能正确识别问题
-- 单元测试覆盖正常和异常情况
-
----
-
-### 3.2 Lint 报告生成
-
-**前置依赖**：3.1
-
-**工作内容**：
-
-1. 实现报告生成：
-   - 输出 Markdown 报告到 `wiki/reports/lint-YYYYMMDD.md`
-   - 输出 JSON 结果到 `state/runs/lint-YYYYMMDD.json`
-   - 报告格式遵循方案第 12.3 节
-   - 在 `runs` 表中记录本次 lint 运行
-
-2. 实现 `kb lint --kb <name>` 命令
-3. 支持 `kb lint --kb all` 扫描所有 kb
-
-**产出物**：
-
-- Lint 报告生成逻辑
-- `kb lint` 命令
-
-**验收标准**：
-
-- 报告文件正确生成
-- 报告内容准确反映知识库健康状况
-- 运行记录写入数据库
-
----
-
-### 3.3 Rebuild Index 命令
-
-**前置依赖**：Phase 1 完成
-
-**工作内容**：
-
-1. 实现 `kb rebuild-index --kb <name>`：
-   - 扫描 `wiki/` 下所有页面文件
-   - 读取每个页面的 frontmatter
-   - 重新生成 `index.md`，按 page_type 分类
-   - 同步更新 `pages` 表
-
-**产出物**：
-
-- `kb rebuild-index` 命令
-
-**验收标准**：
-
-- 重建后 index.md 包含所有现有页面
-- 分类正确
-- 与数据库记录一致
-
----
-
-## Phase 4：增强与演进
-
-> 目标：在 MVP 稳定运行后逐步增强能力。以下为候选任务，根据实际使用反馈确定优先级。
-
-### 4.1 SQLite FTS 全文检索
-
-**工作内容**：
-
-- 在 SQLite 中创建 FTS5 虚拟表
-- Ingest/Update 时同步更新 FTS 索引
-- Query 时先走 FTS 缩小候选范围，再交给 LLM 精筛
-
----
-
-### 4.2 Lint 自动修复 Patch
-
-**工作内容**：
-
-- Lint 检测出问题后，自动生成 repair patch plan
-- 走标准 patch 审核流程
-- 支持 `kb lint --fix --kb <name>`
-
----
-
-### 4.3 多 KB 全局搜索
-
-**工作内容**：
-
-- 支持 `kb query "..." --kb all` 跨知识域查询
-- 合并多个 kb 的 index 信息
-
----
-
-### 4.4 Obsidian 兼容优化
-
-**工作内容**：
-
-- 确保 `[[wikilink]]` 格式与 Obsidian 兼容
-- 生成 `.obsidian/` 配置文件模板
-- 支持 Obsidian 侧边栏导航
-
----
-
-### 4.5 更细粒度的 Provenance
-
-**工作内容**：
-
-- 页面中的关键声明标注 `source_id` + section 引用
-- 扩展 `page_sources` 表增加 claim 级别映射
-
----
-
-## 开发顺序总结
+Patch 经历三个显式状态，分别存储在不同目录：
 
 ```
-第一轮：Phase 0（基础设施）
-  0.1 项目结构
-  0.3 配置系统       ← 与 0.1 并行之后的工作
-  0.7 Git 封装       ← 与 0.3 并行
-  0.4 SQLite 数据库  ← 与 0.3 并行
-  0.6 模型层抽象     ← 依赖 0.1, 0.3
-  0.2 Workspace 初始化 ← 依赖 0.1
-  0.5 Schema 文件     ← 依赖 0.2
+planned  →  drafted  →  applied
+                    ↘  failed
+```
 
-第二轮：Phase 1（Ingest）
-  1.1 Source Manager  ← 依赖 0.4
-  1.2 Parser          ← 可与 1.1 并行
-  1.3 Compiler        ← 依赖 1.1, 1.2, 0.6
-  1.4 Writer          ← 依赖 1.3, 0.5
-  1.5 Patch Applier   ← 依赖 1.4, 0.4, 0.7
-  1.6 Ingest 串联     ← 依赖 1.1-1.5
+| 状态 | 存储位置 | 触发工具 |
+|------|----------|----------|
+| `planned` | `kb/state/plans/` | `kb_plan_ingest` |
+| `drafted` | `kb/state/drafts/` | `kb_draft_patch` |
+| `applied` | `kb/state/applied/` | `kb_apply_patch` 成功时 |
+| `failed` | `kb/state/failed/` | `kb_apply_patch` 失败时 |
 
-第三轮：Phase 2 + Phase 3（可并行）
-  2.1-2.4 Query MVP   ← 依赖 Phase 1
-  3.1-3.3 Lint MVP     ← 依赖 Phase 1（可与 Phase 2 并行）
+**唯一真相源**：文件所在目录为权威状态。JSON 中的 `status` 字段为冗余镜像，仅用于调试与展示。当目录位置与 `status` 字段不一致时，以目录为准。
 
-第四轮：Phase 4（按需）
+每个 patch JSON 都携带 `status` 字段，可追溯从结构规划到内容渲染到最终落盘的完整链路。
+
+---
+
+## 8. Schema 版本管理
+
+### 8.1 版本文件
+
+`kb/schema/version.yaml`：
+```yaml
+schema_version: 1
+min_compatible_version: 1
+schema_effective_from: 2026-04-08    # 当前 schema 版本的生效日期
+migration_grace_until: null          # 升级时设为截止日期，如 2026-06-01
+```
+
+### 8.2 规则
+
+- 仓库级 `version.yaml` 为权威版本
+- 页面级增加可选字段 `schema_migrated_at`（ISO 日期），记录该页面最后一次通过 schema 迁移检查的时间
+- `kb_run_lint` 检查逻辑：
+  - 有 `schema_migrated_at` 且日期 ≥ `schema_effective_from` → 按当前 schema 检查
+  - 无 `schema_migrated_at` 或日期早于 `schema_effective_from` → 在 `migration_grace_until` 之前报 warning，之后报 error
+- 迁移操作通过 `kb_repair` 批量处理，成功后写入 `schema_migrated_at`
+
+---
+
+## 9. Wiki 页面 Schema
+
+### 9.1 MVP 页面类型（6 种）
+
+`source` / `concept` / `entity` / `analysis` / `index` / `report`
+
+### 9.2 Frontmatter 规范
+
+```yaml
+---
+id: concept_transformer         # canonical identifier
+type: concept                   # 页面类型
+title: Transformer
+aliases: []
+source_ids: [src_sha256_8f3a1c2d]
+updated_at: 2026-04-08
+status: active                  # active / stub / deprecated
+tags: [ml, architecture]
+schema_migrated_at: 2026-04-08  # 可选，最后一次 schema 迁移检查通过的日期
+related:
+  - concept_attention
+---
+```
+
+### 9.3 正文结构
+
+```markdown
+# {title}
+
+## TL;DR
+...
+
+## Key facts
+- ...
+
+## Conflicts / ambiguities
+- ...
+
+## Open questions
+- ...
+
+## Related
+- ...
+
+## Sources
+- src_sha256_8f3a1c2d
 ```
 
 ---
 
-## 附录：关键文件清单
+## 10. 安全边界
 
-| 文件 | 所属 Phase | 用途 |
-|------|-----------|------|
-| `pyproject.toml` | 0.1 | 项目配置与依赖 |
-| `src/kb/cli.py` | 0.1 | CLI 入口，所有命令定义 |
-| `src/kb/config.py` | 0.3 | 配置加载与校验 |
-| `src/kb/db.py` | 0.4 | SQLite 封装 |
-| `src/kb/git_ops.py` | 0.7 | Git 操作封装 |
-| `src/kb/models.py` | 0.1 | 数据模型定义 |
-| `src/kb/llm/base.py` | 0.6 | 模型抽象接口 |
-| `src/kb/llm/openai_compat.py` | 0.6 | OpenAI 适配器 |
-| `src/kb/source_manager.py` | 1.1 | Source 登记与去重 |
-| `src/kb/parser/markdown.py` | 1.2 | Markdown 解析 |
-| `src/kb/parser/web.py` | 1.2 | 网页解析 |
-| `src/kb/parser/pdf.py` | 1.2 | PDF 解析 |
-| `src/kb/compiler.py` | 1.3-1.4 | Patch Plan 生成 + 页面渲染 |
-| `src/kb/patch.py` | 1.5 | Patch 审核与应用 |
-| `src/kb/query.py` | 2.1-2.3 | Query Engine |
-| `src/kb/lint.py` | 3.1-3.2 | Lint Engine |
+### 10.1 Native plugin 信任边界
+
+- native plugin 运行在 Gateway 进程内，不被 sandbox
+- `openclaw-kb` 必须私有部署、自研或完全审计后使用
+
+### 10.2 路径校验（纵深防御）
+
+- 宿主层限制：只允许访问 `workspace/kb/**`
+- Tool 层校验：每个 tool 内部校验写目标路径在 `workspace/kb/**` 范围内
+- 外部 source locator（URL、外部文件路径）作为只读输入允许传入，不得作为写入目标
+
+### 10.3 密钥管理
+
+secrets 不得出现在 `AGENTS.md`、`SKILL.md`、prompt 模板、任务日志中。
+
+---
+
+## 11. MVP 验收标准
+
+至少做到：
+
+- [ ] 能导入一篇 `.md` 或 `.txt` 文件
+- [ ] 能创建 source 摘要页
+- [ ] 能更新 `index.md` 与 `log.md`
+- [ ] 能生成 plan → draft → applied 完整 patch 存档链
+- [ ] 能基于 `page-index.json` 搜索并回答问题
+- [ ] 能留下 Git commit 作为审计记录
+- [ ] `kb_apply_patch` 在 kb/ dirty 时拒绝执行（排除 `kb/state/runs/`）
+- [ ] `kb_apply_patch` 失败后能通过 resume / rollback / force-clear 恢复
+- [ ] `index.md` / `log.md` 的更新操作可安全重试（`ensure_entry` 幂等）
+- [ ] 所有写操作的目标路径经过 `workspace/kb/**` 校验
+
+---
+
+## 12. 开发顺序
+
+### Phase 0：平台验证 spike（开发前必须完成）
+
+- [ ] 验证 OpenClaw `register(api)` / `api.registerTool()` 接口稳定性
+- [ ] 验证 skill 与 tool 命名空间是否隔离
+- [ ] 验证 workspace 路径限制是否可配置
+- [ ] 确认官方文档 URL 可访问且内容与方案描述一致
+- [ ] 如果 spike 发现关键接口不稳定，收敛到纯 skill + 文件系统方案
+
+### Phase 1：单用户本地版（MVP）
+
+**目标**：跑通闭环
+
+**步骤**：
+1. 建立 `kb/` 文件树与 `AGENTS.md`
+2. 实现 `kb_source_add`（含基础文本规范化）
+3. 实现 `kb_plan_ingest`
+4. 实现 `kb_draft_patch`
+5. 实现 `kb_apply_patch`（含 page-index.json 同步更新、dirty 检查）
+6. 实现 `kb_search_wiki` + `kb_read_page`
+7. 实现 `kb_commit`
+8. 编写 `kb_ingest` / `kb_query` 两个 skill
+9. 跑通单篇 source ingest + query 完整闭环
+10. 验收
+
+**交付物**：
+- `kb/` 目录结构
+- 7 个 MVP tools
+- 2 个 MVP skills
+- `AGENTS.md`
+- Git 集成
+
+### Phase 2：质量控制版
+
+**目标**：可维护
+
+**交付物**：
+- `kb_source_parse`（复杂格式）
+- `kb_run_lint` + `kb_repair`
+- `kb_rebuild_index`（灾难恢复）
+- `kb_lint` / `kb_repair` skills
+- patch `move` / `rename` + 链接重写
+- 审核模式（auto-apply / review-before-apply）
+- 目录级 `_index.md` + 按月分文件 log（顶层文件降级为聚合页）
+- schema migration grace period 机制
+- 自动 concept / entity 页创建（配合 stub 清理规则）
+
+### Phase 3：增强检索版
+
+**目标**：适合大知识库
+
+**交付物**：
+- 全文索引
+- hybrid search
+- 更强页面召回
+- 自动建议沉淀 analysis
+- raw fallback 查询（核验原文细节）
+
+### Phase 4：团队协作版
+
+**目标**：多人使用
+
+**交付物**：
+- 审核工作流
+- 分支与权限控制
+- 页面评论 / 批注
+- 冲突合并策略
+
+### Phase 5：Bundle 兼容版
+
+**目标**：跨生态复用
+
+**交付物**：
+- 抽出 bundle 元数据
+- 兼容 Codex / Claude / Cursor 可识别内容包
+- 保留 native plugin 作为主实现
+
+---
+
+## 13. Review 修正记录
+
+以下为相对原方案的关键修正，供审阅对照：
+
+| # | 修正项 | 原方案 | 修正后 | 来源 |
+|---|--------|--------|--------|------|
+| 1 | 内容生成归属 | 未明确 | 新增 `kb_draft_patch` tool，LLM 产出物持久化到 `kb/state/drafts/` | Review R1 + Codex R1 |
+| 2 | Patch 生命周期 | 单一 `patches/` 目录 | 拆为 `plans/` → `drafts/` → `applied/`，显式状态机 | Codex R2 |
+| 3 | 搜索索引 | 未指定实现 | `page-index.json`（机器检索）+ `index.md`（人类导航）职责分离 | Review R1 + Codex R1/R2 |
+| 4 | 索引新鲜度 | 未定义 | `kb_apply_patch` 同步更新，`kb_rebuild_index` 仅灾难恢复 | Codex R2 |
+| 5 | source_id 格式 | 混用时间戳和 hash | 统一为 `src_sha256_<prefix>`，保留算法标识 | Review R1 + Codex R1 |
+| 6 | tool/skill 重名 | `kb_lint` 同名 | tool 改为 `kb_run_lint`，skill 保持 `kb_lint` | Review R1 + Codex R1 |
+| 7 | index.md / log.md | 单文件，MVP 和后续不分 | MVP 保持单文件；Phase 2 引入目录级 index + 按月 log | Codex R1 |
+| 8 | Dirty worktree 检查 | 无 | `git status --porcelain -- kb/`，仅检查 kb 路径 | Review R1 + Codex R2 |
+| 9 | 事务标记 | 无 | `in_progress.json` 标记 + 残留检测 | Codex R2 |
+| 10 | Schema 版本 | 无 | 仓库级 `version.yaml` + `migration_grace_until` 过渡期 | Review R1 + Codex R1/R2 |
+| 11 | 路径校验 | 仅提及宿主层 | 纵深防御：宿主层 + tool 层双校验，区分读输入和写目标 | Codex R1/R2 |
+| 12 | MVP 查询闭环 | 弱（仅 source 页） | 保持 MVP 不自动创建 concept，但 skill 建议用户手动沉淀 | Codex R1 |
+| 13 | Phase 0 spike | 无 | 开发前必须验证 OpenClaw 平台能力 | Review R1 |
+| 14 | draft/apply 职责边界 | 两处都声称负责 index/log 生成 | `kb_draft_patch` 产出最终完整变更集，`kb_apply_patch` 纯执行不生成内容 | Dev Plan Review R1 |
+| 15 | append 幂等性 | `append` 操作重试会重复 | 替换为 `ensure_entry`（按 dedup_key 去重） | Dev Plan Review R1 |
+| 16 | 失败恢复语义 | in_progress 标记导致死锁 | dirty check 排除 `kb/state/runs/`；定义 resume/rollback/force-clear 三种恢复路径 | Dev Plan Review R1 |
+| 17 | 状态机真相源 | 目录 + JSON 双重表达 | 目录位置为唯一权威，JSON status 为冗余镜像；failed 独立目录 | Dev Plan Review R1 |
+| 18 | Schema 迁移标记 | 无页面级标记 | 新增可选 `schema_migrated_at` 字段，lint 据此判断是否在 grace period 内 | Dev Plan Review R1 |
+| 19 | source_id 碰撞 | 固定 8 位无碰撞策略 | 默认 8 位，碰撞时自动扩展到 12 位 | Dev Plan Review R1 |
+| 20 | rollback 不完整 | 统一用 `git checkout` 回退 | `in_progress.json` 按操作类型（`created`/`modified`）记录，rollback 对 modified 用 git 恢复、对 created 执行删除 | Dev Plan Review R2 |
+| 21 | schema 生效日缺失 | lint 规则引用未定义字段 | `version.yaml` 新增 `schema_effective_from`，lint 用它与 `schema_migrated_at` 比较 | Dev Plan Review R2 |
