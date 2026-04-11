@@ -210,10 +210,17 @@ async function applyFile(
   switch (file.action) {
     case "create": {
       if (fs.existsSync(absPath)) {
-        // During resume, tolerate file that was created before crash
-        // but not recorded in in_progress.json
         if (isResume) {
-          return { path: file.path, op: "created" };
+          // During resume, tolerate file only if content matches what
+          // this draft intended to write (i.e. it was our interrupted write)
+          const existing = fs.readFileSync(absPath, "utf8");
+          if (existing === file.content) {
+            return { path: file.path, op: "created" };
+          }
+          throw new Error(
+            `File exists with different content during resume: ${file.path} — ` +
+            `manual resolution required`
+          );
         }
         throw new Error(`File already exists: ${file.path} (action=create)`);
       }
