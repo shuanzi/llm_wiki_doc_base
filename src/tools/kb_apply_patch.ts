@@ -220,8 +220,9 @@ async function applyFile(
       return { path: file.path, op: "modified" };
     }
     case "overwrite": {
+      const existed = fs.existsSync(absPath);
       fs.writeFileSync(absPath, file.content, "utf8");
-      return { path: file.path, op: fs.existsSync(absPath) ? "modified" : "created" };
+      return { path: file.path, op: existed ? "modified" : "created" };
     }
     default:
       throw new Error(`Unknown draft action: ${(file as DraftFile).action}`);

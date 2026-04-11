@@ -52,6 +52,8 @@ export async function kbSourceAdd(
       fs.mkdirSync(manifestsDir, { recursive: true });
     }
     const existingIds = new Set<string>();
+    const contentHashFull = sha256(content);
+    const contentHashPrefixed = `sha256:${contentHashFull}`;
     for (const f of fs.readdirSync(manifestsDir)) {
       if (f.endsWith(".json")) {
         try {
@@ -60,7 +62,7 @@ export async function kbSourceAdd(
           );
           existingIds.add(m.source_id);
           // Deduplicate by content hash
-          if (m.content_hash === `sha256:${sha256(content)}`) {
+          if (m.content_hash === contentHashPrefixed) {
             return {
               success: false,
               error: `Duplicate content: source already registered as ${m.source_id} (${m.source_locator})`,

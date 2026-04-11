@@ -12,8 +12,7 @@ import type {
   PageFrontmatter,
 } from "../types";
 import { resolveKbPath } from "../utils/path_validator";
-import { parseFrontmatter, extractExcerpt, extractHeadings } from "../utils/frontmatter";
-import { serializeFrontmatter } from "../utils/frontmatter";
+import { parseFrontmatter, serializeFrontmatter, extractExcerpt, extractHeadings } from "../utils/frontmatter";
 
 export interface KbDraftPatchInput {
   plan: Plan;

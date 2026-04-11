@@ -3,7 +3,6 @@ import * as path from "path";
 import * as crypto from "crypto";
 import type { Manifest, Plan, PlanCreateEntry, PlanUpdateEntry, ToolResult, WorkspaceConfig } from "../types";
 import { resolveKbPath } from "../utils/path_validator";
-import { parseFrontmatter, extractHeadings } from "../utils/frontmatter";
 
 export interface KbPlanIngestInput {
   source_id: string;
@@ -37,7 +36,7 @@ export async function kbPlanIngest(
       fs.readFileSync(manifestPath, "utf8")
     );
 
-    // Load raw content
+    // Verify raw file exists
     const rawPath = resolveKbPath(manifest.canonical_path, config.kb_root);
     if (!fs.existsSync(rawPath)) {
       return {
@@ -45,7 +44,6 @@ export async function kbPlanIngest(
         error: `Raw source file not found at: ${manifest.canonical_path}`,
       };
     }
-    const rawContent = fs.readFileSync(rawPath, "utf8");
 
     // Derive a page_id from source_id
     const pageId = `src_${input.source_id}`;
