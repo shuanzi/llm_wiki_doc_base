@@ -153,7 +153,7 @@ export async function kbApplyPatch(
           continue;
         }
 
-        const op = await applyFile(file, config);
+        const op = await applyFile(file, config, isResume);
         appliedFiles.push(file.path);
         inProgress.completed_files.push(op);
         fs.writeFileSync(inProgressPath, JSON.stringify(inProgress, null, 2), "utf8");
@@ -198,7 +198,8 @@ export async function kbApplyPatch(
  */
 async function applyFile(
   file: DraftFile,
-  config: WorkspaceConfig
+  config: WorkspaceConfig,
+  isResume: boolean = false
 ): Promise<CompletedFileRecord> {
   const absPath = resolveKbPath(file.path, config.kb_root);
   const dir = path.dirname(absPath);
@@ -209,6 +210,11 @@ async function applyFile(
   switch (file.action) {
     case "create": {
       if (fs.existsSync(absPath)) {
+        // During resume, tolerate file that was created before crash
+        // but not recorded in in_progress.json
+        if (isResume) {
+          return { path: file.path, op: "created" };
+        }
         throw new Error(`File already exists: ${file.path} (action=create)`);
       }
       fs.writeFileSync(absPath, file.content, "utf8");
@@ -332,6 +338,10 @@ function syncPageIndex(config: WorkspaceConfig): boolean {
     function scanDir(dir: string): void {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
         const fullPath = path.join(dir, entry.name);
+        // Skip symlinks to prevent indexing content outside kb/
+        if (entry.isSymbolicLink()) {
+          continue;
+        }
         if (entry.isDirectory()) {
           scanDir(fullPath);
         } else if (entry.name.endsWith(".md")) {
