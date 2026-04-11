@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_250f3a78fef1c265",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_c6066312.md",
+      "content": "---\nid: src_sha256_c6066312\ntype: source\ntitle: RISC-V\\\"安全\\\"那些事儿（一） - RISC-V\nsource_ids: [src_sha256_c6066312]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# RISC-V\\\"安全\\\"那些事儿（一） - RISC-V\n\n## Source Info\n\n- **Source ID**: src_sha256_c6066312\n- **Kind**: markdown\n- **Content Hash**: sha256:c6066312cafaadb94ed627a09fad9f0314f57e5b7b24b445fa57fcf27455ba02\n- **Ingested**: 2026-04-11\n\n## Summary\n\nzhengwenbin\n背景\n在数字化浪潮汹涌澎湃的当下，计算机已深度融入人们生活的各个方面，成为社会运转不可或缺的 “中枢神经”。\n从清晨唤醒我们的智能设备，到工作中处理的海量数据，再到夜晚休闲时畅享的娱乐内容，计算机的身影无处不在, 它串联起生活的方方面面，已然成为信息交互、数据存储与处理的核心载体。\n然而，计算机技术迅猛发展的同时， 安全问题也如影随形。\n网络空间并非一片净土，恶意软件如同隐匿在黑暗中的幽灵，随时可能入侵计算机，窃取保密信息；黑客们则像狡黠的盗贼，利用系统漏洞，肆意破坏、非法获取数据。这些安全威胁，严重扰乱了我们的数字生活秩序。\n“The more connected we get, the more vulnerable we become.”（我们的联系越紧密，就越容易受到攻击）。\n软件攻击\n如今，许多底层软件（如操作系统）都是用 C 或 C++ 等非内存安全的编程语言编写的，这使得这类软件容易受到软件的攻击，攻击者往往会利用这些漏洞来达到非法的目的，诸如系统提权、隐私窃取等。先简单介绍一下软件常用的几种攻击手段:\n- Buffer Overflow\n- re...\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [RISC-V\\\"安全\\\"那些事儿（一） - RISC-V](sources/src_sha256_c6066312.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_c6066312"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_c6066312` → [wiki/sources/src_sha256_c6066312.md](sources/src_sha256_c6066312.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_c6066312"
+    }
+  ]
+}
