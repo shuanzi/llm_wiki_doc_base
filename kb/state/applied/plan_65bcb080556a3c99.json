@@ -1,0 +1,25 @@
+{
+  "plan_id": "plan_65bcb080556a3c99",
+  "status": "drafted",
+  "files": [
+    {
+      "action": "create",
+      "path": "wiki/sources/src_sha256_44ea060c.md",
+      "content": "---\nid: src_sha256_44ea060c\ntype: source\ntitle: Linux操作系统内存管理(思维导图详解)\nsource_ids: [src_sha256_44ea060c]\nupdated_at: 2026-04-11\nstatus: active\ntags: []\n---\n\n# Linux操作系统内存管理(思维导图详解)\n\n## Source Info\n\n- **Source ID**: src_sha256_44ea060c\n- **Kind**: markdown\n- **Content Hash**: sha256:44ea060c2045f8963ef5fbb32d9dd1b7544a32b8bb9fa5e892f93e137c677a90\n- **Ingested**: 2026-04-11\n\n## Summary\n\n目录\n收起\n一、 计算机的存储体系\n二、内存使用演化\n三. 物理内存：连续分配存储管理方式\n四. 物理内存非连续：页式和段式存储管理\n五. 页式存储管理\n六. 段式存储管理\n内存是计算机很重要的一个资源，因为程序只有被加载到内存中才可以运行；此外，CPU所需要的指令与数据也都是来自内存的。可以说，内存是影响计算机性能的一个很重要的因素。\n2022年嵌入式开发想进互联网大厂，你技术过硬吗？\n腾讯T6-9首发“Linux内核源码嵌入式开发进阶笔记”，差距不止一点点哦\n分层存储器体系\n在介绍内存管理的细节前，先要了解一下分层存储器体系：\n大部分的计算机都有一个存储器层次结构，即少量的非常快速、昂贵、易变的高速缓存(cache)；若干兆字节的中等速度、中等价格、易变的主存储器(RAM)；数百兆或数千兆的低速、廉价、不易变的磁盘。这些资源的合理使用与否直接关系着系统的效率。\nCPU缓存 （Cache Memory）：是位于CPU与内存之间的临时存储器，它的容量比内存小的多但是交换速度却比内存要快得多。缓存的出现主要是为了解决CPU运算速度与内存 读写速度不匹配的矛盾，因为CPU运算速度要比内存读...\n\n## Structure\n\n- 一、 计算机的存储体系\n- 二、内存使用演化\n- 三. 物理内存：连续分配存储管理方式\n- 四. 物理内存非连续：页式和段式存储管理\n- 五. 页式存储管理\n- 六. 段式存储管理\n"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/index.md",
+      "entry": "- [Linux操作系统内存管理(思维导图详解)](sources/src_sha256_44ea060c.md)",
+      "anchor": "## Sources",
+      "dedup_key": "index_source_src_sha256_44ea060c"
+    },
+    {
+      "action": "ensure_entry",
+      "path": "wiki/log.md",
+      "entry": "- 2026-04-11: Ingested source `src_sha256_44ea060c` → [wiki/sources/src_sha256_44ea060c.md](sources/src_sha256_44ea060c.md)",
+      "anchor": "# Change Log",
+      "dedup_key": "log_ingest_src_sha256_44ea060c"
+    }
+  ]
+}
