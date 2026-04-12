@@ -37,7 +37,7 @@ export async function kbReadPage(
       if (!fs.existsSync(indexPath)) {
         return {
           success: false,
-          error: `Page index not found. Run kb_apply_patch first to build the index.`,
+          error: `Page index not found. Use kb_write_page to create pages — the index is built incrementally.`,
         };
       }
       const index: PageIndex = JSON.parse(fs.readFileSync(indexPath, "utf8"));
