@@ -6,7 +6,11 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "start:mcp": "node dist/mcp_server.js"
+  },
+  "bin": {
+    "kb-mcp": "dist/mcp_server.js"
   },
   "repository": {
     "type": "git",
@@ -17,5 +21,8 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0"
   }
 }
