@@ -1,5 +1,5 @@
 // ============================================================
-// Shared types for the OpenClaw Knowledge Base system
+// Shared types for the OpenClaw Knowledge Base system (V2)
 // ============================================================
 
 // --- Source & Manifest ---
@@ -12,88 +12,57 @@ export interface Manifest {
   source_kind: SourceKind;
   content_hash: string;
   canonical_path: string;
+  file_name: string;
   ingest_status: "registered" | "ingested" | "failed";
   created_at: string;
 }
 
-// --- Plan ---
+// --- Page Frontmatter ---
 
-export interface PlanCreateEntry {
-  page_id: string;
-  path: string;
-  kind: "source_summary";
+export interface PageFrontmatter {
+  id: string;
+  type: string;
+  title: string;
+  updated_at: string;
+  status: "active" | "stub" | "deprecated";
+  tags?: string[];
+  aliases?: string[];
+  source_ids?: string[];
+  related?: string[];
+  schema_migrated_at?: string;
 }
 
-export interface PlanUpdateEntry {
-  path: string;
-  reason: string;
+// Core page types with directory mapping
+export const CORE_PAGE_TYPES = [
+  "source",
+  "entity",
+  "concept",
+  "analysis",
+  "index",
+  "report",
+] as const;
+export type CorePageType = (typeof CORE_PAGE_TYPES)[number];
+
+export const PAGE_TYPE_DIR_MAP: Record<CorePageType, string> = {
+  source: "wiki/sources",
+  entity: "wiki/entities",
+  concept: "wiki/concepts",
+  analysis: "wiki/analyses",
+  index: "wiki",
+  report: "wiki/reports",
+};
+
+// Page ID format: lowercase alphanumeric + underscore + hyphen
+export const PAGE_ID_PATTERN = /^[a-z0-9_-]+$/;
+
+// --- Frontmatter Validation ---
+
+export interface FrontmatterValidation {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+  parsed: Partial<PageFrontmatter>;
 }
-
-export interface PlanMoveEntry {
-  page_id: string;
-  from: string;
-  to: string;
-  rewrite_links: boolean;
-}
-
-export interface Plan {
-  plan_id: string;
-  source_id: string;
-  status: "planned";
-  create: PlanCreateEntry[];
-  update: PlanUpdateEntry[];
-  moves: PlanMoveEntry[];
-  delete: string[];
-  conflicts: string[];
-  risk_level: "low" | "medium" | "high";
-  notes: string;
-}
-
-// --- Draft ---
-
-export interface DraftFileCreate {
-  action: "create";
-  path: string;
-  content: string;
-}
-
-export interface DraftFileEnsureEntry {
-  action: "ensure_entry";
-  path: string;
-  entry: string;
-  anchor: string | null;
-  dedup_key: string;
-}
-
-export interface DraftFileOverwrite {
-  action: "overwrite";
-  path: string;
-  content: string;
-}
-
-export type DraftFile = DraftFileCreate | DraftFileEnsureEntry | DraftFileOverwrite;
-
-export interface Draft {
-  plan_id: string;
-  status: "drafted";
-  files: DraftFile[];
-}
-
-// --- Apply / Run ---
-
-export interface CompletedFileRecord {
-  path: string;
-  op: "created" | "modified";
-}
-
-export interface InProgressRecord {
-  run_id: string;
-  plan_id: string;
-  started_at: string;
-  completed_files: CompletedFileRecord[];
-}
-
-export type RecoveryAction = "resume" | "rollback" | "force-clear";
 
 // --- Page Index ---
 
@@ -112,21 +81,6 @@ export interface PageIndex {
   pages: PageIndexEntry[];
 }
 
-// --- Wiki Page Frontmatter ---
-
-export interface PageFrontmatter {
-  id: string;
-  type: "source" | "concept" | "entity" | "analysis" | "index" | "report";
-  title: string;
-  aliases?: string[];
-  source_ids?: string[];
-  updated_at: string;
-  status: "active" | "stub" | "deprecated";
-  tags?: string[];
-  schema_migrated_at?: string;
-  related?: string[];
-}
-
 // --- Search ---
 
 export interface SearchResult {
@@ -143,6 +97,7 @@ export interface SearchQuery {
   type_filter?: string;
   tags?: string[];
   limit?: number;
+  resolve_link?: string;
 }
 
 // --- Tool Results ---

@@ -12,6 +12,7 @@ export interface KbSourceAddOutput {
   source_id: string;
   content_hash: string;
   canonical_path: string;
+  file_name: string;
   manifest: Manifest;
 }
 
@@ -90,12 +91,14 @@ export async function kbSourceAdd(
     fs.copyFileSync(absolutePath, destPath);
 
     // Create manifest
+    const fileName = path.basename(input.file_path);
     const manifest: Manifest = {
       source_id,
       source_locator: absolutePath,
       source_kind: sourceKind,
       content_hash,
       canonical_path: canonicalPath,
+      file_name: fileName,
       ingest_status: "registered",
       created_at: new Date().toISOString(),
     };
@@ -105,7 +108,7 @@ export async function kbSourceAdd(
 
     return {
       success: true,
-      data: { source_id, content_hash, canonical_path: canonicalPath, manifest },
+      data: { source_id, content_hash, canonical_path: canonicalPath, file_name: fileName, manifest },
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

@@ -3,6 +3,7 @@ export { sha256, sha256File, generateSourceId } from "./hash";
 export {
   parseFrontmatter,
   serializeFrontmatter,
+  validateFrontmatter,
   extractHeadings,
   extractExcerpt,
 } from "./frontmatter";

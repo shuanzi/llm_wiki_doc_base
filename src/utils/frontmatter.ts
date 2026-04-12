@@ -1,4 +1,5 @@
-import type { PageFrontmatter } from "../types";
+import type { PageFrontmatter, FrontmatterValidation } from "../types";
+import { CORE_PAGE_TYPES, PAGE_ID_PATTERN } from "../types";
 
 /**
  * Parse a markdown file's frontmatter (YAML between --- delimiters)
@@ -113,6 +114,52 @@ export function serializeFrontmatter(fm: Record<string, unknown>): string {
   }
   lines.push("---");
   return lines.join("\n");
+}
+
+/**
+ * Validate frontmatter against the wiki page schema.
+ * Returns errors (blocking) and warnings (non-blocking).
+ */
+export function validateFrontmatter(
+  fm: Partial<PageFrontmatter>
+): FrontmatterValidation {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Required fields
+  if (!fm.id) errors.push("Missing required field: id");
+  if (!fm.type) errors.push("Missing required field: type");
+  if (!fm.title) errors.push("Missing required field: title");
+  if (!fm.updated_at) errors.push("Missing required field: updated_at");
+  if (!fm.status) errors.push("Missing required field: status");
+
+  // ID format
+  if (fm.id && !PAGE_ID_PATTERN.test(fm.id)) {
+    errors.push(
+      `Invalid id format: "${fm.id}" — must match [a-z0-9_-]+`
+    );
+  }
+
+  // Status enum
+  if (fm.status && !["active", "stub", "deprecated"].includes(fm.status)) {
+    errors.push(
+      `Invalid status: "${fm.status}" — must be active, stub, or deprecated`
+    );
+  }
+
+  // Type: core types are validated, custom types get a warning
+  if (fm.type && !(CORE_PAGE_TYPES as readonly string[]).includes(fm.type)) {
+    warnings.push(
+      `Unknown page type: "${fm.type}" — not in core types (${CORE_PAGE_TYPES.join(", ")})`
+    );
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    parsed: fm,
+  };
 }
 
 /**
