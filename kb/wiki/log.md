@@ -2,33 +2,80 @@
 id: wiki_log
 type: index
 title: Change Log
-updated_at: 2026-04-11
+updated_at: 2026-04-12
 status: active
 ---
 
 # Change Log
-- 2026-04-11: Ingested source `src_sha256_0976343c` → [wiki/sources/src_sha256_0976343c.md](sources/src_sha256_0976343c.md) <!-- dedup:log_ingest_src_sha256_0976343c -->
-- 2026-04-11: Ingested source `src_sha256_3a5b77c6` → [wiki/sources/src_sha256_3a5b77c6.md](sources/src_sha256_3a5b77c6.md) <!-- dedup:log_ingest_src_sha256_3a5b77c6 -->
-- 2026-04-11: Ingested source `src_sha256_a1c9e765` → [wiki/sources/src_sha256_a1c9e765.md](sources/src_sha256_a1c9e765.md) <!-- dedup:log_ingest_src_sha256_a1c9e765 -->
-- 2026-04-11: Ingested source `src_sha256_51f2d174` → [wiki/sources/src_sha256_51f2d174.md](sources/src_sha256_51f2d174.md) <!-- dedup:log_ingest_src_sha256_51f2d174 -->
-- 2026-04-11: Ingested source `src_sha256_d0516b4b` → [wiki/sources/src_sha256_d0516b4b.md](sources/src_sha256_d0516b4b.md) <!-- dedup:log_ingest_src_sha256_d0516b4b -->
-- 2026-04-11: Ingested source `src_sha256_7602e90d` → [wiki/sources/src_sha256_7602e90d.md](sources/src_sha256_7602e90d.md) <!-- dedup:log_ingest_src_sha256_7602e90d -->
-- 2026-04-11: Ingested source `src_sha256_b9eea30d` → [wiki/sources/src_sha256_b9eea30d.md](sources/src_sha256_b9eea30d.md) <!-- dedup:log_ingest_src_sha256_b9eea30d -->
-- 2026-04-11: Ingested source `src_sha256_e1362439` → [wiki/sources/src_sha256_e1362439.md](sources/src_sha256_e1362439.md) <!-- dedup:log_ingest_src_sha256_e1362439 -->
-- 2026-04-11: Ingested source `src_sha256_909eda4b` → [wiki/sources/src_sha256_909eda4b.md](sources/src_sha256_909eda4b.md) <!-- dedup:log_ingest_src_sha256_909eda4b -->
-- 2026-04-11: Ingested source `src_sha256_381eec28` → [wiki/sources/src_sha256_381eec28.md](sources/src_sha256_381eec28.md) <!-- dedup:log_ingest_src_sha256_381eec28 -->
-- 2026-04-11: Ingested source `src_sha256_8f375822` → [wiki/sources/src_sha256_8f375822.md](sources/src_sha256_8f375822.md) <!-- dedup:log_ingest_src_sha256_8f375822 -->
-- 2026-04-11: Ingested source `src_sha256_5c602904` → [wiki/sources/src_sha256_5c602904.md](sources/src_sha256_5c602904.md) <!-- dedup:log_ingest_src_sha256_5c602904 -->
-- 2026-04-11: Ingested source `src_sha256_1af814f9` → [wiki/sources/src_sha256_1af814f9.md](sources/src_sha256_1af814f9.md) <!-- dedup:log_ingest_src_sha256_1af814f9 -->
-- 2026-04-11: Ingested source `src_sha256_c6066312` → [wiki/sources/src_sha256_c6066312.md](sources/src_sha256_c6066312.md) <!-- dedup:log_ingest_src_sha256_c6066312 -->
-- 2026-04-11: Ingested source `src_sha256_e4e3e218` → [wiki/sources/src_sha256_e4e3e218.md](sources/src_sha256_e4e3e218.md) <!-- dedup:log_ingest_src_sha256_e4e3e218 -->
-- 2026-04-11: Ingested source `src_sha256_23d8fea9` → [wiki/sources/src_sha256_23d8fea9.md](sources/src_sha256_23d8fea9.md) <!-- dedup:log_ingest_src_sha256_23d8fea9 -->
-- 2026-04-11: Ingested source `src_sha256_f04df3b5` → [wiki/sources/src_sha256_f04df3b5.md](sources/src_sha256_f04df3b5.md) <!-- dedup:log_ingest_src_sha256_f04df3b5 -->
-- 2026-04-11: Ingested source `src_sha256_5d99456c` → [wiki/sources/src_sha256_5d99456c.md](sources/src_sha256_5d99456c.md) <!-- dedup:log_ingest_src_sha256_5d99456c -->
-- 2026-04-11: Ingested source `src_sha256_990e1e16` → [wiki/sources/src_sha256_990e1e16.md](sources/src_sha256_990e1e16.md) <!-- dedup:log_ingest_src_sha256_990e1e16 -->
-- 2026-04-11: Ingested source `src_sha256_b0079051` → [wiki/sources/src_sha256_b0079051.md](sources/src_sha256_b0079051.md) <!-- dedup:log_ingest_src_sha256_b0079051 -->
-- 2026-04-11: Ingested source `src_sha256_44ea060c` → [wiki/sources/src_sha256_44ea060c.md](sources/src_sha256_44ea060c.md) <!-- dedup:log_ingest_src_sha256_44ea060c -->
-- 2026-04-11: Ingested source `src_sha256_bed29132` → [wiki/sources/src_sha256_bed29132.md](sources/src_sha256_bed29132.md) <!-- dedup:log_ingest_src_sha256_bed29132 -->
+
+## V1 历史条目 (迁移)
+
+## [2026-04-11] migrated | 飞书Zara：工作中，如何推动事情发生
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_0976343c -->
+
+## [2026-04-11] migrated | 用初中数学理解LLM工作原理
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_3a5b77c6 -->
+
+## [2026-04-11] migrated | 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_a1c9e765 -->
+
+## [2026-04-11] migrated | 标六万字长文一次性说清LLM的后训练技术题
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_51f2d174 -->
+
+## [2026-04-11] migrated | 大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_d0516b4b -->
+
+## [2026-04-11] migrated | 只需一条命令，快速找回Windows 10/11消失的"高级启动选项"菜单-51CTO.COM
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_7602e90d -->
+
+## [2026-04-11] migrated | 半导体产业链
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_b9eea30d -->
+
+## [2026-04-11] migrated | 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_e1362439 -->
+
+## [2026-04-11] migrated | u-boot是什么？
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_909eda4b -->
+
+## [2026-04-11] migrated | [翻譯] 認識 x64 程式碼模型（code model）
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_381eec28 -->
+
+## [2026-04-11] migrated | Windows 11安全手册 - 硬件安全性
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_8f375822 -->
+
+## [2026-04-11] migrated | RISC-V"安全"那些事儿（二） - RISC-V
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_5c602904 -->
+
+## [2026-04-11] migrated | RISC-V"安全"那些事儿（三） - RISC-V
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_1af814f9 -->
+
+## [2026-04-11] migrated | RISC-V"安全"那些事儿（一） - RISC-V
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_c6066312 -->
+
+## [2026-04-11] migrated | RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_e4e3e218 -->
+
+## [2026-04-11] migrated | RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_23d8fea9 -->
+
+## [2026-04-11] migrated | RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_f04df3b5 -->
+
+## [2026-04-11] migrated | RISC-V TEE标准制定及安全可信3.0启动方案技术分享
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_5d99456c -->
+
+## [2026-04-11] migrated | RISC-V Linux 启动流程分析 - 泰晓科技
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_990e1e16 -->
+
+## [2026-04-11] migrated | Observations on Siri, Apple Intelligence, and hiding in plain sight
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_b0079051 -->
+
+## [2026-04-11] migrated | Linux操作系统内存管理(思维导图详解)
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_44ea060c -->
+
+## [2026-04-11] migrated | Docker Containers on RISC-V Architecture
+- 迁移自 V1 日志格式 <!-- dedup:log_ingest_src_sha256_bed29132 -->
+
 ## [2026-04-12] ingest | RISC-V TEE标准制定及安全可信3.0启动方案技术分享
 - 更新: [[src_sha256_5d99456c|源摘要页]] — V2 完整提炼替换 V1 截取式摘要
 - 新建: [[risc_v|RISC-V]] (entity)
