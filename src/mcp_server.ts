@@ -5,17 +5,19 @@
  * KB_ROOT resolution order:
  *   process.env.KB_ROOT → process.env.WORKSPACE_ROOT → "./kb"
  *
- * Import note: @modelcontextprotocol/sdk@1.29.0 does not export StdioServerTransport
- * or the Zod schemas via its package.json export map (only `./server` is mapped).
- * We load them at runtime via createRequire pointing directly at the CJS dist files
- * to work around the broken wildcard export map. TypeScript types are satisfied by
- * importing from the bundler-resolvable paths; runtime uses the direct CJS requires.
+ * Import note: @modelcontextprotocol/sdk@1.29.0 ships a dual ESM/CJS build whose
+ * package.json wildcard export ("./*": "./dist/cjs/*") omits the .js extension,
+ * so Node.js CJS require() cannot resolve it at runtime. Dynamic import() with an
+ * explicit .js suffix in the specifier bypasses this and resolves correctly via the
+ * same wildcard. Static `import type` declarations work at compile time because the
+ * TypeScript bundler moduleResolution uses typesVersions ("*": ["./dist/esm/*"]).
  */
 
 import * as path from "path";
 
 import { Server } from "@modelcontextprotocol/sdk/server";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport";
+import type { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types";
+import type { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
 
 import { kbSourceAdd } from "./tools/kb_source_add";
 import { kbReadSource } from "./tools/kb_read_source";
@@ -27,29 +29,6 @@ import { kbReadPage } from "./tools/kb_read_page";
 import { kbCommit } from "./tools/kb_commit";
 
 import type { WorkspaceConfig } from "./types";
-
-// ---------------------------------------------------------------------------
-// Load SDK internals via direct CJS requires (bypassing broken export map)
-// ---------------------------------------------------------------------------
-
-// The SDK's export map wildcard (./*) does not include a .js extension so Node
-// cannot resolve `require("@modelcontextprotocol/sdk/server/stdio")` at runtime.
-// We work around this by requiring the CJS files directly via their file-system path.
-// NOTE: require.resolve("@modelcontextprotocol/sdk/package.json") resolves to
-// dist/cjs/package.json via the wildcard export map, so we walk up to the true root.
-/* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
-const sdkCjsRoot = path.dirname(
-  require.resolve("@modelcontextprotocol/sdk/package.json")
-);
-// dist/cjs/package.json → walk up two levels to get the true package root
-const sdkRoot = path.join(sdkCjsRoot, "..", "..");
-const sdkTypes = require(path.join(sdkRoot, "dist/cjs/types.js")) as any;
-const ListToolsRequestSchema = sdkTypes.ListToolsRequestSchema;
-const CallToolRequestSchema = sdkTypes.CallToolRequestSchema;
-
-const sdkStdio = require(path.join(sdkRoot, "dist/cjs/server/stdio.js")) as any;
-const StdioServerTransport = sdkStdio.StdioServerTransport as new () => Transport;
-/* eslint-enable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
 
 // ---------------------------------------------------------------------------
 // Workspace config — resolved once at startup
@@ -296,6 +275,15 @@ async function dispatchTool(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  // Dynamic import with explicit .js suffix resolves the SDK's wildcard export map
+  // correctly at runtime (see top-of-file comment for why this is necessary).
+  const { ListToolsRequestSchema, CallToolRequestSchema } = await import(
+    "@modelcontextprotocol/sdk/types.js"
+  );
+  const { StdioServerTransport: TypedStdioServerTransport } = await import(
+    "@modelcontextprotocol/sdk/server/stdio.js"
+  );
+
   const server = new Server(
     { name: "kb-mcp", version: "0.1.0" },
     {
@@ -317,8 +305,7 @@ async function main(): Promise<void> {
   });
 
   // Call tool handler
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: rawArgs } = request.params as {
       name: string;
       arguments?: ToolArgs;
@@ -349,7 +336,7 @@ async function main(): Promise<void> {
     };
   });
 
-  const transport = new StdioServerTransport();
+  const transport = new TypedStdioServerTransport();
   await server.connect(transport);
 
   // Log to stderr so it doesn't pollute the JSON-RPC stdout stream
