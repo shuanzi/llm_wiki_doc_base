@@ -3,7 +3,9 @@
     "allow": [
       "Skill(codex:rescue)",
       "Bash(npm --version)",
-      "Bash(npm init:*)"
+      "Bash(npm init:*)",
+      "Bash(npx tsc:*)",
+      "Bash(git add:*)"
     ]
   }
 }
