@@ -3,7 +3,15 @@
  * MCP stdio server exposing all 8 V2 knowledge-base tools.
  *
  * KB_ROOT resolution order:
- *   process.env.KB_ROOT → process.env.WORKSPACE_ROOT → "./kb"
+ *   1. process.env.KB_ROOT        → used as-is (absolute override for kb_root)
+ *   2. process.env.WORKSPACE_ROOT → kb_root = path.resolve(WORKSPACE_ROOT, "kb")
+ *      NOTE: WORKSPACE_ROOT means the REPO ROOT, not the kb directory itself.
+ *   3. fallback                   → path.resolve("./kb") (cwd-relative)
+ *
+ * A startup guard verifies that the resolved kb_root exists and is a directory.
+ * If the check fails the server logs a clear error to stderr and exits with
+ * code 2 — before connecting the MCP transport, so a broken server is never
+ * advertised to the client.
  *
  * Import note: @modelcontextprotocol/sdk@1.29.0 ships a dual ESM/CJS build whose
  * package.json wildcard export ("./*": "./dist/cjs/*") omits the .js extension,
@@ -13,6 +21,7 @@
  * TypeScript bundler moduleResolution uses typesVersions ("*": ["./dist/esm/*"]).
  */
 
+import * as fs from "fs";
 import * as path from "path";
 
 import { Server } from "@modelcontextprotocol/sdk/server";
@@ -33,12 +42,33 @@ import type { WorkspaceConfig } from "./types";
 // ---------------------------------------------------------------------------
 // Workspace config — resolved once at startup
 // ---------------------------------------------------------------------------
-const rawKbRoot =
-  process.env.KB_ROOT ?? process.env.WORKSPACE_ROOT ?? "./kb";
 
-const config: WorkspaceConfig = {
-  kb_root: path.resolve(rawKbRoot),
-};
+let kb_root: string;
+let kbRootSource: string;
+
+if (process.env.KB_ROOT) {
+  kb_root = path.resolve(process.env.KB_ROOT);
+  kbRootSource = "KB_ROOT";
+} else if (process.env.WORKSPACE_ROOT) {
+  kb_root = path.resolve(process.env.WORKSPACE_ROOT, "kb");
+  kbRootSource = "WORKSPACE_ROOT";
+} else {
+  kb_root = path.resolve("./kb");
+  kbRootSource = "default (cwd/kb)";
+}
+
+// Startup guard — must run BEFORE the server connects to MCP transport
+if (!fs.existsSync(kb_root) || !fs.statSync(kb_root).isDirectory()) {
+  process.stderr.write(
+    `[kb-mcp] FATAL: kb_root does not exist or is not a directory.\n` +
+      `  resolved path : ${kb_root}\n` +
+      `  driven by     : ${kbRootSource}\n` +
+      `Set KB_ROOT (absolute path to the kb directory) or WORKSPACE_ROOT (repo root) correctly.\n`
+  );
+  process.exit(2);
+}
+
+const config: WorkspaceConfig = { kb_root };
 
 // ---------------------------------------------------------------------------
 // Tool definitions (name + description + JSON Schema input)
