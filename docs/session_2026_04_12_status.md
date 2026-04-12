@@ -1,0 +1,170 @@
+---
+date: 2026-04-12
+branch: 0410_claude_version
+---
+
+# V2 Migration — Session Status (2026-04-12)
+
+End-of-day snapshot for picking up in a fresh session. V2 migration is near-complete; Phase 3 remediation round is done but not yet re-reviewed.
+
+## 1. Architecture summary
+
+Repo transitioned from V1 (deterministic plan → draft → apply pipeline) to V2 (LLM-driven knowledge compilation).
+
+V2 shape:
+- **8 tools** in `src/tools/kb_*.ts`: `kb_source_add`, `kb_read_source`, `kb_write_page`, `kb_update_section`, `kb_ensure_entry`, `kb_search_wiki`, `kb_read_page`, `kb_commit`.
+- **MCP stdio server** in `src/mcp_server.ts` exposing all 8 tools over `@modelcontextprotocol/sdk@1.29.0`.
+- **Skills** (LLM-facing procedures) in `skills/kb_ingest/SKILL.md`, `skills/kb_query/SKILL.md`, `skills/kb_lint/SKILL.md`.
+- **Wiki conventions** in `kb/schema/wiki-conventions.md` (single source of truth for frontmatter / wikilinks / page types).
+- **V2 KB layout** under `kb/wiki/`: `sources/`, `entities/`, `concepts/`, plus navigation pages `index.md` and `log.md`.
+
+## 2. What's committed on this branch
+
+Commits since `main` (newest first):
+
+| SHA | Subject |
+|---|---|
+| `37a3594` | refactor: rewrite e2e_v2_ingest.ts as general-purpose driver exercising all 8 tools |
+| `0cf64b1` | fix: migrate V1 wiki index.md and log.md to V2 conventions |
+| `1ec3db0` | fix: kb_ensure_entry bumps updated_at and preserves insert order |
+| `c758443` | fix: mcp_server WORKSPACE_ROOT semantics + SDK version pin |
+| `230cd59` | feat: V2 E2E first-pass output — multi-page ingest from RISC-V TEE source |
+| `dddfc6f` | refactor: clean up MCP SDK import workaround — use dynamic import with .js extension |
+| `6710ceb` | feat: MCP stdio server exposing V2 tools |
+| `d1ff4b8` | chore: remove V1 test_e2e.ts — obsolete under V2 LLM-driven flow |
+| `eb7c28f` | chore: local configs and llm-wiki idea doc |
+| `167e891` | feat: V2 Phase 2 — LLM-driven skills + wiki conventions |
+
+`npx tsc --noEmit` passes clean at the tip of the branch.
+
+## 3. Phase-by-phase progress
+
+### Phase 1 — Tool layer (done, pre-session)
+All 8 `src/tools/kb_*.ts` implemented.
+
+### Phase 2 — Skills + conventions (done)
+- `skills/kb_ingest|kb_query|kb_lint/SKILL.md` written; `kb/schema/wiki-conventions.md` written.
+- **Codex review: 5 findings, all fixed** (rolled into `167e891` + follow-ups):
+  1. `kb_lint` couldn't enumerate via `kb_search_wiki("*")` → rewritten to Read `kb/state/cache/page-index.json` directly.
+  2. Missing `dedup_key` in kb_query / kb_lint save flows → added canonical patterns `index_{topic_id}`, `log_analysis_{topic_id}_{YYYY-MM-DD}`.
+  3. `kb_ingest` didn't mandate `append: true` → explicit instruction added.
+  4. `kb_read_page` error message referenced stale `kb_apply_patch` → replaced with `kb_write_page`.
+  5. Skills didn't check `warnings[]` → explicit check instructions added.
+
+### Phase 3 — MCP exposure + E2E + migration (done, one follow-up pending)
+
+| Sub-phase | Status | Notes |
+|---|---|---|
+| 3.1 Investigate MCP exposure | completed | |
+| 3.2 Implement MCP stdio server | completed | `6710ceb` + `dddfc6f` |
+| 3.3 E2E validation | completed | First-pass manual LLM flow → commit `230cd59` |
+| 3.4 Delete V1 test_e2e.ts | completed | `d1ff4b8` |
+| 3.5 V1 legacy wiki data handling | completed | Rolled into Fix C |
+| 3.6 Obsidian compatibility spot-check | **pending** | Open `kb/wiki/` in Obsidian, confirm wikilinks / backlinks / graph render |
+| 3.7 README update for V2 architecture | **pending** | Current README still describes V1 |
+
+**Codex review of Phase 3: 1 Critical + 3 Major + 3 Minor. All 7 fixed.**
+
+| ID | Severity | Fix | Commit |
+|---|---|---|---|
+| 1 | Critical | MCP `WORKSPACE_ROOT` semantics — resolves to `{root}/kb`; `KB_ROOT` stays as absolute override; startup guard exits 2 on missing kb_root | `c758443` |
+| 7 | Minor | SDK pinned to exact `1.29.0` | `c758443` |
+| 4 | Major | V1 `index.md` / `log.md` had mixed V1/V2 state → migrated to wikilinks + `## [date] migrated` headings | `0cf64b1` |
+| 5 | Minor | `kb_ensure_entry` didn't bump `updated_at` | `1ec3db0` |
+| 6 | Minor | `kb_ensure_entry` inserted in reverse order inside sections — now walks to section end | `1ec3db0` |
+| 2 | Major | E2E only exercised 5/8 tools — driver rewritten to exercise all 8, generic source path via CLI, idempotency test built in | `37a3594` |
+| 3 | Major | E2E had hardcoded RISC-V boilerplate — driver now templates from source frontmatter | `37a3594` |
+
+## 4. Working-tree state at end of session (⚠️ dirty)
+
+```
+ M kb/state/cache/page-index.json
+ M kb/wiki/entities/risc_v.md
+ M kb/wiki/index.md
+ M kb/wiki/sources/src_sha256_3a5b77c6.md
+ M kb/wiki/sources/src_sha256_5d99456c.md
+?? kb/wiki/concepts/concept_llm.md
+?? kb/wiki/concepts/concept_risc_v_tee3_0.md
+?? kb/wiki/entities/llm.md
+```
+
+**These are verification-run artifacts from the new E2E driver (Fix B), NOT real knowledge content.** They were left uncommitted because the driver's placeholder templates *overwrote* real V2 content in the working tree:
+
+- `kb/wiki/entities/risc_v.md` at HEAD has the real V2 content (关键特性, 关联 section with `[[tee]]` / `[[opensbi]]` / `[[tpcm]]` wikilinks). The working-tree version was replaced by `Placeholder entity page for RISC-V` with `tags: [e2e-driver, auto-generated]`.
+- Same pattern for the two source pages.
+- The three untracked files are driver-generated placeholders (`concept_llm.md`, `concept_risc_v_tee3_0.md`, `llm.md`).
+
+**The real content is safe in HEAD** (commits `230cd59` + `0cf64b1`). To restore at the start of next session:
+
+```sh
+git restore kb/state/cache/page-index.json \
+  kb/wiki/entities/risc_v.md \
+  kb/wiki/index.md \
+  kb/wiki/sources/src_sha256_3a5b77c6.md \
+  kb/wiki/sources/src_sha256_5d99456c.md
+rm kb/wiki/concepts/concept_llm.md \
+   kb/wiki/concepts/concept_risc_v_tee3_0.md \
+   kb/wiki/entities/llm.md
+```
+
+This exposes a real bug in `scripts/e2e_v2_ingest.ts` — see §5.
+
+## 5. Open issues / new findings
+
+### 5.1 E2E driver pollutes real KB (new, blocks routine use)
+
+`scripts/e2e_v2_ingest.ts` writes driver placeholder templates directly into the real `kb/wiki/**` tree on every run. Running it a second time to check idempotency *also* permanently grows the target entity's `## 来源` section with "二次摄入验证 - Run 2" lines.
+
+**Recommended fix options:**
+- (a) Isolate driver runs to a throwaway kb: `WORKSPACE_ROOT=/tmp/kb-e2e-$$ npx tsx …` with a seed copy.
+- (b) Snapshot + restore the files the driver touches.
+- (c) Stage driver-generated pages under a reserved namespace like `kb/wiki/_e2e_scratch/` that is gitignored.
+
+Recommended: (a) — cleanest, no scratch namespace to maintain.
+
+### 5.2 `page-index.json` heading list for `log.md` may be stale (minor)
+
+Fix C added a new `## V1 历史条目 (迁移)` heading to `log.md`. Reported by the Fix C agent as "non-blocking, will self-heal on next write to log.md via `kb_write_page` / `kb_update_section`". No action needed unless lint flags it.
+
+### 5.3 Codex has not yet re-reviewed the 4 Phase-3 fixes
+
+Per earlier direction ("走方案B，可以先处理技术债。这轮E2E验证完成后，请让codex review这一阶段的工作"), another Codex review should run after the remediation round is complete. Not yet dispatched.
+
+## 6. Remaining tasks
+
+Task IDs refer to the TaskList in the planning thread.
+
+| ID | Subject | Status | Blocked by |
+|---|---|---|---|
+| #23 | Phase 3.6: Obsidian compatibility spot-check | pending | Clean working tree (fix §4 first) |
+| #24 | Phase 3.7: README update for V2 architecture | pending | — |
+| (new) | Fix E2E driver to be non-destructive | pending | — |
+| (new) | Codex review round 2 on Phase 3 remediation | pending | Clean tree + driver fix |
+
+## 7. Key file / command reference
+
+**Paths**
+- MCP server entrypoint: `src/mcp_server.ts` (bin `kb-mcp`, scripts `start:mcp`)
+- V2 tool implementations: `src/tools/kb_*.ts`
+- Skills: `skills/kb_{ingest,query,lint}/SKILL.md`
+- Conventions: `kb/schema/wiki-conventions.md`
+- E2E driver: `scripts/e2e_v2_ingest.ts` (uses `tsconfig.scripts.json`)
+
+**Commands**
+- `npm run build` — compile to `dist/`
+- `npm run typecheck` — no-emit check (passes clean)
+- `npm run start:mcp` — launch MCP stdio server
+- `npx tsx -p tsconfig.scripts.json scripts/e2e_v2_ingest.ts <source.md>` — run E2E driver ⚠️ pollutes real KB until §5.1 is fixed
+
+**Env vars for MCP server**
+- `KB_ROOT=<abs-path-to-kb-dir>` — absolute override
+- `WORKSPACE_ROOT=<repo-root>` — resolves to `{repo}/kb`
+- Fallback: `./kb` relative to cwd
+- Server exits with code 2 at startup if `kb_root` doesn't exist as a directory.
+
+## 8. Notable design decisions captured this session
+
+- `@modelcontextprotocol/sdk@1.29.0` dual ESM/CJS export map is broken: `./*` wildcard omits `.js` extension so Node CJS `require()` can't resolve it. Fix: dynamic `await import("@modelcontextprotocol/sdk/.../stdio.js")` with explicit `.js` suffix inside `async main()`. Static `import type` at module scope still works because TS uses `typesVersions`. Rationale documented in `src/mcp_server.ts` header.
+- `WORKSPACE_ROOT` means **repo root**, not the `kb/` dir — stated explicitly in server startup log, enforced by startup guard.
+- V1 → V2 wiki migration: all relative links rewritten as `[[src_sha256_xxx|title]]` wikilinks; V1 log bullets converted into `## [unknown] migrated | {title}` headings grouped under `## V1 历史条目 (迁移)`. Summaries are placeholder-equal-to-title with a HTML comment marker for `kb_lint` to flag later.
+- `kb_ensure_entry` now parses frontmatter, bumps `updated_at` to today, and re-serializes on every successful insert. Insert position walks forward from anchor to the next heading of same-or-higher level (trailing blank lines trimmed) so new entries land at section end.
