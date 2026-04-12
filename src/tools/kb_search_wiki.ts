@@ -19,6 +19,40 @@ export async function kbSearchWiki(
     }
 
     const index: PageIndex = JSON.parse(fs.readFileSync(indexPath, "utf8"));
+
+    // --- resolve_link mode ---
+    if (input.resolve_link !== undefined) {
+      // Strip [[ and ]] if present
+      const raw = input.resolve_link.replace(/^\[\[/, "").replace(/\]\]$/, "");
+      const needle = raw.toLowerCase();
+
+      for (const page of index.pages) {
+        const titleMatch = page.title.toLowerCase() === needle;
+        const idMatch = page.page_id.toLowerCase() === needle;
+        const aliasMatch = page.aliases.some((a) => a.toLowerCase() === needle);
+
+        if (titleMatch || idMatch || aliasMatch) {
+          return {
+            success: true,
+            data: [
+              {
+                page_id: page.page_id,
+                path: page.path,
+                title: page.title,
+                type: page.type,
+                score: 1,
+                excerpt: page.body_excerpt,
+              },
+            ],
+          };
+        }
+      }
+
+      // No match found
+      return { success: true, data: [] };
+    }
+
+    // --- Keyword search mode ---
     const query = input.query.toLowerCase();
     const keywords = query.split(/\s+/).filter((k) => k.length > 0);
     const limit = input.limit ?? 10;
@@ -41,15 +75,6 @@ export async function kbSearchWiki(
 
       // Score by keyword matches across fields
       let score = 0;
-      const searchableText = [
-        page.title,
-        ...page.aliases,
-        ...page.tags,
-        ...page.headings,
-        page.body_excerpt,
-      ]
-        .join(" ")
-        .toLowerCase();
 
       for (const kw of keywords) {
         // Title match is weighted higher
