@@ -159,21 +159,6 @@
       "body_excerpt": "- Source ID: srcsha2565c602904\n- Kind: markdown\n- Content Hash: sha256:5c6029043af61f97c6f66d53e36104b9c0f3a33c50a2b4be72be1c0fa2928a25\n- Ingested: 2026-04-11\n- 活动比赛Competitions\n- 社区动态\n- K3\n- Eco Soft..."
     },
     {
-      "page_id": "src_sha256_5d99456c",
-      "path": "wiki/sources/src_sha256_5d99456c.md",
-      "type": "source",
-      "title": "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
-      "aliases": [],
-      "tags": [],
-      "headings": [
-        "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
-        "Source Info",
-        "Summary",
-        "Structure"
-      ],
-      "body_excerpt": "- Source ID: srcsha2565d99456c\n- Kind: markdown\n- Content Hash: sha256:5d99456cf9ae5f2bd60278cd14df4d48a6cd1d0cc37f01bdb2c418529dcae282\n- Ingested: 2026-04-11\n联系邮箱：dahogn@sdu.edu.cn, yeqianyang1998@gm..."
-    },
-    {
       "page_id": "src_sha256_7602e90d",
       "path": "wiki/sources/src_sha256_7602e90d.md",
       "type": "source",
@@ -364,6 +349,201 @@
         "Structure"
       ],
       "body_excerpt": "- Source ID: srcsha256f04df3b5\n- Kind: markdown\n- Content Hash: sha256:f04df3b5a8c04f426ee20135e7ac10792ef16d6e15476d34e6302c96fe244ff3\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
+    },
+    {
+      "page_id": "src_sha256_5d99456c",
+      "path": "wiki/sources/src_sha256_5d99456c.md",
+      "type": "source",
+      "title": "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+      "aliases": [],
+      "tags": [
+        "risc-v",
+        "tee",
+        "trusted-computing",
+        "secure-boot",
+        "tpcm",
+        "hardware-security"
+      ],
+      "headings": [
+        "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+        "文档概述",
+        "关键要点",
+        "核心论断",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "本文来自山东大学智研院，系统阐述了在 [[riscv|RISC-V]] 体系结构下制定 [[tee|TEE（可信执行环境）]] 标准的必要性，以及团队提出的基于 [[tpcm|TPCM（可信平台控制模块）]] 的\"安全可信 3.0\"启动方案。文章从 ARM TrustZone 的成熟生态出发，指出 RISC-V 安全生态碎片化问题，论证标准化的迫切性，并给出一套完整的分层启动信任链方案。\n- 标准..."
+    },
+    {
+      "page_id": "risc_v",
+      "path": "wiki/entities/risc_v.md",
+      "type": "entity",
+      "title": "RISC-V",
+      "aliases": [
+        "RISC-V ISA",
+        "riscv",
+        "RISCV"
+      ],
+      "tags": [
+        "architecture",
+        "isa",
+        "open-source",
+        "hardware"
+      ],
+      "headings": [
+        "RISC-V",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "RISC-V 是一种开放的精简指令集架构（ISA），由加州大学伯克利分校发起，现由 RISC-V International 维护。其最大特点是完全开源、模块化，允许任何人免费使用、实现和扩展，已从嵌入式微控制器延伸至高性能服务器和 AI 加速器场景。\n- 开放 ISA：无需授权费，允许商用与学术使用，打破 ARM/x86 的授权壁垒。\n- 模块化扩展：基础整数指令集（RV32I/RV64I）加上..."
+    },
+    {
+      "page_id": "tee",
+      "path": "wiki/entities/tee.md",
+      "type": "entity",
+      "title": "TEE（可信执行环境）",
+      "aliases": [
+        "Trusted Execution Environment",
+        "可信执行环境",
+        "TEE"
+      ],
+      "tags": [
+        "security",
+        "trusted-computing",
+        "hardware-security",
+        "isolation"
+      ],
+      "headings": [
+        "TEE（可信执行环境）",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "TEE（Trusted Execution Environment，可信执行环境）是一种通过硬件隔离机制为敏感代码和数据提供安全运行空间的技术框架。TEE 与普通执行环境（REE）并行运行，通过严格的硬件访问控制确保安全区域内的代码和数据不受普通软件环境的攻击。\n- 硬件隔离：通过 CPU 安全扩展（如 ARM TrustZone、RISC-V 安全态扩展）在硬件层面划分安全态（Secure Wo..."
+    },
+    {
+      "page_id": "tpcm",
+      "path": "wiki/entities/tpcm.md",
+      "type": "entity",
+      "title": "TPCM（可信平台控制模块）",
+      "aliases": [
+        "Trusted Platform Control Module",
+        "可信平台控制模块",
+        "TPCM"
+      ],
+      "tags": [
+        "security",
+        "trusted-computing",
+        "hardware-security",
+        "risc-v"
+      ],
+      "headings": [
+        "TPCM（可信平台控制模块）",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "TPCM（Trusted Platform Control Module，可信平台控制模块）是可信计算 3.0 框架中的核心硬件模块，扮演\"可信管控核心\"角色。不同于被动的 TPM/TCM，TPCM 具备主动监控与策略执行能力，能对平台及上层软件执行过程进行实时度量、监控与响应。\n- 主动可信：区别于 TPM/TCM 的被动度量，TPCM 主动介入系统运行，实时监测异常行为并执行可信策略。\n- 双..."
+    },
+    {
+      "page_id": "opensbi",
+      "path": "wiki/entities/opensbi.md",
+      "type": "entity",
+      "title": "OpenSBI",
+      "aliases": [
+        "Open SBI",
+        "RISC-V SBI"
+      ],
+      "tags": [
+        "risc-v",
+        "firmware",
+        "bootloader",
+        "sbi"
+      ],
+      "headings": [
+        "OpenSBI",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "OpenSBI（Open Supervisor Binary Interface）是 RISC-V 平台的开源特权固件实现，由 Western Digital 主导开发。它实现了 RISC-V SBI（Supervisor Binary Interface）规范，在机器态（M-mode）运行，为上层操作系统（S-mode）提供标准化的硬件抽象接口。\n- SBI 规范实现：作为 RISC-V 启动链..."
+    },
+    {
+      "page_id": "secure_boot",
+      "path": "wiki/concepts/secure_boot.md",
+      "type": "concept",
+      "title": "安全启动（信任链）",
+      "aliases": [
+        "Secure Boot",
+        "信任链",
+        "trust chain",
+        "安全启动"
+      ],
+      "tags": [
+        "security",
+        "boot",
+        "trust-chain",
+        "firmware"
+      ],
+      "headings": [
+        "安全启动（信任链）",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "安全启动（Secure Boot）是通过构建分层信任链（Trust Chain），确保系统从上电到操作系统加载的每个阶段都经过完整性验证的安全机制。核心思想是\"信任根（Root of Trust）\"：从不可篡改的只读存储中的初始代码开始，逐级验证下一阶段引导程序的签名和完整性，形成完整的信任传递链。\n- 信任根（RoT）：信任链的起点，通常存储于只读 ROM 或硬件安全模块中，不可被外部篡改。\n-..."
+    },
+    {
+      "page_id": "trusted_computing",
+      "path": "wiki/concepts/trusted_computing.md",
+      "type": "concept",
+      "title": "可信计算",
+      "aliases": [
+        "Trusted Computing",
+        "可信计算",
+        "可信计算体系"
+      ],
+      "tags": [
+        "security",
+        "trusted-computing",
+        "tee",
+        "hardware-security"
+      ],
+      "headings": [
+        "可信计算",
+        "关键特性",
+        "演进历程：1.0 → 2.0 → 3.0",
+        "核心组件",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "可信计算（Trusted Computing）是一种从硬件层面到软件层面为计算系统建立\"不可篡改、可度量、可验证\"环境的安全体系。其核心目标是确保计算平台的行为符合预期，防止恶意软件篡改系统状态。\n- 可信 1.0：以容错计算等基本安全机制为基础，被动式安全防护，主要关注硬件可靠性。\n- 可信 2.0：以 TCG（Trusted Computing Group）国际标准为代表，引入 TPM/TCM..."
+    },
+    {
+      "page_id": "hardware_isolation",
+      "path": "wiki/concepts/hardware_isolation.md",
+      "type": "concept",
+      "title": "硬件隔离",
+      "aliases": [
+        "Hardware Isolation",
+        "硬件隔离",
+        "安全隔离",
+        "security isolation"
+      ],
+      "tags": [
+        "security",
+        "hardware",
+        "isolation",
+        "memory-protection"
+      ],
+      "headings": [
+        "硬件隔离",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "硬件隔离是通过 CPU 架构层面的安全扩展，在物理硬件级别将安全态（Secure World）与非安全态（Normal World/Normal）的计算资源严格分离的技术机制。这种隔离确保敏感代码和数据（如密钥、认证逻辑）不能被非安全态软件读取或篡改。\n- 寄存器级隔离：安全态拥有独立的寄存器组或寄存器状态，安全态与非安全态之间切换时必须通过受控入口（如 SMC/ecall）。\n- 内存级隔离：通..."
     }
   ]
 }

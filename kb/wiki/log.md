@@ -29,3 +29,13 @@ status: active
 - 2026-04-11: Ingested source `src_sha256_b0079051` → [wiki/sources/src_sha256_b0079051.md](sources/src_sha256_b0079051.md) <!-- dedup:log_ingest_src_sha256_b0079051 -->
 - 2026-04-11: Ingested source `src_sha256_44ea060c` → [wiki/sources/src_sha256_44ea060c.md](sources/src_sha256_44ea060c.md) <!-- dedup:log_ingest_src_sha256_44ea060c -->
 - 2026-04-11: Ingested source `src_sha256_bed29132` → [wiki/sources/src_sha256_bed29132.md](sources/src_sha256_bed29132.md) <!-- dedup:log_ingest_src_sha256_bed29132 -->
+## [2026-04-12] ingest | RISC-V TEE标准制定及安全可信3.0启动方案技术分享
+- 更新: [[src_sha256_5d99456c|源摘要页]] — V2 完整提炼替换 V1 截取式摘要
+- 新建: [[risc_v|RISC-V]] (entity)
+- 新建: [[tee|TEE（可信执行环境）]] (entity)
+- 新建: [[tpcm|TPCM]] (entity)
+- 新建: [[opensbi|OpenSBI]] (entity)
+- 新建: [[secure_boot|安全启动（信任链）]] (concept)
+- 新建: [[trusted_computing|可信计算]] (concept)
+- 新建: [[hardware_isolation|硬件隔离]] (concept)
+- 更新: index.md — 4 entity entries + 3 concept entries added <!-- dedup:log_ingest_src_sha256_5d99456c_v2 -->

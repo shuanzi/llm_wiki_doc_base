@@ -33,7 +33,14 @@ status: active
 - [Docker Containers on RISC-V Architecture](sources/src_sha256_bed29132.md) <!-- dedup:index_source_src_sha256_bed29132 -->
 
 ## Concepts
+- [[hardware_isolation|硬件隔离]] — 安全态与非安全态的物理资源分离机制（1 source） <!-- dedup:index_hardware_isolation -->
+- [[trusted_computing|可信计算]] — 1.0→2.0→3.0 演进框架，主动可信理念（1 source） <!-- dedup:index_trusted_computing -->
+- [[secure_boot|安全启动（信任链）]] — 分层信任链从 ROM 到 OS 的完整启动验证（1 source） <!-- dedup:index_secure_boot -->
 
 ## Entities
+- [[opensbi|OpenSBI]] — RISC-V SBI 固件层，支持安全态扩展（1 source） <!-- dedup:index_opensbi -->
+- [[tpcm|TPCM]] — 可信 3.0 主动可信控制模块（1 source） <!-- dedup:index_tpcm -->
+- [[tee|TEE（可信执行环境）]] — 硬件隔离安全执行环境（1 source） <!-- dedup:index_tee -->
+- [[risc_v|RISC-V]] — 开源指令集架构，正在推进 TEE 标准化（1 source） <!-- dedup:index_risc_v -->
 
 ## Analyses
