@@ -29,6 +29,11 @@ user-invocable: true
 - 多个页面提到某个 entity/concept 但没有独立页面
 - 修复建议：创建 stub 页面
 
+**missing cross-references**：
+- 已有相关页面，但没有建立必要的 `[[wikilink]]` 或 index 交叉引用
+- 与“孤岛页面 / 缺失页面”不同：不是页面不存在，也不是 index 漏挂单页，而是应互相引用的已存在页面未建立关联
+- 修复建议：补充必要 wikilink 与 index 入口（如需）
+
 **Stub 堆积**：
 - 统计 `status: stub` 的页面数量
 - 检查是否有足够的源信息可以充实它们
@@ -52,6 +57,11 @@ user-invocable: true
 - 检查源中的关键 entity/concept 是否已有独立页面
 - 修复建议：建议用户对覆盖不足的源重新 ingest
 
+**data gaps that could be filled with a web search**：
+- 仅标记候选搜索问题或待外部检索点（当前 `kb/wiki` + `kb/raw` 无法支持的事实空缺）
+- 不自动补事实，不在 lint 阶段生成未经核实的新结论
+- 修复建议：由用户确认后再进行外部检索与回写
+
 ### 第 4 步：报告与修复
 
 **报告格式**：
@@ -63,6 +73,8 @@ user-invocable: true
 🟡 警告 — 建议修复（孤岛页面、stub 堆积）
 🔵 建议 — 可选改进（覆盖度不足、可充实的 stub）
 ```
+
+- `missing cross-references` 通常归为 `🟡 警告`；`data gaps that could be filled with a web search` 通常归为 `🔵 建议`。
 
 **交互式修复**：
 - 报告完成后，询问用户想修复哪些项目

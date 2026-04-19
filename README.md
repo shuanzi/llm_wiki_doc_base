@@ -94,7 +94,7 @@ WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
 
 - `skills/kb_ingest/SKILL.md`: ingest one source and update multiple wiki pages
 - `skills/kb_query/SKILL.md`: answer from wiki-first context; optionally persist analyses
-- `skills/kb_lint/SKILL.md`: health checks (orphans, ghost links, stubs, contradictions)
+- `skills/kb_lint/SKILL.md`: health checks (orphans, ghost links, missing cross-references, stubs, contradictions, data gaps that could be filled with a web search)
 
 Use skills as the default operating procedure over the 8 tools (tools = primitives, skills = workflow).
 
