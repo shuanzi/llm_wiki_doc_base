@@ -2,7 +2,7 @@
 id: wiki_log
 type: index
 title: Change Log
-updated_at: 2026-04-12
+updated_at: 2026-04-19
 status: active
 ---
 
@@ -86,3 +86,9 @@ status: active
 - 新建: [[trusted_computing|可信计算]] (concept)
 - 新建: [[hardware_isolation|硬件隔离]] (concept)
 - 更新: index.md — 4 entity entries + 3 concept entries added <!-- dedup:log_ingest_src_sha256_5d99456c_v2 -->
+
+## [2026-04-19] ingest | From Vector to Matrix: The Future of RISC-V Matrix Extensions
+- 新建: [[src_sha256_08e04538|From Vector to Matrix: The Future of RISC-V Matrix Extensions]] (source)
+- 更新: [[risc_v|RISC-V]] — 追加“矩阵扩展进展”段落（按来源归因）并补充来源
+- 新建: [[risc_v_matrix_extensions|RISC-V 矩阵扩展]] (concept)
+- 更新: index.md — 1 source entry + 1 concept entry + 1 entity summary updated <!-- dedup:log_ingest_src_sha256_08e04538 -->

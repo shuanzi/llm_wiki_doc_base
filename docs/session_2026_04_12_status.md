@@ -1,11 +1,12 @@
 ---
 date: 2026-04-12
+refreshed_at: 2026-04-19
 branch: 0410_claude_version
 ---
 
-# V2 Migration — Session Status (2026-04-12)
+# V2 Migration — Session Status (2026-04-12 snapshot, refreshed 2026-04-19)
 
-End-of-day snapshot for picking up in a fresh session. V2 migration is near-complete; Phase 3 remediation round is done but not yet re-reviewed.
+End-of-day snapshot for picking up in a fresh session. This file now includes a 2026-04-19 refresh to align with current repository state.
 
 ## 1. Architecture summary
 
@@ -24,6 +25,7 @@ Commits since `main` (newest first):
 
 | SHA | Subject |
 |---|---|
+| `c92119d` | docs: V2 migration session snapshot 2026-04-12 |
 | `37a3594` | refactor: rewrite e2e_v2_ingest.ts as general-purpose driver exercising all 8 tools |
 | `0cf64b1` | fix: migrate V1 wiki index.md and log.md to V2 conventions |
 | `1ec3db0` | fix: kb_ensure_entry bumps updated_at and preserves insert order |
@@ -60,8 +62,9 @@ All 8 `src/tools/kb_*.ts` implemented.
 | 3.3 E2E validation | completed | First-pass manual LLM flow → commit `230cd59` |
 | 3.4 Delete V1 test_e2e.ts | completed | `d1ff4b8` |
 | 3.5 V1 legacy wiki data handling | completed | Rolled into Fix C |
-| 3.6 Obsidian compatibility spot-check | **pending** | Open `kb/wiki/` in Obsidian, confirm wikilinks / backlinks / graph render |
-| 3.7 README update for V2 architecture | **pending** | Current README still describes V1 |
+| 3.6 Obsidian compatibility spot-check | **pending** | Static navigation/link updates are in place; GUI backlinks/graph spot-check still pending |
+| 3.7 README update for V2 architecture | completed | `README.md` now documents V2 architecture, MCP startup semantics, and safe E2E usage |
+| 3.8 Formal wiki ingest refresh | completed | 2026-04-19: added `src_sha256_08e04538`, new concept `risc_v_matrix_extensions`, updated `risc_v` / `index.md` / `log.md` |
 
 **Codex review of Phase 3: 1 Critical + 3 Major + 3 Minor. All 7 fixed.**
 
@@ -75,58 +78,53 @@ All 8 `src/tools/kb_*.ts` implemented.
 | 2 | Major | E2E only exercised 5/8 tools — driver rewritten to exercise all 8, generic source path via CLI, idempotency test built in | `37a3594` |
 | 3 | Major | E2E had hardcoded RISC-V boilerplate — driver now templates from source frontmatter | `37a3594` |
 
-## 4. Working-tree state at end of session (⚠️ dirty)
+## 4. Working-tree state at refresh time (2026-04-19 snapshot, ⚠️ dirty)
+
+Below is the refresh-time working-tree snapshot; it does not include this document's current maintenance edits.
 
 ```
+ D .codex/AGENTS.md
+ D .codex/agents/explorer.toml
+ D .codex/agents/worker.toml
+ D .codex/config.toml
  M kb/state/cache/page-index.json
  M kb/wiki/entities/risc_v.md
  M kb/wiki/index.md
- M kb/wiki/sources/src_sha256_3a5b77c6.md
- M kb/wiki/sources/src_sha256_5d99456c.md
-?? kb/wiki/concepts/concept_llm.md
-?? kb/wiki/concepts/concept_risc_v_tee3_0.md
-?? kb/wiki/entities/llm.md
+ M kb/wiki/log.md
+ M scripts/e2e_v2_ingest.ts
+?? README.md
+?? kb/wiki/concepts/risc_v_matrix_extensions.md
+?? kb/wiki/sources/src_sha256_08e04538.md
+?? scripts/validate_e2e_v2_ingest_safety.ts
 ```
 
-**These are verification-run artifacts from the new E2E driver (Fix B), NOT real knowledge content.** They were left uncommitted because the driver's placeholder templates *overwrote* real V2 content in the working tree:
+Compared with the 2026-04-12 snapshot, the old "E2E driver overwrote real KB with placeholder pages" state is no longer the active issue.
 
-- `kb/wiki/entities/risc_v.md` at HEAD has the real V2 content (关键特性, 关联 section with `[[tee]]` / `[[opensbi]]` / `[[tpcm]]` wikilinks). The working-tree version was replaced by `Placeholder entity page for RISC-V` with `tags: [e2e-driver, auto-generated]`.
-- Same pattern for the two source pages.
-- The three untracked files are driver-generated placeholders (`concept_llm.md`, `concept_risc_v_tee3_0.md`, `llm.md`).
-
-**The real content is safe in HEAD** (commits `230cd59` + `0cf64b1`). To restore at the start of next session:
-
-```sh
-git restore kb/state/cache/page-index.json \
-  kb/wiki/entities/risc_v.md \
-  kb/wiki/index.md \
-  kb/wiki/sources/src_sha256_3a5b77c6.md \
-  kb/wiki/sources/src_sha256_5d99456c.md
-rm kb/wiki/concepts/concept_llm.md \
-   kb/wiki/concepts/concept_risc_v_tee3_0.md \
-   kb/wiki/entities/llm.md
-```
-
-This exposes a real bug in `scripts/e2e_v2_ingest.ts` — see §5.
+Current dirtiness reflects ongoing V2 hardening + real wiki ingest updates, not throwaway E2E placeholder pollution.
 
 ## 5. Open issues / new findings
 
-### 5.1 E2E driver pollutes real KB (new, blocks routine use)
+### 5.1 E2E driver non-destructive debt status: resolved (2026-04-19)
 
-`scripts/e2e_v2_ingest.ts` writes driver placeholder templates directly into the real `kb/wiki/**` tree on every run. Running it a second time to check idempotency *also* permanently grows the target entity's `## 来源` section with "二次摄入验证 - Run 2" lines.
+`scripts/e2e_v2_ingest.ts` now:
+- defaults to a throwaway temp copy of `./kb` when `--kb-root` is omitted;
+- rejects `--commit` unless explicit `--kb-root` is provided;
+- enforces commit guard so `--commit` target must be exactly `<git-top-level>/kb`;
+- checks run-2 content idempotency via snapshot diff.
 
-**Recommended fix options:**
-- (a) Isolate driver runs to a throwaway kb: `WORKSPACE_ROOT=/tmp/kb-e2e-$$ npx tsx …` with a seed copy.
-- (b) Snapshot + restore the files the driver touches.
-- (c) Stage driver-generated pages under a reserved namespace like `kb/wiki/_e2e_scratch/` that is gitignored.
+`scripts/validate_e2e_v2_ingest_safety.ts` exists and encodes default-mode safety, explicit-mode content idempotency, and commit-guard checks.
 
-Recommended: (a) — cleanest, no scratch namespace to maintain.
+Residual caveat: explicit `--kb-root <path>` mode intentionally writes to that target.
 
-### 5.2 `page-index.json` heading list for `log.md` may be stale (minor)
+### 5.2 Formal wiki ingest completed on 2026-04-19
 
-Fix C added a new `## V1 历史条目 (迁移)` heading to `log.md`. Reported by the Fix C agent as "non-blocking, will self-heal on next write to log.md via `kb_write_page` / `kb_update_section`". No action needed unless lint flags it.
+Verified in current `kb/wiki`:
+- new source: `sources/src_sha256_08e04538.md`
+- new concept: `concepts/risc_v_matrix_extensions.md`
+- updated entity: `entities/risc_v.md` (`source_ids` includes `src_sha256_08e04538`)
+- updated navigation/log: `index.md` and `log.md` contain the 2026-04-19 ingest updates
 
-### 5.3 Codex has not yet re-reviewed the 4 Phase-3 fixes
+### 5.3 Codex has not yet re-reviewed the post-remediation state
 
 Per earlier direction ("走方案B，可以先处理技术债。这轮E2E验证完成后，请让codex review这一阶段的工作"), another Codex review should run after the remediation round is complete. Not yet dispatched.
 
@@ -136,10 +134,11 @@ Task IDs refer to the TaskList in the planning thread.
 
 | ID | Subject | Status | Blocked by |
 |---|---|---|---|
-| #23 | Phase 3.6: Obsidian compatibility spot-check | pending | Clean working tree (fix §4 first) |
-| #24 | Phase 3.7: README update for V2 architecture | pending | — |
-| (new) | Fix E2E driver to be non-destructive | pending | — |
-| (new) | Codex review round 2 on Phase 3 remediation | pending | Clean tree + driver fix |
+| #23 | Phase 3.6: Obsidian compatibility spot-check | pending | GUI verification not yet executed |
+| #24 | Phase 3.7: README update for V2 architecture | completed | — |
+| (done) | E2E driver non-destructive hardening + safety validation script | completed | — |
+| (done) | Formal wiki ingest refresh (`src_sha256_08e04538`) | completed | — |
+| (new) | Codex review round 2 on Phase 3 remediation | pending | — |
 
 ## 7. Key file / command reference
 
@@ -154,7 +153,8 @@ Task IDs refer to the TaskList in the planning thread.
 - `npm run build` — compile to `dist/`
 - `npm run typecheck` — no-emit check (passes clean)
 - `npm run start:mcp` — launch MCP stdio server
-- `npx tsx -p tsconfig.scripts.json scripts/e2e_v2_ingest.ts <source.md>` — run E2E driver ⚠️ pollutes real KB until §5.1 is fixed
+- `npx tsx --tsconfig tsconfig.scripts.json scripts/e2e_v2_ingest.ts <source.md>` — run E2E driver in safe default mode (throwaway temp KB)
+- `npx tsx --tsconfig tsconfig.scripts.json scripts/e2e_v2_ingest.ts <source.md> --kb-root <abs-kb-root> [--commit]` — explicit target mode; `--commit` allowed only for `<git-top-level>/kb`
 
 **Env vars for MCP server**
 - `KB_ROOT=<abs-path-to-kb-dir>` — absolute override

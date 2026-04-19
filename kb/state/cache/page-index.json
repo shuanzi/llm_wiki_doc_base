@@ -1,34 +1,6 @@
 {
   "pages": [
     {
-      "page_id": "wiki_index",
-      "path": "wiki/index.md",
-      "type": "index",
-      "title": "Knowledge Base Index",
-      "aliases": [],
-      "tags": [],
-      "headings": [
-        "Knowledge Base Index",
-        "Sources",
-        "Concepts",
-        "Entities",
-        "Analyses"
-      ],
-      "body_excerpt": "- 飞书Zara：工作中，如何推动事情发生 <!-- dedup:indexsourcesrcsha2560976343c -->\n- 用初中数学理解LLM工作原理 <!-- dedup:indexsourcesrcsha2563a5b77c6 -->\n- 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技 <!-- dedup:indexsourcesrcsha256a1c9e765 -->..."
-    },
-    {
-      "page_id": "wiki_log",
-      "path": "wiki/log.md",
-      "type": "index",
-      "title": "Change Log",
-      "aliases": [],
-      "tags": [],
-      "headings": [
-        "Change Log"
-      ],
-      "body_excerpt": "- 2026-04-11: Ingested source srcsha2560976343c → wiki/sources/srcsha2560976343c.md <!-- dedup:logingestsrcsha2560976343c -->\n- 2026-04-11: Ingested source srcsha2563a5b77c6 → wiki/sources/srcsha2563a..."
-    },
-    {
       "page_id": "reports_index",
       "path": "wiki/reports/index.md",
       "type": "index",
@@ -544,6 +516,59 @@
         "来源"
       ],
       "body_excerpt": "硬件隔离是通过 CPU 架构层面的安全扩展，在物理硬件级别将安全态（Secure World）与非安全态（Normal World/Normal）的计算资源严格分离的技术机制。这种隔离确保敏感代码和数据（如密钥、认证逻辑）不能被非安全态软件读取或篡改。\n- 寄存器级隔离：安全态拥有独立的寄存器组或寄存器状态，安全态与非安全态之间切换时必须通过受控入口（如 SMC/ecall）。\n- 内存级隔离：通..."
+    },
+    {
+      "page_id": "wiki_index",
+      "path": "wiki/index.md",
+      "type": "index",
+      "title": "Knowledge Base Index",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Knowledge Base Index",
+        "Navigation",
+        "Sources",
+        "Concepts",
+        "Entities",
+        "Analyses"
+      ],
+      "body_excerpt": "- [[wikilog|Change Log]] — ingest and edit history <!-- dedup:indexnavwikilog -->\n- [[reportsindex|Reports Index]] — reports catalog <!-- dedup:indexnavreportsindex -->\n<!-- V1 migration: summaries pl..."
+    },
+    {
+      "page_id": "wiki_log",
+      "path": "wiki/log.md",
+      "type": "index",
+      "title": "Change Log",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Change Log",
+        "V1 历史条目 (迁移)",
+        "[2026-04-11] migrated | 飞书Zara：工作中，如何推动事情发生",
+        "[2026-04-11] migrated | 用初中数学理解LLM工作原理",
+        "[2026-04-11] migrated | 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技",
+        "[2026-04-11] migrated | 标六万字长文一次性说清LLM的后训练技术题",
+        "[2026-04-11] migrated | 大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）",
+        "[2026-04-11] migrated | 只需一条命令，快速找回Windows 10/11消失的\"高级启动选项\"菜单-51CTO.COM",
+        "[2026-04-11] migrated | 半导体产业链",
+        "[2026-04-11] migrated | 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」",
+        "[2026-04-11] migrated | u-boot是什么？",
+        "[2026-04-11] migrated | [翻譯] 認識 x64 程式碼模型（code model）",
+        "[2026-04-11] migrated | Windows 11安全手册 - 硬件安全性",
+        "[2026-04-11] migrated | RISC-V\"安全\"那些事儿（二） - RISC-V",
+        "[2026-04-11] migrated | RISC-V\"安全\"那些事儿（三） - RISC-V",
+        "[2026-04-11] migrated | RISC-V\"安全\"那些事儿（一） - RISC-V",
+        "[2026-04-11] migrated | RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技",
+        "[2026-04-11] migrated | RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答",
+        "[2026-04-11] migrated | RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技",
+        "[2026-04-11] migrated | RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+        "[2026-04-11] migrated | RISC-V Linux 启动流程分析 - 泰晓科技",
+        "[2026-04-11] migrated | Observations on Siri, Apple Intelligence, and hiding in plain sight",
+        "[2026-04-11] migrated | Linux操作系统内存管理(思维导图详解)",
+        "[2026-04-11] migrated | Docker Containers on RISC-V Architecture",
+        "[2026-04-12] ingest | RISC-V TEE标准制定及安全可信3.0启动方案技术分享"
+      ],
+      "body_excerpt": "- 迁移自 V1 日志格式 <!-- dedup:logingestsrcsha2560976343c -->\n- 迁移自 V1 日志格式 <!-- dedup:logingestsrcsha2563a5b77c6 -->\n- 迁移自 V1 日志格式 <!-- dedup:logingestsrcsha256a1c9e765 -->\n- 迁移自 V1 日志格式 <!-- dedup:loginge..."
     }
   ]
 }

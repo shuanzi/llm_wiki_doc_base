@@ -2,11 +2,15 @@
 id: wiki_index
 type: index
 title: Knowledge Base Index
-updated_at: 2026-04-12
+updated_at: 2026-04-19
 status: active
 ---
 
 # Knowledge Base Index
+
+## Navigation
+- [[wiki_log|Change Log]] — ingest and edit history <!-- dedup:index_nav_wiki_log -->
+- [[reports/index|Reports Index]] — reports catalog <!-- dedup:index_nav_reports_index -->
 
 ## Sources
 <!-- V1 migration: summaries placeholder-equal-to-title; refine via kb_lint -->
@@ -32,16 +36,18 @@ status: active
 - [[src_sha256_b0079051|Observations on Siri, Apple Intelligence, and hiding in plain sight]] — Observations on Siri, Apple Intelligence, and hiding in plain sight <!-- dedup:index_source_src_sha256_b0079051 -->
 - [[src_sha256_44ea060c|Linux操作系统内存管理(思维导图详解)]] — Linux操作系统内存管理(思维导图详解) <!-- dedup:index_source_src_sha256_44ea060c -->
 - [[src_sha256_bed29132|Docker Containers on RISC-V Architecture]] — Docker Containers on RISC-V Architecture <!-- dedup:index_source_src_sha256_bed29132 -->
+- [[src_sha256_08e04538|From Vector to Matrix: The Future of RISC-V Matrix Extensions]] — 该文讨论 RISC-V 矩阵扩展路线（Integrated/Attached）与跨架构取舍（作者视角） <!-- dedup:index_source_src_sha256_08e04538 -->
 
 ## Concepts
 - [[hardware_isolation|硬件隔离]] — 安全态与非安全态的物理资源分离机制（1 source） <!-- dedup:index_hardware_isolation -->
 - [[trusted_computing|可信计算]] — 1.0→2.0→3.0 演进框架，主动可信理念（1 source） <!-- dedup:index_trusted_computing -->
 - [[secure_boot|安全启动（信任链）]] — 分层信任链从 ROM 到 OS 的完整启动验证（1 source） <!-- dedup:index_secure_boot -->
+- [[risc_v_matrix_extensions|RISC-V 矩阵扩展]] — 基于提案讨论的矩阵 ISA 扩展方向与权衡（1 source） <!-- dedup:index_risc_v_matrix_extensions -->
 
 ## Entities
 - [[opensbi|OpenSBI]] — RISC-V SBI 固件层，支持安全态扩展（1 source） <!-- dedup:index_opensbi -->
 - [[tpcm|TPCM]] — 可信 3.0 主动可信控制模块（1 source） <!-- dedup:index_tpcm -->
 - [[tee|TEE（可信执行环境）]] — 硬件隔离安全执行环境（1 source） <!-- dedup:index_tee -->
-- [[risc_v|RISC-V]] — 开源指令集架构，正在推进 TEE 标准化（1 source） <!-- dedup:index_risc_v -->
+- [[risc_v|RISC-V]] — 开源指令集架构，收录 TEE 与矩阵扩展相关资料（2 sources） <!-- dedup:index_risc_v -->
 
 ## Analyses

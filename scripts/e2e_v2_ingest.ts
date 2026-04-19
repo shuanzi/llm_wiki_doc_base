@@ -14,7 +14,9 @@
  */
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
+import { execSync } from "child_process";
 import type { WorkspaceConfig } from "../src/types";
 import { kbSourceAdd } from "../src/tools/kb_source_add";
 import { kbReadSource } from "../src/tools/kb_read_source";
@@ -27,25 +29,179 @@ import { kbCommit } from "../src/tools/kb_commit";
 
 // ── CLI parsing ───────────────────────────────────────────────────────────────
 
-function parseArgs(): { sourcePath: string; doCommit: boolean; kbRoot: string } {
+function parseArgs(): { sourcePath: string; doCommit: boolean; explicitKbRoot: string | null } {
   const args = process.argv.slice(2);
 
-  // Find source path: first positional arg (not a flag)
-  const sourcePath = args.find((a) => !a.startsWith("--")) ?? "";
-  if (!sourcePath) {
-    console.error("Usage: npx tsx scripts/e2e_v2_ingest.ts <source-path> [--commit] [--kb-root <path>]");
-    console.error("Example: npx tsx scripts/e2e_v2_ingest.ts \"/Users/.../某文档.md\"");
+  let sourcePath = "";
+  let doCommit = false;
+  let explicitKbRoot: string | null = null;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+
+    if (arg === "--commit") {
+      doCommit = true;
+      continue;
+    }
+
+    if (arg === "--kb-root") {
+      const next = args[i + 1];
+      if (!next || next.startsWith("--")) {
+        console.error('[FATAL] "--kb-root" requires a path value.');
+        process.exit(1);
+      }
+      explicitKbRoot = path.resolve(next);
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith("--")) {
+      console.error(`[FATAL] Unknown flag: ${arg}`);
+      process.exit(1);
+    }
+
+    if (!sourcePath) {
+      sourcePath = arg;
+      continue;
+    }
+
+    console.error(`[FATAL] Unexpected extra positional argument: ${arg}`);
     process.exit(1);
   }
 
-  const doCommit = args.includes("--commit");
+  if (!sourcePath) {
+    console.error("Usage: npx tsx scripts/e2e_v2_ingest.ts <source-path> [--commit] [--kb-root <path>]");
+    console.error("Default behavior: run against a throwaway temp copy of ./kb (safe, non-destructive).");
+    console.error("Use --kb-root to intentionally target a specific kb root.");
+    process.exit(1);
+  }
 
-  const kbRootIdx = args.indexOf("--kb-root");
-  const kbRoot = kbRootIdx !== -1 && args[kbRootIdx + 1]
-    ? path.resolve(args[kbRootIdx + 1])
-    : path.resolve(process.cwd(), "kb");
+  return { sourcePath, doCommit, explicitKbRoot };
+}
 
-  return { sourcePath, doCommit, kbRoot };
+interface ResolvedKbRoot {
+  kbRoot: string;
+  mode: "throwaway" | "explicit";
+  tempWorkspaceRoot: string | null;
+}
+
+function ensureCommitTargetSupported(kbRoot: string): void {
+  if (path.basename(kbRoot) !== "kb") {
+    console.error(`[FATAL] --commit requires --kb-root to be a directory named "kb". Received: ${kbRoot}`);
+    process.exit(1);
+  }
+
+  const repoRoot = path.dirname(kbRoot);
+  const expectedKbPath = path.resolve(repoRoot, "kb");
+  if (path.resolve(kbRoot) !== expectedKbPath) {
+    console.error(`[FATAL] --commit requires --kb-root to equal "<git-repo>/kb". Received: ${kbRoot}`);
+    process.exit(1);
+  }
+
+  try {
+    const isGitRepo = execSync("git rev-parse --is-inside-work-tree", {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (isGitRepo !== "true") {
+      console.error(`[FATAL] --commit requires parent directory to be a git work tree: ${repoRoot}`);
+      process.exit(1);
+    }
+
+    const gitTopLevel = execSync("git rev-parse --show-toplevel", {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    if (path.resolve(gitTopLevel) !== path.resolve(repoRoot)) {
+      console.error(
+        `[FATAL] --commit requires --kb-root to be "<git-top-level>/kb". ` +
+        `Resolved parent "${repoRoot}" is inside repo "${gitTopLevel}", not its top-level.`
+      );
+      process.exit(1);
+    }
+  } catch {
+    console.error(`[FATAL] --commit requires parent directory to be a git work tree: ${repoRoot}`);
+    process.exit(1);
+  }
+}
+
+function resolveKbRoot(explicitKbRoot: string | null, doCommit: boolean): ResolvedKbRoot {
+  if (explicitKbRoot) {
+    if (!fs.existsSync(explicitKbRoot) || !fs.statSync(explicitKbRoot).isDirectory()) {
+      console.error(`[FATAL] --kb-root must point to an existing kb directory: ${explicitKbRoot}`);
+      process.exit(1);
+    }
+    if (doCommit) {
+      ensureCommitTargetSupported(explicitKbRoot);
+    }
+    return {
+      kbRoot: explicitKbRoot,
+      mode: "explicit",
+      tempWorkspaceRoot: null,
+    };
+  }
+
+  if (doCommit) {
+    console.error("[FATAL] --commit requires explicit --kb-root. Default mode uses throwaway temp kb and cannot commit to repo.");
+    process.exit(1);
+  }
+
+  const seedKbRoot = path.resolve(process.cwd(), "kb");
+  if (!fs.existsSync(seedKbRoot) || !fs.statSync(seedKbRoot).isDirectory()) {
+    console.error(`[FATAL] Seed kb directory not found at ${seedKbRoot}`);
+    process.exit(1);
+  }
+
+  const tempWorkspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-e2e-v2-"));
+  const tempKbRoot = path.join(tempWorkspaceRoot, "kb");
+  fs.cpSync(seedKbRoot, tempKbRoot, { recursive: true });
+
+  return {
+    kbRoot: tempKbRoot,
+    mode: "throwaway",
+    tempWorkspaceRoot,
+  };
+}
+
+function listFilesRecursive(root: string): string[] {
+  const files: string[] = [];
+  const entries = fs.readdirSync(root, { withFileTypes: true });
+  for (const entry of entries) {
+    const abs = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...listFilesRecursive(abs));
+    } else if (entry.isFile()) {
+      files.push(abs);
+    }
+  }
+  return files;
+}
+
+function snapshotKbContents(kbRoot: string): Map<string, string> {
+  const snapshot = new Map<string, string>();
+  for (const absPath of listFilesRecursive(kbRoot)) {
+    const relPath = path.relative(kbRoot, absPath).replace(/\\/g, "/");
+    const content = fs.readFileSync(absPath, "utf8");
+    snapshot.set(relPath, content);
+  }
+  return snapshot;
+}
+
+function diffSnapshots(
+  before: Map<string, string>,
+  after: Map<string, string>
+): string[] {
+  const allPaths = new Set<string>([...before.keys(), ...after.keys()]);
+  const changed: string[] = [];
+  for (const relPath of allPaths) {
+    if (before.get(relPath) !== after.get(relPath)) {
+      changed.push(relPath);
+    }
+  }
+  changed.sort();
+  return changed;
 }
 
 // ── Keyword-based entity/concept extraction ───────────────────────────────────
@@ -135,14 +291,37 @@ function extractConceptsFromFilename(sourcePath: string): PageSpec[] {
 
 // ── Page template helpers ─────────────────────────────────────────────────────
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-function makeSourcePage(sourceId: string, title: string, charCount: number): string {
+function resolveIngestToday(): string {
+  const override = process.env.E2E_V2_INGEST_TODAY?.trim();
+  if (!override) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (!ISO_DATE_PATTERN.test(override)) {
+    throw new Error(
+      `E2E_V2_INGEST_TODAY must be in YYYY-MM-DD format. Received: "${override}"`
+    );
+  }
+  return override;
+}
+
+function parseIsoDate(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  return ISO_DATE_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+const INGEST_TODAY = resolveIngestToday();
+
+function makeSourcePage(sourceId: string, title: string, charCount: number, updatedAt: string): string {
   return `---
 id: ${sourceId}
 type: source
 title: ${title}
-updated_at: ${TODAY}
+updated_at: ${updatedAt}
 status: active
 source_ids: [${sourceId}]
 tags: [e2e-driver, auto-generated]
@@ -166,12 +345,18 @@ tags: [e2e-driver, auto-generated]
 `;
 }
 
-function makeEntityPage(entityId: string, entityTitle: string, sourceId: string, sourceTitle: string): string {
+function makeEntityPage(
+  entityId: string,
+  entityTitle: string,
+  sourceId: string,
+  sourceTitle: string,
+  updatedAt: string
+): string {
   return `---
 id: ${entityId}
 type: entity
 title: ${entityTitle}
-updated_at: ${TODAY}
+updated_at: ${updatedAt}
 status: active
 tags: [e2e-driver, auto-generated]
 source_ids: [${sourceId}]
@@ -189,16 +374,21 @@ Placeholder entity page for ${entityTitle}, backed by [[${sourceId}|${sourceTitl
 
 ## 来源
 
-- 基于 [[${sourceId}|${sourceTitle}]]
-`;
+- 基于 [[${sourceId}|${sourceTitle}]]`;
 }
 
-function makeConceptPage(conceptId: string, conceptTitle: string, sourceId: string, sourceTitle: string): string {
+function makeConceptPage(
+  conceptId: string,
+  conceptTitle: string,
+  sourceId: string,
+  sourceTitle: string,
+  updatedAt: string
+): string {
   return `---
 id: ${conceptId}
 type: concept
 title: ${conceptTitle}
-updated_at: ${TODAY}
+updated_at: ${updatedAt}
 status: active
 tags: [e2e-driver, auto-generated]
 source_ids: [${sourceId}]
@@ -239,8 +429,7 @@ function checkWarnings(toolName: string, warnings: string[]): void {
 }
 
 function abort(step: string, error: string): never {
-  console.error(`\n[FATAL] Step "${step}" failed: ${error}`);
-  process.exit(1);
+  throw new Error(`Step "${step}" failed: ${error}`);
 }
 
 // ── Core ingest flow ──────────────────────────────────────────────────────────
@@ -320,6 +509,7 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
     ...entities.map((e) => ({ ...e, type: "entity" as const })),
     ...concepts.map((c) => ({ ...c, type: "concept" as const })),
   ];
+  const existingUpdatedAtByPageId: Record<string, string> = {};
 
   for (const spec of allPageSpecs) {
     const srInput = { query: spec.title, type_filter: spec.type };
@@ -339,6 +529,10 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
       if (!rpResult.success) {
         log(`  [WARN] kbReadPage failed for ${spec.id}: ${rpResult.error}`);
       } else {
+        const existingUpdatedAt = parseIsoDate(rpResult.data!.frontmatter.updated_at);
+        if (existingUpdatedAt) {
+          existingUpdatedAtByPageId[spec.id] = existingUpdatedAt;
+        }
         log(`  [OK] kbReadPage: path=${rpResult.data!.path}, type=${rpResult.data!.frontmatter.type}, status=${rpResult.data!.frontmatter.status}`);
       }
     }
@@ -346,7 +540,8 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
 
   // ── Step 4: kbWritePage — source summary ────────────────────────────────
   log("\n[Step 4] kbWritePage — source summary page...");
-  const sourcePageContent = makeSourcePage(sourceId, sourceTitle, rawContent.length);
+  const sourceUpdatedAt = existingUpdatedAtByPageId[sourceId] ?? INGEST_TODAY;
+  const sourcePageContent = makeSourcePage(sourceId, sourceTitle, rawContent.length, sourceUpdatedAt);
   const wpSrcInput = { path: `wiki/sources/${sourceId}.md`, content: sourcePageContent };
   const wpSrcResult = await kbWritePage(wpSrcInput, config);
   logTool("kbWritePage(source)", wpSrcInput, { success: wpSrcResult.success, data: wpSrcResult.data });
@@ -359,7 +554,8 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
   // ── Step 5: kbWritePage — entity pages ──────────────────────────────────
   log("\n[Step 5] kbWritePage — entity pages...");
   for (const entity of entities) {
-    const content = makeEntityPage(entity.id, entity.title, sourceId, sourceTitle);
+    const updatedAt = existingUpdatedAtByPageId[entity.id] ?? INGEST_TODAY;
+    const content = makeEntityPage(entity.id, entity.title, sourceId, sourceTitle, updatedAt);
     const wpInput = { path: `wiki/entities/${entity.id}.md`, content };
     const wpResult = await kbWritePage(wpInput, config);
     logTool(`kbWritePage(entity:${entity.id})`, wpInput, { success: wpResult.success, data: wpResult.data });
@@ -373,7 +569,8 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
   // ── Step 6: kbWritePage — concept pages ────────────────────────────────
   log("\n[Step 6] kbWritePage — concept pages...");
   for (const concept of concepts) {
-    const content = makeConceptPage(concept.id, concept.title, sourceId, sourceTitle);
+    const updatedAt = existingUpdatedAtByPageId[concept.id] ?? INGEST_TODAY;
+    const content = makeConceptPage(concept.id, concept.title, sourceId, sourceTitle, updatedAt);
     const wpInput = { path: `wiki/concepts/${concept.id}.md`, content };
     const wpResult = await kbWritePage(wpInput, config);
     logTool(`kbWritePage(concept:${concept.id})`, wpInput, { success: wpResult.success, data: wpResult.data });
@@ -384,15 +581,15 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
     log(`  [OK] concept "${concept.id}": action=${wpResult.data!.action}`);
   }
 
-  // ── Step 6b: kbUpdateSection — on second run, append to first entity ────
-  if (runLabel.includes("Run 2") && entities.length > 0) {
+  // ── Step 6b: kbUpdateSection — deterministic update for tool coverage ────
+  if (!runLabel.includes("Run 2") && entities.length > 0) {
     const firstEntity = entities[0];
-    log(`\n[Step 6b] kbUpdateSection — append new source ref to entity "${firstEntity.id}"...`);
+    log(`\n[Step 6b] kbUpdateSection — normalize 来源 section on entity "${firstEntity.id}"...`);
     const usInput = {
       path: `wiki/entities/${firstEntity.id}.md`,
       heading: "## 来源",
-      content: `- 基于 [[${sourceId}|${sourceTitle}]]（二次摄入验证 - Run 2）`,
-      append: true,
+      content: `- 基于 [[${sourceId}|${sourceTitle}]]`,
+      append: false,
       create_if_missing: false,
     };
     const usResult = await kbUpdateSection(usInput, config);
@@ -401,7 +598,6 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
       log(`  [WARN] kbUpdateSection failed (section may be missing): ${usResult.error}`);
     } else {
       log(`  [OK] kbUpdateSection: action=${usResult.data!.action}`);
-      log(`  [NOTE] kbUpdateSection append adds the same text again; section grows — this is expected behavior for second run.`);
     }
   }
 
@@ -469,7 +665,7 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
     const dedupKey = `log_ingest_${sourceId}`;
     const entityList = entities.map((e) => `[[${e.id}|${e.title}]] (entity)`).join(", ");
     const conceptList = concepts.map((c) => `[[${c.id}|${c.title}]] (concept)`).join(", ");
-    const logEntry = `## [${TODAY}] ingest | ${sourceTitle}
+    const logEntry = `## [${INGEST_TODAY}] ingest | ${sourceTitle}
 - 新建/更新: [[${sourceId}|源摘要页]] (source)
 - 实体: ${entityList}
 - 概念: ${conceptList}
@@ -637,66 +833,98 @@ function checkIdempotency(run1: RunResult, run2: RunResult): boolean {
   return ok;
 }
 
+function checkContentIdempotency(
+  snapshotAfterRun1: Map<string, string>,
+  snapshotAfterRun2: Map<string, string>
+): boolean {
+  const changedFiles = diffSnapshots(snapshotAfterRun1, snapshotAfterRun2);
+  if (changedFiles.length === 0) {
+    log("  [OK] Run 2 made no file-content changes relative to Run 1.");
+    return true;
+  }
+
+  log("  FAIL: Run 2 changed file content relative to Run 1:");
+  for (const file of changedFiles.slice(0, 20)) {
+    log(`    - ${file}`);
+  }
+  if (changedFiles.length > 20) {
+    log(`    ... and ${changedFiles.length - 20} more files`);
+  }
+  return false;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { sourcePath, doCommit, kbRoot } = parseArgs();
+  const { sourcePath, doCommit, explicitKbRoot } = parseArgs();
 
   if (!fs.existsSync(sourcePath)) {
     console.error(`[FATAL] Source file not found: ${sourcePath}`);
     process.exit(1);
   }
 
+  const kb = resolveKbRoot(explicitKbRoot, doCommit);
+  const kbRoot = kb.kbRoot;
   const config: WorkspaceConfig = { kb_root: kbRoot };
 
   log(`\nKB root: ${kbRoot}`);
+  log(`Mode:    ${kb.mode === "throwaway" ? "throwaway temp copy (safe default)" : "explicit kb root"}`);
+  if (kb.mode === "throwaway") {
+    log(`Temp WS: ${kb.tempWorkspaceRoot}`);
+  }
   log(`Source:  ${sourcePath}`);
   log(`Commit:  ${doCommit}`);
+  try {
+    // ── Run 1 ────────────────────────────────────────────────────────────
+    const run1 = await runIngest(sourcePath, config, "Run 1 — Initial ingest");
+    const run1OK = await verify(run1, config, "Run 1");
 
-  // ── Run 1 ──────────────────────────────────────────────────────────────
-  const run1 = await runIngest(sourcePath, config, "Run 1 — Initial ingest");
-  const run1OK = await verify(run1, config, "Run 1");
-
-  if (!run1OK) {
-    console.error("\nFAIL: Run 1 verification failed (see above)");
-    process.exit(1);
-  }
-  log("\nOK");
-
-  // ── Run 2 (idempotency) ─────────────────────────────────────────────────
-  const run2 = await runIngest(sourcePath, config, "Run 2 — Idempotency re-ingest");
-  const run2OK = await verify(run2, config, "Run 2");
-  const idempotencyOK = checkIdempotency(run1, run2);
-
-  if (!run2OK) {
-    console.error("\nFAIL: Run 2 verification failed (see above)");
-    process.exit(1);
-  }
-
-  if (!idempotencyOK) {
-    console.error("\nIDEMPOTENCY FAIL: duplicate entries detected on second run");
-    process.exit(1);
-  }
-  log("\nIDEMPOTENCY OK");
-
-  // ── Optional commit ──────────────────────────────────────────────────────
-  if (doCommit) {
-    log(`\n[Commit] kbCommit — committing kb/ changes...`);
-    const commitMsg = `kb: e2e ingest ${run1.sourceId} — ${run1.sourceTitle}`;
-    const commitInput = { message: commitMsg };
-    const commitResult = await kbCommit(commitInput, config);
-    logTool("kbCommit", commitInput, { success: commitResult.success, data: commitResult.data });
-    if (!commitResult.success) {
-      abort("kbCommit", commitResult.error ?? "unknown");
+    if (!run1OK) {
+      abort("verify (run 1)", "Run 1 verification failed (see above)");
     }
-    log(`  [OK] Committed: ${commitResult.data!.commit_hash} — "${commitResult.data!.message}"`);
-  } else {
-    log(`\n[Commit] Skipped (pass --commit to enable). KB changes left unstaged.`);
-  }
+    const snapshotAfterRun1 = snapshotKbContents(config.kb_root);
+    log("\nOK");
 
-  log(`\n${"=".repeat(70)}`);
-  log("E2E V2 ingest driver — DONE");
-  log("=".repeat(70));
+    // ── Run 2 (idempotency) ───────────────────────────────────────────────
+    const run2 = await runIngest(sourcePath, config, "Run 2 — Idempotency re-ingest");
+    const run2OK = await verify(run2, config, "Run 2");
+    const snapshotAfterRun2 = snapshotKbContents(config.kb_root);
+    const idempotencyOK = checkIdempotency(run1, run2);
+    const contentIdempotencyOK = checkContentIdempotency(snapshotAfterRun1, snapshotAfterRun2);
+
+    if (!run2OK) {
+      abort("verify (run 2)", "Run 2 verification failed (see above)");
+    }
+
+    if (!idempotencyOK || !contentIdempotencyOK) {
+      abort("idempotency", "run 2 violated dedup or content-stability expectations");
+    }
+    log("\nIDEMPOTENCY OK");
+
+    // ── Optional commit ────────────────────────────────────────────────────
+    if (doCommit) {
+      log(`\n[Commit] kbCommit — committing kb/ changes...`);
+      const commitMsg = `kb: e2e ingest ${run1.sourceId} — ${run1.sourceTitle}`;
+      const commitInput = { message: commitMsg };
+      const commitResult = await kbCommit(commitInput, config);
+      logTool("kbCommit", commitInput, { success: commitResult.success, data: commitResult.data });
+      if (!commitResult.success) {
+        abort("kbCommit", commitResult.error ?? "unknown");
+      }
+      log(`  [OK] Committed: ${commitResult.data!.commit_hash} — "${commitResult.data!.message}"`);
+    } else {
+      log(`\n[Commit] Skipped (pass --commit to enable). KB changes left unstaged.`);
+    }
+
+    log(`\n${"=".repeat(70)}`);
+    log("E2E V2 ingest driver — DONE");
+    log("=".repeat(70));
+  } finally {
+    if (kb.tempWorkspaceRoot) {
+      fs.rmSync(kb.tempWorkspaceRoot, { recursive: true, force: true });
+      log(`\n[Cleanup] Removed throwaway workspace: ${kb.tempWorkspaceRoot}`);
+    }
+  }
 }
 
 main().catch((err) => {
