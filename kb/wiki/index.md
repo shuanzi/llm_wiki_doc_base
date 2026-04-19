@@ -51,3 +51,4 @@ status: active
 - [[risc_v|RISC-V]] — 开源指令集架构，收录 TEE 与矩阵扩展相关资料（2 sources） <!-- dedup:index_risc_v -->
 
 ## Analyses
+- [[risc_v_trust_chain_analysis|RISC-V 安全可信 3.0 启动链与信任边界分析]] — 基于单源 wiki 材料对分层启动链、信任边界与 2.0→3.0 增量的归纳 <!-- dedup:index_risc_v_trust_chain_analysis -->

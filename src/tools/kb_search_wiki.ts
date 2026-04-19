@@ -23,8 +23,11 @@ export async function kbSearchWiki(
     // --- resolve_link mode ---
     if (input.resolve_link !== undefined) {
       // Strip [[ and ]] if present
-      const raw = input.resolve_link.replace(/^\[\[/, "").replace(/\]\]$/, "");
-      const needle = raw.toLowerCase();
+      const normalizedLink = input.resolve_link.trim();
+      const raw = normalizedLink.replace(/^\[\[/, "").replace(/\]\]$/, "").trim();
+      const pipeIndex = raw.indexOf("|");
+      const linkTarget = (pipeIndex >= 0 ? raw.slice(0, pipeIndex) : raw).trim();
+      const needle = linkTarget.toLowerCase();
 
       for (const page of index.pages) {
         const titleMatch = page.title.toLowerCase() === needle;

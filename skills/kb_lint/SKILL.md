@@ -69,6 +69,15 @@ user-invocable: true
 - 用户选择后，使用 `kb_write_page`、`kb_update_section`、`kb_ensure_entry` 执行修复
 - 修复完成后 `kb_commit` — message: `kb: lint fix — {简短描述}`
 
+### Lint 日志（完整 pass，含 clean pass）
+
+完成一次完整 lint pass（即完成结构/内容检查并输出结果）后，必须追加简短日志到 `wiki/log.md`，即使不保存 report 页面、即使结果是 `No findings`。  
+这里的“零输出”仅指半途终止或未产出结果；`No findings` 是有效结果（`0/0/0`）并且必须记录。
+
+- 不保存 report 时：
+  - 先生成本次 lint 的唯一 `run_id`（建议 `YYYYMMDDTHHMMSS`，如 `20260419T142010`）
+  - `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_lint_{scope}_{run_id}", entry: "## [{date}] lint | {scope}\n- run_id: {run_id}\n- 结果: {一句话总结（可为 No findings / clean pass）}\n- 发现: {错误数}/{警告数}/{建议数}" })`
+
 ### 可选：保存报告
 
 如果检查发现较多问题，建议用户将报告保存为 wiki 页面。选定 `report_id`（如 `lint_2026_04_12`）：
@@ -76,7 +85,8 @@ user-invocable: true
 - `kb_write_page({ path: "wiki/reports/{report_id}.md", content: ... })` — type: report
   - 检查返回的 `warnings[]`
 - `kb_ensure_entry({ path: "wiki/index.md", anchor: "## Reports", dedup_key: "index_{report_id}", entry: "- [[{report_id}|Lint Report {date}]] — summary" })`
-- `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_lint_{report_id}", entry: "## [{date}] lint | report\n- 新建: [[{report_id}|Lint Report]]" })`
+- 在同一次 lint pass 语义下记录结果（包含 report 产出，沿用同一个 `run_id`）：
+  - `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_lint_{scope}_{run_id}", entry: "## [{date}] lint | {scope}\n- run_id: {run_id}\n- 结果: {一句话总结}\n- 发现: {错误数}/{警告数}/{建议数}\n- 产出: [[{report_id}|Lint Report {date}]] (report)" })`
 - `kb_commit` — message: `kb: lint report — {date}`
 
 ### 内容约定

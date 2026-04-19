@@ -8,6 +8,7 @@ This README is the operator entrypoint: what V2 contains, how to start MCP, and 
 
 - Active architecture: **V2 (LLM-driven knowledge compilation)**
 - Governance rule (current): for **multi-file changes under `kb/wiki`**, follow `plan -> draft -> apply` as required by [AGENTS.md](./AGENTS.md).
+- Logging semantics: `wiki/log.md` records meaningful query synthesis and every complete lint pass, including clean pass (`No findings`, `0/0/0`).
 - Historical context: V1 implementation details and old planning docs remain reference-only.
 
 ## Repository Layout (V2)
@@ -17,7 +18,7 @@ kb/
   raw/                 # immutable source files (inbox/assets)
   wiki/                # editable knowledge layer
     index.md           # navigation index
-    log.md             # chronological change log
+    log.md             # operation timeline (ingest / meaningful query synthesis / complete lint pass incl. clean pass)
     sources/           # per-source summary pages
     entities/          # entity pages
     concepts/          # concept pages

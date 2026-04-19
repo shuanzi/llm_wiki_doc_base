@@ -136,7 +136,27 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 
 每个条目：wikilink + 一行摘要 + 可选的 source 计数。
 
-## log.md 格式
+## log.md 格式（操作时间线）
+
+`log.md` 记录操作时间线，至少覆盖：
+- ingest
+- meaningful query（满足下列操作条件的 wiki synthesis）
+- 完整 lint pass（含 `No findings` 的 clean pass）
+
+meaningful query 的可执行判定（需同时满足）：
+1. 执行过 `kb_search_wiki`
+2. 执行 `kb_read_page` 且精读了至少 2 个不同 wiki 页面
+3. 最终回答包含综合性产出（对比/取舍结论/冲突归并/证据缺口）并引用相关页面
+
+不记录：
+- trivial chat / 仅寒暄式问答
+- one-hop lookup（仅查 1 个页面并直接摘录事实或定义，无综合结论）
+- 半途终止操作（未形成有效结果）
+
+`dedup_key` 粒度约定（避免同日同主题或同 scope 的多次操作被合并）：
+- query: `log_query_{topic}_{run_id}`
+- lint: `log_lint_{scope}_{run_id}`
+- `run_id` 使用唯一值，建议 `YYYYMMDDTHHMMSS`（例如 `20260419T141530`）
 
 ```markdown
 ## [2026-04-12] ingest | Docker Containers on RISC-V Architecture
@@ -144,6 +164,23 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 - 新建: [[risc_v|RISC-V]] (entity)
 - 更新: [[docker|Docker]] — 新增 RISC-V 相关段落
 - 更新: index.md — 3 entries added
+
+## [2026-04-12] query | RISC-V 安全方案对比
+- run_id: 20260412T153045
+- 结论: 场景 A 优先方案 X，场景 B 优先方案 Y
+- 参考: [[risc_v]], [[secure_boot]]
+- 产出: [[riscv_security_comparison|RISC-V 安全方案对比]] (analysis)
+
+## [2026-04-12] lint | wiki 全量
+- run_id: 20260412T160010
+- 结果: 存在少量结构问题，建议本轮修复幽灵链接
+- 发现: 2/5/3
+- 产出: [[lint_2026_04_12|Lint Report 2026-04-12]] (report)
+
+## [2026-04-13] lint | wiki 全量
+- run_id: 20260413T090500
+- 结果: No findings（clean pass）
+- 发现: 0/0/0
 ```
 
 结构化前缀 `## [日期] 操作 | 标题`，方便 grep 解析。

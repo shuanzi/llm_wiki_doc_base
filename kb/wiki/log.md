@@ -92,3 +92,9 @@ status: active
 - 更新: [[risc_v|RISC-V]] — 追加“矩阵扩展进展”段落（按来源归因）并补充来源
 - 新建: [[risc_v_matrix_extensions|RISC-V 矩阵扩展]] (concept)
 - 更新: index.md — 1 source entry + 1 concept entry + 1 entity summary updated <!-- dedup:log_ingest_src_sha256_08e04538 -->
+
+## [2026-04-19] query | RISC-V 安全可信 3.0 启动链与信任边界分析
+- run_id: 20260419T232232
+- 结论: 按当前单源与现有 wiki 可支持的归纳，3.0 方案被描述为由 TPCM 将信任关注点从启动期验证延展到运行期管控；边界变化主要体现为 FSBL→OpenSBI/SEE→TEE_OS 的分层移交。
+- 产出: [[risc_v_trust_chain_analysis|RISC-V 安全可信 3.0 启动链与信任边界分析]] (analysis)
+- 参考: [[risc_v]], [[opensbi]], [[tee]], [[tpcm]], [[secure_boot]], [[trusted_computing]], [[hardware_isolation]], [[src_sha256_5d99456c|RISC-V TEE标准制定及安全可信3.0启动方案技术分享]] <!-- dedup:log_query_risc_v_trust_chain_analysis_20260419T232232 -->
