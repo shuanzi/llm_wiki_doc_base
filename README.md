@@ -4,12 +4,22 @@ LLM-maintained knowledge base system. V2 is the active architecture in this repo
 
 This README is the operator entrypoint: what V2 contains, how to start MCP, and how to run safely.
 
+## Live Docs
+
+README is the top-level live entrypoint and operator guide.
+Current live doc set:
+
+- `README.md` (this file)
+- [docs/product.md](./docs/product.md)
+- [docs/technical.md](./docs/technical.md)
+- [docs/progress.md](./docs/progress.md)
+
 ## Status
 
 - Active architecture: **V2 (LLM-driven knowledge compilation)**
 - Governance rule (current): for **multi-file changes under `kb/wiki`**, follow `plan -> draft -> apply` as required by [AGENTS.md](./AGENTS.md).
 - Logging semantics: `wiki/log.md` records meaningful query synthesis and every complete lint pass, including clean pass (`No findings`, `0/0/0`).
-- Historical context: V1 implementation details and old planning docs remain reference-only.
+- Historical context: old plan/review/idea/session snapshot docs are archived under `archived/`, and are not current truth sources.
 
 ## Repository Layout (V2)
 
@@ -127,10 +137,10 @@ npx tsx --tsconfig tsconfig.scripts.json scripts/e2e_v2_ingest.ts /absolute/path
 
 ## Historical Context (Not Default)
 
-`development-plan.md` and other V1 materials are historical references only. For active operations, use V2 docs and files listed in this README.
+Old plan/review/idea/session snapshot documents are kept under `archived/` for traceability only. They are design history and audit trail, not live operational facts.
 
 ## Pointers
 
-- V2 plan: [development-plan-v2.md](./development-plan-v2.md)
-- Session state snapshot: [docs/session_2026_04_12_status.md](./docs/session_2026_04_12_status.md)
-- MCP entrypoint: [src/mcp_server.ts](./src/mcp_server.ts)
+- Live doc set: `README.md`, [docs/product.md](./docs/product.md), [docs/technical.md](./docs/technical.md), [docs/progress.md](./docs/progress.md)
+- Secondary implementation entrypoint: [src/mcp_server.ts](./src/mcp_server.ts)
+- Archive index: [archived/index.md](./archived/index.md)
