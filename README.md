@@ -40,7 +40,7 @@ kb/
     manifests/         # source manifests
     cache/page-index.json
 src/
-  mcp_server.ts        # MCP stdio server exposing 8 V2 tools
+  mcp_server.ts        # MCP stdio server exposing 8 workflow tools + 3 maintenance tools
   tools/kb_*.ts        # tool implementations
 skills/
   kb_ingest/SKILL.md
@@ -50,9 +50,11 @@ skills/
 
 Rules for KB write scope and wiki operations are defined in [AGENTS.md](./AGENTS.md).
 
-## The 8 V2 Tools
+## MCP Tools
 
-MCP server (`kb-mcp`) exposes these tools:
+MCP server (`kb-mcp`) exposes 11 tools in total.
+
+Workflow tools:
 
 1. `kb_source_add` - register a source file into KB manifests
 2. `kb_read_source` - read raw source content by `source_id`
@@ -62,6 +64,12 @@ MCP server (`kb-mcp`) exposes these tools:
 6. `kb_search_wiki` - search `page-index.json` (query/filter/link resolution)
 7. `kb_read_page` - read wiki page by path or page id
 8. `kb_commit` - stage `kb/` and create a git commit
+
+Maintenance tools:
+
+9. `kb_rebuild_index` - rebuild `kb/state/cache/page-index.json` deterministically from `kb/wiki/**/*.md`
+10. `kb_run_lint` - run deterministic and semantic KB lint checks without mutating files
+11. `kb_repair` - repair only structural KB artifacts (`index.md`, `log.md`, `page-index.json`) with `dry_run` support
 
 Tool caveats from current implementation:
 
@@ -81,6 +89,8 @@ Startup guard behavior:
 - If resolved `kb_root` does not exist as a directory, server exits with code `2`.
 
 ## Build and Start MCP
+
+Installation/startup flow is unchanged by the refactor. There is no new bootstrap script.
 
 From repository root:
 
@@ -106,7 +116,7 @@ WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
 - `skills/kb_query/SKILL.md`: answer from wiki-first context; optionally persist analyses
 - `skills/kb_lint/SKILL.md`: health checks (orphans, ghost links, missing cross-references, stubs, contradictions, data gaps that could be filled with a web search)
 
-Use skills as the default operating procedure over the 8 tools (tools = primitives, skills = workflow).
+Use skills as the default operating procedure over the workflow tools; maintenance tools are health/repair primitives.
 
 ## Safe E2E Usage
 

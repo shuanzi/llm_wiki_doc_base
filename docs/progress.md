@@ -4,7 +4,8 @@
 > 依据：`README.md`、`kb/wiki/index.md`、`kb/wiki/log.md`、`scripts/validate_e2e_v2_ingest_safety.ts`、`scripts/validate_kb_search_wiki_resolve_link.ts`
 > 归档参考（非 live 事实源）：`archived/docs/session_2026_04_12_status.md`
 
-- [x] V2 工具层已完成：8 个 `kb_*` 工具与 MCP 暴露已就位（`src/tools/kb_*.ts` + `src/mcp_server.ts`）。
+- [x] V2 MCP 工具层已完成：8 个 workflow tool 与 3 个 maintenance tool 已就位（`src/tools/kb_*.ts` + `src/mcp_server.ts`）。
+- [x] maintenance 工具已完成：`kb_rebuild_index`、`kb_run_lint`、`kb_repair` 已接入主 MCP surface，并有独立验证脚本。
 - [x] skills / conventions 已完成：`kb_ingest`、`kb_query`、`kb_lint` 与 `kb/schema/wiki-conventions.md` 已落地并被 README 声明为当前流程。
 - [x] E2E 安全化已完成：`e2e_v2_ingest.ts` 默认安全模式（临时 KB）、显式 `--kb-root`、`--commit` 目标保护与幂等性校验；安全验证脚本已提供（`scripts/validate_e2e_v2_ingest_safety.ts`）。
 - [x] 正式 wiki 内容落盘样例已完成：2026-04-19 已新增 `src_sha256_08e04538` 与 `risc_v_matrix_extensions` 相关 wiki 内容，并更新 `risc_v` / `index.md` / `log.md`；其中 `src_sha256_08e04538` 的 raw source 与 manifest 仍未回填，不代表完整 source registration 闭环。

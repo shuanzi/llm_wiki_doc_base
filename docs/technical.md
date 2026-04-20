@@ -13,11 +13,12 @@
 - `kb/schema/`：内容约定（`wiki-conventions.md`）。
 
 2. 工具层（`src/tools/kb_*.ts`）
-- 提供 8 个可组合原子能力（注册源、读源、写页、改 section、幂等插入、检索、读页、提交）。
+- 提供 11 个 MCP 工具：8 个 workflow 原子能力 + 3 个 maintenance 能力。
 - 负责 I/O、安全边界、基础校验、局部索引维护。
+ - 其中 workflow tool 负责日常 ingest/query primitive，maintenance tool 负责索引重建、lint、结构修复。
 
 3. 服务层（`src/mcp_server.ts`）
-- 以 stdio MCP server 暴露 8 个工具及 JSON Schema。
+- 以 stdio MCP server 暴露 11 个工具及 JSON Schema。
 - 负责 `kb_root` 解析、启动前目录守卫、工具路由分发。
 
 4. 流程层（`skills/` + `scripts/`）
@@ -45,7 +46,8 @@ kb/
 
 src/
   mcp_server.ts
-  tools/kb_*.ts            # 8 个工具实现
+  tools/kb_*.ts            # 8 个 workflow tool + 3 个 maintenance tool
+  core/                    # 共享 KB 领域逻辑（source/wiki/log/search/maintenance/git）
   types/index.ts           # Manifest/PageFrontmatter/PageIndex 等结构
   utils/frontmatter.ts     # frontmatter 解析/校验/摘要抽取
   utils/path_validator.ts  # 路径约束与 symlink 逃逸防护
@@ -80,7 +82,9 @@ scripts/
   - `PageIndexEntry` 含 `page_id/path/type/title/aliases/tags/headings/body_excerpt`。
   - 用途：`kb_search_wiki` 检索、`kb_read_page` 的 id->path 解析。
 
-## 4. 8 个工具职责（当前行为）
+## 4. 工具职责（当前行为）
+
+### 4.1 Workflow tools（8 个）
 
 1. `kb_source_add`
 - 作用：注册源文件，复制到 `kb/raw/inbox/`，写 manifest。
@@ -115,6 +119,20 @@ scripts/
 - 作用：在 git 仓库中执行 `git add kb/` 后提交。
 - 关键行为：仅检查 `kb/` staged 结果是否为空，再执行 commit。
 - 现状 caveat：若提交前已有非 `kb/` 文件 staged，仍可能被同次 commit 带入。
+
+### 4.2 Maintenance tools（3 个）
+
+9. `kb_rebuild_index`
+- 作用：扫描 `kb/wiki/**/*.md`，确定性重建 `kb/state/cache/page-index.json`。
+- 关键行为：忽略非 markdown 文件；遇到重复 `page_id` 会在写盘前失败；磁盘格式保持 root-compatible 的 `{ pages: [...] }`。
+
+10. `kb_run_lint`
+- 作用：输出结构化 KB lint 报告，分离 deterministic findings 与 semantic warnings。
+- 关键行为：默认包含 semantic checks；支持 `include_semantic: false`；只读，不写 `kb/` 下任何文件。
+
+11. `kb_repair`
+- 作用：仅修复结构性问题，并返回 fix 列表与 repair 后 lint 摘要。
+- 关键行为：支持 `dry_run`；写入范围仅限 `kb/wiki/index.md`、`kb/wiki/log.md`、`kb/state/cache/page-index.json`；不会改业务页内容，也不依赖 `kb/state/audit/*`。
 
 ## 5. Skills 角色（流程职责）
 
@@ -167,6 +185,8 @@ scripts/
 - `npm run build`
 - `npm run start:mcp`
 
+安装/启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run start:mcp`，没有新增 bootstrap/install 脚本。
+
 ### 7.2 端到端验证
 - `scripts/e2e_v2_ingest.ts`
   - 覆盖 8 工具完整链路。
@@ -191,7 +211,7 @@ scripts/
 3. frontmatter 解析器是轻量实现（`parseSimpleYaml`），并非完整 YAML 解析器，复杂 YAML 语法兼容性有限。
 4. `page-index.json` 是增量维护模型；若页面被工具外手动删除/改名，索引可能漂移，需要 lint/重建机制兜底。
 5. `kb_search_wiki` 基于索引字段做轻量打分检索，不是全文/语义检索，召回与排序能力有限。
-6. `kb_lint` 目前是 skill 规范（流程）而非独立 MCP lint 工具，自动化程度依赖执行者遵循 SOP。
+6. `kb_run_lint` / `kb_repair` 已成为独立 MCP 工具，但 README 与流程文档仍需持续保持与 tool surface 同步，避免再次出现“8 tools”类滞后描述。
 7. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
 8. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；溯源完整性应以具体 `source_id` 是否存在 manifest 为准。
 
