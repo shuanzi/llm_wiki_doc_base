@@ -25,8 +25,6 @@ import * as fs from "fs";
 import * as path from "path";
 
 import { Server } from "@modelcontextprotocol/sdk/server";
-import type { ListToolsRequestSchema, CallToolRequestSchema } from "@modelcontextprotocol/sdk/types";
-import type { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio";
 
 import { kbSourceAdd } from "./tools/kb_source_add";
 import { kbReadSource } from "./tools/kb_read_source";
@@ -36,6 +34,9 @@ import { kbEnsureEntry } from "./tools/kb_ensure_entry";
 import { kbSearchWiki } from "./tools/kb_search_wiki";
 import { kbReadPage } from "./tools/kb_read_page";
 import { kbCommit } from "./tools/kb_commit";
+import { kbRebuildIndex } from "./tools/kb_rebuild_index";
+import { kbRunLint } from "./tools/kb_run_lint";
+import { kbRepair } from "./tools/kb_repair";
 
 import type { WorkspaceConfig } from "./types";
 
@@ -74,7 +75,7 @@ const config: WorkspaceConfig = { kb_root };
 // Tool definitions (name + description + JSON Schema input)
 // ---------------------------------------------------------------------------
 
-const TOOL_DEFINITIONS = [
+const WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_source_add",
     description:
@@ -254,50 +255,126 @@ const TOOL_DEFINITIONS = [
   },
 ] as const;
 
+const MAINTENANCE_TOOL_DEFINITIONS = [
+  {
+    name: "kb_rebuild_index",
+    description:
+      "Rebuild kb/state/cache/page-index.json from kb/wiki/**/*.md deterministically.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "kb_run_lint",
+    description:
+      "Run deterministic and semantic lint checks for the KB. Deterministic checks are strict and semantic checks are advisory.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        include_semantic: {
+          type: "boolean",
+          description: "Include semantic advisory checks in the report. Default: true.",
+        },
+      },
+    },
+  },
+  {
+    name: "kb_repair",
+    description:
+      "Repair structural KB artifacts only: restore missing or malformed meta pages and rebuild page-index.json. Does not modify content pages.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        dry_run: {
+          type: "boolean",
+          description: "If true, report intended structural fixes without mutating kb/.",
+        },
+      },
+    },
+  },
+] as const;
+
+const TOOL_DEFINITIONS = [
+  ...WORKFLOW_TOOL_DEFINITIONS,
+  ...MAINTENANCE_TOOL_DEFINITIONS,
+] as const;
+
 // ---------------------------------------------------------------------------
 // Tool dispatch map
 // ---------------------------------------------------------------------------
 
 type ToolArgs = Record<string, unknown>;
+type ToolResult = { success: boolean; data?: unknown; error?: string };
+type ToolHandler = (args: ToolArgs, config: WorkspaceConfig) => Promise<ToolResult>;
 
-async function dispatchTool(
-  name: string,
-  args: ToolArgs
-): Promise<{ success: boolean; data?: unknown; error?: string }> {
-  switch (name) {
-    case "kb_source_add":
-      return kbSourceAdd(args as unknown as Parameters<typeof kbSourceAdd>[0], config);
+const TOOL_HANDLERS: Record<string, ToolHandler> = {
+  kb_source_add: (args, workspace) =>
+    kbSourceAdd(args as unknown as Parameters<typeof kbSourceAdd>[0], workspace),
+  kb_read_source: (args, workspace) =>
+    kbReadSource(args as unknown as Parameters<typeof kbReadSource>[0], workspace),
+  kb_write_page: (args, workspace) =>
+    kbWritePage(args as unknown as Parameters<typeof kbWritePage>[0], workspace),
+  kb_update_section: (args, workspace) =>
+    kbUpdateSection(args as unknown as Parameters<typeof kbUpdateSection>[0], workspace),
+  kb_ensure_entry: (args, workspace) =>
+    kbEnsureEntry(args as unknown as Parameters<typeof kbEnsureEntry>[0], workspace),
+  kb_search_wiki: (args, workspace) =>
+    kbSearchWiki(args as unknown as Parameters<typeof kbSearchWiki>[0], workspace),
+  kb_read_page: (args, workspace) =>
+    kbReadPage(args as unknown as Parameters<typeof kbReadPage>[0], workspace),
+  kb_commit: (args, workspace) =>
+    kbCommit(args as unknown as Parameters<typeof kbCommit>[0], workspace),
+  kb_rebuild_index: (args, workspace) =>
+    kbRebuildIndex(args as unknown as Parameters<typeof kbRebuildIndex>[0], workspace),
+  kb_run_lint: (args, workspace) =>
+    kbRunLint(args as unknown as Parameters<typeof kbRunLint>[0], workspace),
+  kb_repair: (args, workspace) =>
+    kbRepair(args as unknown as Parameters<typeof kbRepair>[0], workspace),
+};
 
-    case "kb_read_source":
-      return kbReadSource(args as unknown as Parameters<typeof kbReadSource>[0], config);
-
-    case "kb_write_page":
-      return kbWritePage(args as unknown as Parameters<typeof kbWritePage>[0], config);
-
-    case "kb_update_section":
-      return kbUpdateSection(
-        args as unknown as Parameters<typeof kbUpdateSection>[0],
-        config
-      );
-
-    case "kb_ensure_entry":
-      return kbEnsureEntry(
-        args as unknown as Parameters<typeof kbEnsureEntry>[0],
-        config
-      );
-
-    case "kb_search_wiki":
-      return kbSearchWiki(args as unknown as Parameters<typeof kbSearchWiki>[0], config);
-
-    case "kb_read_page":
-      return kbReadPage(args as unknown as Parameters<typeof kbReadPage>[0], config);
-
-    case "kb_commit":
-      return kbCommit(args as unknown as Parameters<typeof kbCommit>[0], config);
-
-    default:
-      return { success: false, error: `Unknown tool: ${name}` };
+async function dispatchTool(name: string, args: ToolArgs): Promise<ToolResult> {
+  const handler = TOOL_HANDLERS[name];
+  if (!handler) {
+    return { success: false, error: `Unknown tool: ${name}` };
   }
+  return handler(args, config);
+}
+
+function listToolsResponse(): { tools: typeof TOOL_DEFINITIONS } {
+  return { tools: TOOL_DEFINITIONS };
+}
+
+async function callToolResponse(
+  request: { params: { name: string; arguments?: ToolArgs } }
+): Promise<{
+  content: Array<{ type: "text"; text: string }>;
+  isError?: true;
+}> {
+  const { name, arguments: rawArgs } = request.params;
+  const args: ToolArgs = rawArgs ?? {};
+  const result = await dispatchTool(name, args);
+
+  if (!result.success) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Error: ${result.error ?? "Unknown error"}`,
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(result.data, null, 2),
+      },
+    ],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -324,47 +401,10 @@ async function main(): Promise<void> {
   );
 
   // List tools handler
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    return {
-      tools: TOOL_DEFINITIONS.map((t) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.inputSchema,
-      })),
-    };
-  });
+  server.setRequestHandler(ListToolsRequestSchema, async () => listToolsResponse());
 
   // Call tool handler
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: rawArgs } = request.params as {
-      name: string;
-      arguments?: ToolArgs;
-    };
-    const args: ToolArgs = rawArgs ?? {};
-
-    const result = await dispatchTool(name, args);
-
-    if (!result.success) {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Error: ${result.error ?? "Unknown error"}`,
-          },
-        ],
-        isError: true,
-      };
-    }
-
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(result.data, null, 2),
-        },
-      ],
-    };
-  });
+  server.setRequestHandler(CallToolRequestSchema, callToolResponse);
 
   const transport = new TypedStdioServerTransport();
   await server.connect(transport);
