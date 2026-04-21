@@ -1,0 +1,333 @@
+import * as fs from "fs";
+import * as path from "path";
+
+import { sha256 } from "../utils/hash";
+import {
+  areExpectedMcpConfigsEqual,
+  normalizeActualMcpConfig,
+} from "./check";
+import {
+  readInstallerManifest,
+  resolveInstallerManifestPath,
+  validateInstallerManifest,
+} from "./manifest";
+import { OpenClawCli } from "./openclaw-cli";
+import { OPENCLAW_SKILL_NAMES } from "./skills";
+import {
+  OpenClawWorkspaceResolutionError,
+  resolveOpenClawWorkspace,
+} from "./workspace";
+import type {
+  ResolvedInstallerEnvironment,
+  UninstallCommandArgs,
+} from "./types";
+
+export interface UninstallOpenClawIntegrationOptions {
+  cli?: OpenClawCli;
+}
+
+export interface UninstallOpenClawIntegrationResult {
+  workspacePath: string;
+  manifestPath: string;
+  removedMcpRegistration: boolean;
+  removedManifest: boolean;
+  removedSkillDirectories: string[];
+}
+
+interface PlannedSkillRemoval {
+  skillName: string;
+  installDir: string;
+}
+
+export async function uninstallOpenClawIntegration(
+  args: UninstallCommandArgs,
+  environment: ResolvedInstallerEnvironment,
+  options: UninstallOpenClawIntegrationOptions = {}
+): Promise<UninstallOpenClawIntegrationResult> {
+  const cli = options.cli ?? new OpenClawCli();
+  await ensureOpenClawCliReady(cli);
+
+  const workspacePath = await resolveAndValidateWorkspace(cli, args.workspace);
+  const manifestPath = resolveInstallerManifestPath(workspacePath);
+
+  const manifest = readManifestForUninstall(workspacePath, args.force);
+  validateManifestForUninstall(manifest, {
+    repoRoot: path.resolve(environment.repoRoot),
+    workspacePath,
+    mcpName: args.mcpName,
+    force: args.force,
+  });
+
+  const existingMcpDefinition = await cli.showMcpServer(args.mcpName);
+  const normalizedExistingMcp = existingMcpDefinition
+    ? normalizeActualMcpConfig(args.mcpName, existingMcpDefinition)
+    : undefined;
+
+  const canRemoveMcp =
+    manifest !== undefined &&
+    normalizedExistingMcp !== undefined &&
+    areExpectedMcpConfigsEqual(manifest.expectedMcpConfig, normalizedExistingMcp);
+
+  if (existingMcpDefinition && !canRemoveMcp && !args.force) {
+    throw new Error(
+      "Uninstall refused because MCP ownership is uncertain. The existing MCP registration does not match installer-owned manifest state."
+    );
+  }
+
+  const plannedSkillRemovals = planSkillDirectoryRemovals({
+    workspacePath,
+    manifest,
+    force: args.force,
+  });
+
+  let removedMcpRegistration = false;
+  if (existingMcpDefinition && canRemoveMcp) {
+    await cli.unsetMcpServer(args.mcpName);
+    removedMcpRegistration = true;
+  }
+
+  let removedManifest = false;
+  if (fs.existsSync(manifestPath)) {
+    const stat = fs.statSync(manifestPath);
+    if (!stat.isFile()) {
+      if (!args.force) {
+        throw new Error(
+          `Uninstall refused because manifest path is not a regular file: ${manifestPath}`
+        );
+      }
+      removeDirectoryRecursive(manifestPath);
+      removedManifest = true;
+    } else {
+      fs.unlinkSync(manifestPath);
+      removedManifest = true;
+    }
+  }
+
+  const removedSkillDirectories: string[] = [];
+  for (const removal of plannedSkillRemovals) {
+    if (!fs.existsSync(removal.installDir)) {
+      continue;
+    }
+
+    removeDirectoryRecursive(removal.installDir);
+    removedSkillDirectories.push(removal.installDir);
+  }
+
+  cleanupInstallerSupportDirectory(workspacePath);
+
+  return {
+    workspacePath,
+    manifestPath,
+    removedMcpRegistration,
+    removedManifest,
+    removedSkillDirectories: removedSkillDirectories.sort((left, right) =>
+      left.localeCompare(right)
+    ),
+  };
+}
+
+function planSkillDirectoryRemovals(options: {
+  workspacePath: string;
+  manifest: ReturnType<typeof readInstallerManifest>;
+  force: boolean;
+}): PlannedSkillRemoval[] {
+  const planned: PlannedSkillRemoval[] = [];
+  const bySkillName = new Map<string, NonNullable<ReturnType<typeof readInstallerManifest>>["installedSkills"][number]>();
+
+  if (options.manifest) {
+    for (const installedSkill of options.manifest.installedSkills) {
+      bySkillName.set(installedSkill.skillName, installedSkill);
+    }
+  }
+
+  for (const skillName of OPENCLAW_SKILL_NAMES) {
+    const installDir = path.resolve(options.workspacePath, "skills", skillName);
+    const installFile = path.resolve(installDir, "SKILL.md");
+    const manifestSkill = bySkillName.get(skillName);
+
+    if (!fs.existsSync(installDir)) {
+      continue;
+    }
+
+    if (!manifestSkill) {
+      if (!options.force) {
+        throw new Error(
+          `Uninstall refused because skill directory has no installer ownership metadata: ${installDir}`
+        );
+      }
+      planned.push({ skillName, installDir });
+      continue;
+    }
+
+    if (
+      path.resolve(manifestSkill.installDir) !== installDir ||
+      path.resolve(manifestSkill.skillFile) !== installFile
+    ) {
+      if (!options.force) {
+        throw new Error(
+          `Uninstall refused because manifest ownership paths drifted for skill ${skillName}.`
+        );
+      }
+      planned.push({ skillName, installDir });
+      continue;
+    }
+
+    if (!fs.statSync(installDir).isDirectory()) {
+      if (!options.force) {
+        throw new Error(
+          `Uninstall refused because skill directory path is not a directory: ${installDir}`
+        );
+      }
+      planned.push({ skillName, installDir });
+      continue;
+    }
+
+    const dirEntries = fs.readdirSync(installDir).sort((left, right) =>
+      left.localeCompare(right)
+    );
+
+    if (fs.existsSync(installFile)) {
+      if (!fs.statSync(installFile).isFile()) {
+        if (!options.force) {
+          throw new Error(
+            `Uninstall refused because skill file path is not a regular file: ${installFile}`
+          );
+        }
+        planned.push({ skillName, installDir });
+        continue;
+      }
+
+      const diskHash = sha256(fs.readFileSync(installFile, "utf8"));
+      if (diskHash !== manifestSkill.contentHash && !options.force) {
+        throw new Error(
+          `Uninstall refused because skill ${skillName} appears user-modified. Re-run with --force to remove it.`
+        );
+      }
+
+      const hasOnlyInstallerArtifact =
+        dirEntries.length === 1 && dirEntries[0] === "SKILL.md";
+      if (!hasOnlyInstallerArtifact && !options.force) {
+        throw new Error(
+          `Uninstall refused because skill ${skillName} directory contains additional user content. Re-run with --force to remove it.`
+        );
+      }
+    } else {
+      if (dirEntries.length > 0 && !options.force) {
+        throw new Error(
+          `Uninstall refused because skill ${skillName} has uncertain on-disk ownership state. Re-run with --force to remove it.`
+        );
+      }
+    }
+
+    planned.push({ skillName, installDir });
+  }
+
+  return planned;
+}
+
+function validateManifestForUninstall(
+  manifest: ReturnType<typeof readInstallerManifest>,
+  options: {
+    repoRoot: string;
+    workspacePath: string;
+    mcpName: string;
+    force: boolean;
+  }
+): void {
+  if (!manifest) {
+    if (!options.force) {
+      throw new Error(
+        "Uninstall refused because installer manifest is missing and ownership is uncertain. Re-run with --force to remove known installer targets."
+      );
+    }
+    return;
+  }
+
+  const validation = validateInstallerManifest(manifest, {
+    repoRoot: options.repoRoot,
+    workspacePath: options.workspacePath,
+    mcpName: options.mcpName,
+  });
+
+  if (validation.status === "unknown_ownership" && !options.force) {
+    throw new Error(
+      `Uninstall refused because manifest ownership is uncertain. ${validation.driftItems
+        .map((item) => item.message)
+        .join(" | ")}`
+    );
+  }
+}
+
+function readManifestForUninstall(
+  workspacePath: string,
+  force: boolean
+): ReturnType<typeof readInstallerManifest> {
+  try {
+    return readInstallerManifest(workspacePath, {
+      allowMissing: true,
+    });
+  } catch (error) {
+    if (force) {
+      return undefined;
+    }
+
+    throw new Error(
+      `Uninstall refused because installer manifest is malformed and ownership cannot be verified. Use --force to override. ${stringifyError(
+        error
+      )}`
+    );
+  }
+}
+
+function cleanupInstallerSupportDirectory(workspacePath: string): void {
+  const supportDirectoryPath = path.resolve(workspacePath, ".llm-kb");
+  if (!fs.existsSync(supportDirectoryPath)) {
+    return;
+  }
+
+  if (!fs.statSync(supportDirectoryPath).isDirectory()) {
+    return;
+  }
+
+  if (fs.readdirSync(supportDirectoryPath).length === 0) {
+    fs.rmdirSync(supportDirectoryPath);
+  }
+}
+
+async function ensureOpenClawCliReady(cli: OpenClawCli): Promise<void> {
+  try {
+    await cli.getConfigFilePath();
+  } catch (error) {
+    throw new Error(`OpenClaw CLI is missing or invalid: ${stringifyError(error)}`);
+  }
+}
+
+async function resolveAndValidateWorkspace(
+  cli: OpenClawCli,
+  requestedWorkspace: string
+): Promise<string> {
+  try {
+    const resolved = await resolveOpenClawWorkspace({
+      cli,
+      requestedWorkspace,
+      requireExistingDirectory: false,
+    });
+    return resolved.resolvedWorkspace;
+  } catch (error) {
+    if (error instanceof OpenClawWorkspaceResolutionError) {
+      throw new Error(error.message);
+    }
+    throw error;
+  }
+}
+
+function removeDirectoryRecursive(directoryPath: string): void {
+  if (!fs.existsSync(directoryPath)) {
+    return;
+  }
+  fs.rmSync(directoryPath, { recursive: true, force: true });
+}
+
+function stringifyError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

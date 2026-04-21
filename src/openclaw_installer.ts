@@ -10,25 +10,17 @@ import {
 } from "./openclaw-installer/args";
 import { checkOpenClawInstallation } from "./openclaw-installer/check";
 import { installOpenClawIntegration } from "./openclaw-installer/install";
+import { repairOpenClawIntegration } from "./openclaw-installer/repair";
+import { uninstallOpenClawIntegration } from "./openclaw-installer/uninstall";
 import type {
   CheckCommandArgs,
   InstallCommandArgs,
   InstallerCheckResult,
-  InstallerRepairOutcome,
   ParsedInstallerArgs,
   RepairCommandArgs,
   ResolvedInstallerEnvironment,
   UninstallCommandArgs,
 } from "./openclaw-installer/types";
-
-class InstallerNotImplementedError extends Error {
-  readonly exitCode = 1;
-
-  constructor(command: ParsedInstallerArgs["command"]) {
-    super(`OpenClaw installer command "${command}" is not implemented yet.`);
-    this.name = "InstallerNotImplementedError";
-  }
-}
 
 async function main(): Promise<void> {
   const args = parseInstallerArgs(process.argv.slice(2));
@@ -122,17 +114,50 @@ async function runCheck(
 }
 
 async function runRepair(
-  _args: RepairCommandArgs,
-  _environment: ResolvedInstallerEnvironment
-): Promise<InstallerRepairOutcome> {
-  throw new InstallerNotImplementedError("repair");
+  args: RepairCommandArgs,
+  environment: ResolvedInstallerEnvironment
+): Promise<void> {
+  const result = await repairOpenClawIntegration(args, environment);
+  process.stdout.write(
+    [
+      result.message,
+      `workspace: ${result.environment.workspace}`,
+      `kb_root: ${result.environment.kbRoot ?? "(unknown)"}`,
+      `actions: ${result.appliedActions.join(", ")}`,
+    ].join("\n") + "\n"
+  );
+
+  if (!result.ok) {
+    process.stdout.write(
+      [
+        "Remaining drift:",
+        ...result.remainingDriftItems.map(
+          (item) => `- [${item.kind}] ${item.message}${item.repairable ? " (repairable)" : ""}`
+        ),
+      ].join("\n") + "\n"
+    );
+    process.exitCode = 1;
+  }
 }
 
 async function runUninstall(
-  _args: UninstallCommandArgs,
-  _environment: ResolvedInstallerEnvironment
-): Promise<never> {
-  throw new InstallerNotImplementedError("uninstall");
+  args: UninstallCommandArgs,
+  environment: ResolvedInstallerEnvironment
+): Promise<void> {
+  const result = await uninstallOpenClawIntegration(args, environment);
+  process.stdout.write(
+    [
+      "OpenClaw uninstall completed.",
+      `workspace: ${result.workspacePath}`,
+      `manifest_removed: ${result.removedManifest}`,
+      `mcp_removed: ${result.removedMcpRegistration}`,
+      `removed_skill_directories: ${
+        result.removedSkillDirectories.length > 0
+          ? result.removedSkillDirectories.join(", ")
+          : "(none)"
+      }`,
+    ].join("\n") + "\n"
+  );
 }
 
 main().catch((error: unknown) => {
@@ -148,10 +173,6 @@ main().catch((error: unknown) => {
     process.exit(error.exitCode);
   }
 
-  if (error instanceof InstallerNotImplementedError) {
-    process.stderr.write(`${error.message}\n`);
-    process.exit(error.exitCode);
-  }
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`${message}\n\n${formatInstallerUsage()}\n`);
   process.exit(1);
