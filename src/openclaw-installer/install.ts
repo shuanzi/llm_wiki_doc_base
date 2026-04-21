@@ -607,9 +607,11 @@ function writeRenderedWorkspaceDocs(options: {
       preinstallSnapshot:
         previousDocContent === undefined
           ? {
+              known: true,
               existed: false,
             }
           : {
+              known: true,
               existed: true,
               content: previousDocContent,
               contentHash: sha256(previousDocContent),

@@ -129,9 +129,14 @@ export interface InstallerSkillInstallationMetadata {
 
 export type InstallerWorkspaceDocPreinstallSnapshot =
   | {
+      known: false;
+    }
+  | {
+      known: true;
       existed: false;
     }
   | {
+      known: true;
       existed: true;
       content: string;
       contentHash: string;

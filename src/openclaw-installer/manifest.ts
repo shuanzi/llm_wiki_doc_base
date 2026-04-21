@@ -442,6 +442,10 @@ function validateWorkspaceDocPreinstallSnapshot(
   doc: InstallerWorkspaceDocInstallationMetadata,
   driftItems: InstallerDriftItem[]
 ): void {
+  if (!doc.preinstallSnapshot.known) {
+    return;
+  }
+
   if (!doc.preinstallSnapshot.existed) {
     return;
   }
@@ -767,12 +771,39 @@ function parseWorkspaceDocPreinstallSnapshot(
     throw new Error(`${label} must be an object.`);
   }
 
+  if (value.known !== undefined) {
+    const known = readBoolean(value.known, `${label}.known`);
+    if (!known) {
+      return { known: false };
+    }
+
+    const existed = readBoolean(value.existed, `${label}.existed`);
+    if (!existed) {
+      return {
+        known: true,
+        existed: false,
+      };
+    }
+
+    return {
+      known: true,
+      existed: true,
+      content: readStringAllowEmpty(value.content, `${label}.content`),
+      contentHash: readString(value.contentHash, `${label}.contentHash`),
+    };
+  }
+
+  // Backward-compatible parsing for manifests written before explicit snapshot-known state.
   const existed = readBoolean(value.existed, `${label}.existed`);
   if (!existed) {
-    return { existed: false };
+    return {
+      known: true,
+      existed: false,
+    };
   }
 
   return {
+    known: true,
     existed: true,
     content: readStringAllowEmpty(value.content, `${label}.content`),
     contentHash: readString(value.contentHash, `${label}.contentHash`),
@@ -873,13 +904,19 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
       docFile: path.resolve(entry.docFile),
       contentHash: entry.contentHash,
       installedAt: entry.installedAt,
-      preinstallSnapshot: entry.preinstallSnapshot.existed
+      preinstallSnapshot: !entry.preinstallSnapshot.known
+        ? { known: false as const }
+        : entry.preinstallSnapshot.existed
         ? {
+            known: true as const,
             existed: true as const,
             content: entry.preinstallSnapshot.content,
             contentHash: entry.preinstallSnapshot.contentHash,
           }
-        : { existed: false as const },
+        : {
+            known: true as const,
+            existed: false as const,
+          },
     }))
     .sort((left, right) => left.docName.localeCompare(right.docName));
 

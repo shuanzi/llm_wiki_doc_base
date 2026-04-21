@@ -330,6 +330,54 @@ function testRepairFromMissingSkills(): void {
   }
 }
 
+function testRepairRestoresWorkspaceDocs(): void {
+  const sandbox = createSandbox("repair-workspace-docs");
+
+  try {
+    runBaselineInstall(sandbox);
+
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const toolsPath = path.join(sandbox.workspacePath, "TOOLS.md");
+    const driftedAgentsContent = "# AGENTS.md\n\nuser drift\n";
+
+    fs.writeFileSync(agentsPath, driftedAgentsContent, "utf8");
+    fs.unlinkSync(toolsPath);
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should restore drifted/missing workspace docs.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    assert(
+      fs.existsSync(toolsPath),
+      "Repair should recreate missing workspace-root TOOLS.md"
+    );
+    assert(
+      fs.readFileSync(agentsPath, "utf8") !== driftedAgentsContent,
+      "Repair should overwrite drifted AGENTS.md with installer-rendered content"
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 0,
+      `Post-repair check should pass after workspace-doc restoration.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+    assert(
+      parseCheckJson(check.stdout).ok,
+      "Post-repair check JSON should report ok=true after workspace-doc restoration"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testRepairFromMissingManifestWithSufficientState(): void {
   const sandbox = createSandbox("repair-missing-manifest");
 
@@ -364,6 +412,84 @@ function testRepairFromMissingManifestWithSufficientState(): void {
     assert(
       parsedManifest.mcpName === "llm-kb",
       "Repaired manifest should use requested MCP name"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairReconstructionMarksWorkspaceDocSnapshotsUnknownAndUninstallKeepsDocs(): void {
+  const sandbox = createSandbox("repair-missing-manifest-workspace-doc-snapshots");
+
+  try {
+    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
+    const preinstallAgentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const preinstallAgentsContent = "# AGENTS.md\n\noriginal preinstall content\n";
+    fs.writeFileSync(preinstallAgentsPath, preinstallAgentsContent, "utf8");
+
+    runBaselineInstall(sandbox);
+
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const heartbeatPath = path.join(sandbox.workspacePath, "HEARTBEAT.md");
+    const agentsContentAfterInstall = fs.readFileSync(agentsPath, "utf8");
+    const heartbeatContentAfterInstall = fs.readFileSync(heartbeatPath, "utf8");
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    fs.unlinkSync(manifestPath);
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should reconstruct missing manifest with unknown workspace-doc snapshots.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      installedWorkspaceDocs?: Array<{
+        docName?: string;
+        preinstallSnapshot?: {
+          known?: boolean;
+        };
+      }>;
+    };
+
+    assert(
+      Array.isArray(parsedManifest.installedWorkspaceDocs),
+      "Reconstructed manifest should include installedWorkspaceDocs"
+    );
+    for (const entry of parsedManifest.installedWorkspaceDocs ?? []) {
+      assert(
+        entry.preinstallSnapshot?.known === false,
+        `Reconstructed manifest should mark workspace-doc preinstall snapshot as unknown for ${entry.docName ?? "(unknown-doc)"}`
+      );
+    }
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should succeed after manifest reconstruction with unknown snapshots.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+
+    assert(
+      fs.readFileSync(agentsPath, "utf8") === agentsContentAfterInstall,
+      "Uninstall should keep AGENTS.md unchanged when preinstall snapshot is unknown (must not restore guessed content)"
+    );
+    assert(
+      fs.readFileSync(agentsPath, "utf8") !== preinstallAgentsContent,
+      "Uninstall should not claim to restore original AGENTS.md when original snapshot is unavailable"
+    );
+    assert(
+      fs.readFileSync(heartbeatPath, "utf8") === heartbeatContentAfterInstall,
+      "Uninstall should keep installer-generated HEARTBEAT.md unchanged when preinstall snapshot is unknown"
     );
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
@@ -568,6 +694,127 @@ function testUninstallRemovesOnlyInstallerOwnedArtifacts(): void {
   }
 }
 
+function testUninstallRestoresPreinstallWorkspaceDocContent(): void {
+  const sandbox = createSandbox("uninstall-restore-preinstall-doc");
+
+  try {
+    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const preinstallAgentsContent = "# AGENTS.md\n\npreinstall user content\n";
+    fs.writeFileSync(agentsPath, preinstallAgentsContent, "utf8");
+
+    runBaselineInstall(sandbox);
+    assert(
+      fs.readFileSync(agentsPath, "utf8") !== preinstallAgentsContent,
+      "Install precondition: AGENTS.md should be overwritten by installer content"
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should restore preinstall workspace-doc content.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+
+    assert(
+      fs.existsSync(agentsPath),
+      "Uninstall should keep AGENTS.md present when restoring preinstall content"
+    );
+    assert(
+      fs.readFileSync(agentsPath, "utf8") === preinstallAgentsContent,
+      "Uninstall should restore AGENTS.md to preinstall snapshot content"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testUninstallRefusesToClobberUserModifiedWorkspaceDocByDefault(): void {
+  const sandbox = createSandbox("uninstall-protect-user-modified-workspace-doc");
+
+  try {
+    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const preinstallAgentsContent = "# AGENTS.md\n\npreinstall user content\n";
+    fs.writeFileSync(agentsPath, preinstallAgentsContent, "utf8");
+
+    runBaselineInstall(sandbox);
+
+    const userEditedAgentsContent = "# AGENTS.md\n\nuser edited after install\n";
+    fs.writeFileSync(agentsPath, userEditedAgentsContent, "utf8");
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail closed when restore-eligible workspace doc was user-modified post-install"
+    );
+    assert(
+      /workspace doc .*user-modified since install|no longer matches installer-managed state/i.test(
+        `${uninstall.stdout}\n${uninstall.stderr}`
+      ),
+      "Uninstall refusal should explain workspace-doc post-install modification protection"
+    );
+    assert(
+      fs.readFileSync(agentsPath, "utf8") === userEditedAgentsContent,
+      "Uninstall refusal should preserve user-edited workspace doc content"
+    );
+
+    const stateAfter = readState(sandbox.statePath);
+    assert(
+      stateAfter.mcpServers["llm-kb"] !== undefined,
+      "Workspace-doc protection refusal should not remove MCP registration"
+    );
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    assert(
+      fs.existsSync(manifestPath),
+      "Workspace-doc protection refusal should leave installer manifest intact"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testUninstallPreservesInstallerGeneratedWorkspaceDocWhenNoPreinstallSnapshot(): void {
+  const sandbox = createSandbox("uninstall-preserve-generated-doc");
+
+  try {
+    runBaselineInstall(sandbox);
+
+    const heartbeatPath = path.join(sandbox.workspacePath, "HEARTBEAT.md");
+    const installedHeartbeatContent = fs.readFileSync(heartbeatPath, "utf8");
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should preserve installer-generated workspace docs when preinstall snapshot indicates non-existence.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+
+    assert(
+      fs.existsSync(heartbeatPath),
+      "Uninstall should keep installer-generated HEARTBEAT.md in place"
+    );
+    assert(
+      fs.readFileSync(heartbeatPath, "utf8") === installedHeartbeatContent,
+      "Uninstall should not modify installer-generated HEARTBEAT.md content"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testUninstallLeavesExternalKbUntouched(): void {
   const sandbox = createSandbox("uninstall-leaves-kb");
 
@@ -745,11 +992,16 @@ function main(): void {
   ensureInstallerBuildExists();
 
   testRepairFromMissingSkills();
+  testRepairRestoresWorkspaceDocs();
   testRepairFromMissingManifestWithSufficientState();
+  testRepairReconstructionMarksWorkspaceDocSnapshotsUnknownAndUninstallKeepsDocs();
   testRepairRefusalWhenStateAmbiguous();
   testRepairRejectsConflictingKbRootWithoutForce();
   testRepairLateFailureRollsBackMutations();
   testUninstallRemovesOnlyInstallerOwnedArtifacts();
+  testUninstallRestoresPreinstallWorkspaceDocContent();
+  testUninstallRefusesToClobberUserModifiedWorkspaceDocByDefault();
+  testUninstallPreservesInstallerGeneratedWorkspaceDocWhenNoPreinstallSnapshot();
   testUninstallLeavesExternalKbUntouched();
   testUninstallRefusesWhenSkillDirHasExtraUserContent();
   testForceUninstallDoesNotRemoveAmbiguousMcpOwnership();

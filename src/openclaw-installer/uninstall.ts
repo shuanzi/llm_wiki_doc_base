@@ -39,6 +39,13 @@ interface PlannedSkillRemoval {
   installDir: string;
 }
 
+interface PlannedWorkspaceDocLifecycleAction {
+  docName: string;
+  docFile: string;
+  action: "restore" | "keep";
+  restoreContent?: string;
+}
+
 export async function uninstallOpenClawIntegration(
   args: UninstallCommandArgs,
   environment: ResolvedInstallerEnvironment,
@@ -79,12 +86,19 @@ export async function uninstallOpenClawIntegration(
     manifest,
     force: args.force,
   });
+  const plannedWorkspaceDocLifecycleActions = planWorkspaceDocLifecycleActions({
+    workspacePath,
+    manifest,
+    force: args.force,
+  });
 
   let removedMcpRegistration = false;
   if (existingMcpDefinition && canRemoveMcp) {
     await cli.unsetMcpServer(args.mcpName);
     removedMcpRegistration = true;
   }
+
+  applyWorkspaceDocLifecycleActions(plannedWorkspaceDocLifecycleActions);
 
   let removedManifest = false;
   if (fs.existsSync(manifestPath)) {
@@ -223,6 +237,125 @@ function planSkillDirectoryRemovals(options: {
   }
 
   return planned;
+}
+
+function planWorkspaceDocLifecycleActions(options: {
+  workspacePath: string;
+  manifest: ReturnType<typeof readInstallerManifest>;
+  force: boolean;
+}): PlannedWorkspaceDocLifecycleAction[] {
+  const planned: PlannedWorkspaceDocLifecycleAction[] = [];
+
+  if (!options.manifest) {
+    return planned;
+  }
+
+  for (const installedDoc of options.manifest.installedWorkspaceDocs) {
+    const expectedDocFile = path.resolve(options.workspacePath, installedDoc.docName);
+    const manifestDocFile = path.resolve(installedDoc.docFile);
+
+    if (manifestDocFile !== expectedDocFile && !options.force) {
+      throw new Error(
+        `Uninstall refused because workspace-doc ownership path drifted for ${installedDoc.docName}.`
+      );
+    }
+
+    if (!installedDoc.preinstallSnapshot.known) {
+      planned.push({
+        docName: installedDoc.docName,
+        docFile: expectedDocFile,
+        action: "keep",
+      });
+      continue;
+    }
+
+    if (!installedDoc.preinstallSnapshot.existed) {
+      planned.push({
+        docName: installedDoc.docName,
+        docFile: expectedDocFile,
+        action: "keep",
+      });
+      continue;
+    }
+
+    validateWorkspaceDocRestoreTarget({
+      docName: installedDoc.docName,
+      docFile: expectedDocFile,
+      expectedInstalledContentHash: installedDoc.contentHash,
+      force: options.force,
+    });
+
+    planned.push({
+      docName: installedDoc.docName,
+      docFile: expectedDocFile,
+      action: "restore",
+      restoreContent: installedDoc.preinstallSnapshot.content,
+    });
+  }
+
+  return planned;
+}
+
+function validateWorkspaceDocRestoreTarget(options: {
+  docName: string;
+  docFile: string;
+  expectedInstalledContentHash: string;
+  force: boolean;
+}): void {
+  if (!fs.existsSync(options.docFile)) {
+    if (!options.force) {
+      throw new Error(
+        `Uninstall refused because workspace doc ${options.docName} is missing and no longer matches installer-managed state: ${options.docFile}. Re-run with --force to restore preinstall snapshot.`
+      );
+    }
+    return;
+  }
+
+  const docLstat = fs.lstatSync(options.docFile);
+  if (docLstat.isSymbolicLink() && !options.force) {
+    throw new Error(
+      `Uninstall refused because workspace doc path must not be a symlink: ${options.docFile}`
+    );
+  }
+
+  if (!docLstat.isSymbolicLink() && !docLstat.isFile() && !options.force) {
+    throw new Error(
+      `Uninstall refused because workspace doc restore target is not a regular file: ${options.docFile} (${options.docName})`
+    );
+  }
+
+  if (!docLstat.isFile()) {
+    return;
+  }
+
+  const diskHash = sha256(fs.readFileSync(options.docFile, "utf8"));
+  if (diskHash !== options.expectedInstalledContentHash && !options.force) {
+    throw new Error(
+      `Uninstall refused because workspace doc ${options.docName} appears user-modified since install. Re-run with --force to restore preinstall snapshot.`
+    );
+  }
+}
+
+function applyWorkspaceDocLifecycleActions(
+  actions: readonly PlannedWorkspaceDocLifecycleAction[]
+): void {
+  for (const action of actions) {
+    if (action.action !== "restore") {
+      continue;
+    }
+
+    if (fs.existsSync(action.docFile)) {
+      const docLstat = fs.lstatSync(action.docFile);
+      if (docLstat.isSymbolicLink()) {
+        fs.unlinkSync(action.docFile);
+      } else if (!docLstat.isFile()) {
+        removeDirectoryRecursive(action.docFile);
+      }
+    }
+
+    fs.mkdirSync(path.dirname(action.docFile), { recursive: true });
+    fs.writeFileSync(action.docFile, action.restoreContent ?? "", "utf8");
+  }
 }
 
 function validateManifestForUninstall(

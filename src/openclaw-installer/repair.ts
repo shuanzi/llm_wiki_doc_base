@@ -30,6 +30,7 @@ import {
   OpenClawWorkspaceResolutionError,
   resolveOpenClawWorkspace,
 } from "./workspace";
+import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import type {
   InstallerCheckResult,
   InstallerManifest,
@@ -56,6 +57,14 @@ interface RepairSkillState {
   conflictMessage?: string;
 }
 
+interface RepairWorkspaceDocState {
+  docName: string;
+  docFile: string;
+  matchesExpected: boolean;
+  missing: boolean;
+  conflictMessage?: string;
+}
+
 interface RepairOpenClawIntegrationOptions {
   cli?: OpenClawCli;
   nodeCommand?: string;
@@ -72,6 +81,8 @@ interface RollbackState {
   createdSkillDirectories: string[];
   createdSkillFiles: string[];
   overwrittenSkillFiles: Array<{ filePath: string; content: string }>;
+  createdWorkspaceDocFiles: string[];
+  overwrittenWorkspaceDocFiles: Array<{ filePath: string; content: string }>;
   createdManifestPath?: string;
   overwrittenManifest?: { manifestPath: string; content: string };
 }
@@ -140,26 +151,34 @@ export async function repairOpenClawIntegration(
   }
 
   const renderedSkills = renderAllOpenClawSkills(repoRoot);
+  const renderedWorkspaceDocs = renderAllOpenClawWorkspaceDocs();
   const skillStates = inspectSkillState({
     workspacePath,
     renderedSkills,
     hasExistingManifest: Boolean(existingManifest),
   });
+  const workspaceDocStates = inspectWorkspaceDocState({
+    workspacePath,
+    renderedWorkspaceDocs,
+    hasExistingManifest: Boolean(existingManifest),
+  });
 
-  const conflicts = skillStates
+  const conflicts = [...skillStates, ...workspaceDocStates]
     .map((state) => state.conflictMessage)
     .filter((message): message is string => Boolean(message));
   if (conflicts.length > 0 && !args.force) {
     throw new Error(
-      `Repair refused due to skill ownership conflicts. ${conflicts.join(" | ")} Use --force to overwrite conflicting installer-targeted skill directories.`
+      `Repair refused due to installer ownership conflicts. ${conflicts.join(" | ")} Use --force to overwrite conflicting installer-targeted artifacts.`
     );
   }
 
   const hasInstallerSignals =
-    normalizedExistingMcp !== undefined || skillStates.some((state) => state.matchesExpected);
+    normalizedExistingMcp !== undefined ||
+    skillStates.some((state) => state.matchesExpected) ||
+    workspaceDocStates.some((state) => state.matchesExpected);
   if (!existingManifest && !hasInstallerSignals && !args.force) {
     throw new Error(
-      "Repair refused because state is too ambiguous to reconstruct ownership (missing manifest, no recognizable installer MCP config, and no recognizable installer skill files). Use --force to proceed."
+      "Repair refused because state is too ambiguous to reconstruct ownership (missing manifest, no recognizable installer MCP config, and no recognizable installer skill/workspace-doc files). Use --force to proceed."
     );
   }
 
@@ -174,6 +193,8 @@ export async function repairOpenClawIntegration(
     createdSkillDirectories: [],
     createdSkillFiles: [],
     overwrittenSkillFiles: [],
+    createdWorkspaceDocFiles: [],
+    overwrittenWorkspaceDocFiles: [],
   };
 
   const appliedActions: InstallerRepairAction[] = [];
@@ -193,6 +214,14 @@ export async function repairOpenClawIntegration(
       workspacePath,
       renderedSkills,
       installedAt,
+      force: args.force,
+      rollback,
+    });
+    const workspaceDocMaterialization = materializeWorkspaceDocs({
+      workspacePath,
+      renderedWorkspaceDocs,
+      installedAt,
+      existingManifest,
       force: args.force,
       rollback,
     });
@@ -243,6 +272,7 @@ export async function repairOpenClawIntegration(
       mcpName: args.mcpName,
       installedAt,
       installedSkills: skillMaterialization.installedSkills,
+      installedWorkspaceDocs: workspaceDocMaterialization.installedWorkspaceDocs,
       expectedMcpConfig,
       lastSuccessfulProbe: {
         checkedAt: probeResult.checkedAt,
@@ -387,6 +417,79 @@ function inspectSkillState(options: {
   return states;
 }
 
+function inspectWorkspaceDocState(options: {
+  workspacePath: string;
+  renderedWorkspaceDocs: Array<{
+    docName: string;
+    installRelativeFile: string;
+    contentHash: string;
+  }>;
+  hasExistingManifest: boolean;
+}): RepairWorkspaceDocState[] {
+  const states: RepairWorkspaceDocState[] = [];
+  assertWorkspaceRootSafeForDocs(options.workspacePath);
+
+  for (const renderedDoc of options.renderedWorkspaceDocs) {
+    const docFile = path.resolve(options.workspacePath, renderedDoc.installRelativeFile);
+
+    if (!fs.existsSync(docFile)) {
+      states.push({
+        docName: renderedDoc.docName,
+        docFile,
+        matchesExpected: false,
+        missing: true,
+      });
+      continue;
+    }
+
+    const docLstat = fs.lstatSync(docFile);
+    if (docLstat.isSymbolicLink()) {
+      states.push({
+        docName: renderedDoc.docName,
+        docFile,
+        matchesExpected: false,
+        missing: false,
+        conflictMessage: `Workspace doc path must not be a symlink: ${docFile}`,
+      });
+      continue;
+    }
+
+    if (!docLstat.isFile()) {
+      states.push({
+        docName: renderedDoc.docName,
+        docFile,
+        matchesExpected: false,
+        missing: false,
+        conflictMessage: `Workspace doc path is not a regular file: ${docFile}`,
+      });
+      continue;
+    }
+
+    const existingHash = sha256(fs.readFileSync(docFile, "utf8"));
+    if (existingHash !== renderedDoc.contentHash) {
+      states.push({
+        docName: renderedDoc.docName,
+        docFile,
+        matchesExpected: false,
+        missing: false,
+        conflictMessage: options.hasExistingManifest
+          ? undefined
+          : `Workspace doc ${renderedDoc.docName} content drift detected at ${docFile}`,
+      });
+      continue;
+    }
+
+    states.push({
+      docName: renderedDoc.docName,
+      docFile,
+      matchesExpected: true,
+      missing: false,
+    });
+  }
+
+  return states;
+}
+
 function materializeSkills(options: {
   workspacePath: string;
   renderedSkills: Array<{
@@ -477,6 +580,100 @@ function materializeSkills(options: {
   return {
     installedSkills,
     wroteAnySkill,
+  };
+}
+
+function materializeWorkspaceDocs(options: {
+  workspacePath: string;
+  renderedWorkspaceDocs: Array<{
+    docName: InstallerManifest["installedWorkspaceDocs"][number]["docName"];
+    installRelativeFile: string;
+    content: string;
+    contentHash: string;
+  }>;
+  installedAt: string;
+  existingManifest: ReturnType<typeof readInstallerManifest>;
+  force: boolean;
+  rollback: RollbackState;
+}): {
+  installedWorkspaceDocs: InstallerManifest["installedWorkspaceDocs"];
+  wroteAnyWorkspaceDoc: boolean;
+} {
+  const installedWorkspaceDocs: InstallerManifest["installedWorkspaceDocs"] = [];
+  const manifestDocEntries = new Map<
+    InstallerManifest["installedWorkspaceDocs"][number]["docName"],
+    InstallerManifest["installedWorkspaceDocs"][number]
+  >();
+  let wroteAnyWorkspaceDoc = false;
+
+  if (options.existingManifest) {
+    for (const existingDocEntry of options.existingManifest.installedWorkspaceDocs) {
+      manifestDocEntries.set(existingDocEntry.docName, existingDocEntry);
+    }
+  }
+
+  assertWorkspaceRootSafeForDocs(options.workspacePath);
+
+  for (const renderedDoc of options.renderedWorkspaceDocs) {
+    const docFile = path.resolve(options.workspacePath, renderedDoc.installRelativeFile);
+    const existingManifestEntry = manifestDocEntries.get(renderedDoc.docName);
+
+    const docFileAlreadyExisted = fs.existsSync(docFile);
+    let previousDocContent: string | undefined;
+    let shouldWriteDocFile = true;
+
+    if (docFileAlreadyExisted) {
+      const existingDocStat = fs.lstatSync(docFile);
+      if (existingDocStat.isSymbolicLink()) {
+        throw new Error(`Workspace doc path must not be a symlink: ${docFile}`);
+      }
+      if (!existingDocStat.isFile()) {
+        throw new Error(`Workspace doc path is not a regular file: ${docFile}`);
+      }
+      previousDocContent = fs.readFileSync(docFile, "utf8");
+      const existingHash = sha256(previousDocContent);
+      if (existingHash === renderedDoc.contentHash) {
+        shouldWriteDocFile = false;
+      } else if (!options.existingManifest && !options.force) {
+        throw new Error(
+          `Repair refused to overwrite workspace doc ${renderedDoc.docName} without --force while manifest ownership metadata is missing.`
+        );
+      }
+    }
+
+    if (shouldWriteDocFile) {
+      fs.writeFileSync(docFile, renderedDoc.content, "utf8");
+      wroteAnyWorkspaceDoc = true;
+      options.rollback.mutated = true;
+
+      if (!docFileAlreadyExisted) {
+        options.rollback.createdWorkspaceDocFiles.push(docFile);
+      } else if (previousDocContent !== undefined) {
+        options.rollback.overwrittenWorkspaceDocFiles.push({
+          filePath: docFile,
+          content: previousDocContent,
+        });
+      }
+    }
+
+    installedWorkspaceDocs.push({
+      docName: renderedDoc.docName,
+      docFile,
+      contentHash: renderedDoc.contentHash,
+      installedAt: options.installedAt,
+      preinstallSnapshot: existingManifestEntry
+        ? existingManifestEntry.preinstallSnapshot
+        : {
+            known: false,
+          },
+    });
+  }
+
+  installedWorkspaceDocs.sort((left, right) => left.docName.localeCompare(right.docName));
+
+  return {
+    installedWorkspaceDocs,
+    wroteAnyWorkspaceDoc,
   };
 }
 
@@ -625,8 +822,15 @@ async function rollbackCreatedArtifacts(
     fs.mkdirSync(path.dirname(overwrittenSkillFile.filePath), { recursive: true });
     fs.writeFileSync(overwrittenSkillFile.filePath, overwrittenSkillFile.content, "utf8");
   }
+  for (const overwrittenWorkspaceDocFile of rollback.overwrittenWorkspaceDocFiles) {
+    fs.mkdirSync(path.dirname(overwrittenWorkspaceDocFile.filePath), { recursive: true });
+    fs.writeFileSync(overwrittenWorkspaceDocFile.filePath, overwrittenWorkspaceDocFile.content, "utf8");
+  }
 
   for (const filePath of rollback.createdSkillFiles) {
+    removeFileIfExists(filePath);
+  }
+  for (const filePath of rollback.createdWorkspaceDocFiles) {
     removeFileIfExists(filePath);
   }
 
@@ -763,6 +967,19 @@ function ensureWorkspaceDirectory(workspacePath: string): void {
   }
 
   fs.mkdirSync(workspacePath, { recursive: true });
+}
+
+function assertWorkspaceRootSafeForDocs(workspacePath: string): void {
+  if (!fs.existsSync(workspacePath)) {
+    return;
+  }
+
+  const workspaceLstat = fs.lstatSync(workspacePath);
+  if (workspaceLstat.isSymbolicLink()) {
+    throw new Error(
+      `Workspace root must not be a symlink for installer-managed workspace docs: ${workspacePath}`
+    );
+  }
 }
 
 function readInstallerVersion(repoRoot: string): string {
