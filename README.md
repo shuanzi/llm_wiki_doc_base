@@ -17,6 +17,7 @@ Current live doc set:
 ## Status
 
 - Active architecture: **V2 (LLM-driven knowledge compilation)**
+- OpenClaw integration: this repo now ships an OpenClaw installer (`kb-openclaw-installer` / `dist/openclaw_installer.js`) for external-KB deployments.
 - Governance rule (current): for **multi-file changes under `kb/wiki`**, follow `plan -> draft -> apply` as required by [AGENTS.md](./AGENTS.md).
 - Logging semantics: `wiki/log.md` records meaningful query synthesis and every complete lint pass, including clean pass (`No findings`, `0/0/0`).
 - Historical context: old plan/review/idea/session snapshot docs are archived under `archived/`, and are not current truth sources.
@@ -90,7 +91,7 @@ Startup guard behavior:
 
 ## Build and Start MCP
 
-Installation/startup flow is unchanged by the refactor. There is no new bootstrap script.
+MCP startup flow is unchanged by the refactor. OpenClaw installer flow is separate and documented in the next section.
 
 From repository root:
 
@@ -109,6 +110,48 @@ WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
 ```
 
 `start:mcp` runs `node dist/mcp_server.js`, so build first.
+
+## OpenClaw Installer (External KB)
+
+Build artifacts first:
+
+```bash
+npm run typecheck
+npm run build
+```
+
+Install (requires explicit default-agent workspace and explicit external `KB_ROOT`):
+
+```bash
+node dist/openclaw_installer.js install --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+```
+
+Check:
+
+```bash
+node dist/openclaw_installer.js check --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb --json
+```
+
+Repair:
+
+```bash
+node dist/openclaw_installer.js repair --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+```
+
+Uninstall:
+
+```bash
+node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb
+```
+
+Operator notes for current implementation:
+
+- Current implementation only supports the OpenClaw current default-agent workspace. If `--workspace` does not match the resolved default-agent workspace, installer commands fail closed with manual-config guidance.
+- `KB_ROOT` is an explicit external root in the installer contract (`install` requires `--kb-root`; `repair` can infer from manifest/MCP config but accepts explicit override).
+- Installed skills are OpenClaw-adapted variants (`openclaw-adapted-v1`) written under `<workspace>/skills/{kb_ingest|kb_query|kb_lint}`.
+- `kb_commit` remains available in the MCP server surface, but it is not part of the default external-KB installer contract; adapted skills intentionally avoid automatic `kb_commit`.
+- Installer ownership is repo-coupled: expected MCP config points to this repo build artifact (`<repo>/dist/mcp_server.js`) plus the configured `KB_ROOT`.
+- Conflict handling is conservative by default and fails closed on ownership/config/content conflicts unless `--force` is explicitly provided.
 
 ## Skills (Operator-facing Workflows)
 

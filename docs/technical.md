@@ -185,7 +185,7 @@ scripts/
 - `npm run build`
 - `npm run start:mcp`
 
-安装/启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run start:mcp`，没有新增 bootstrap/install 脚本。
+MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run start:mcp`。另外当前主线已新增独立 OpenClaw installer（见第 9 节），用于外部 `KB_ROOT` 的 OpenClaw 接入，不替代 `start:mcp`。
 
 ### 7.2 端到端验证
 - `scripts/e2e_v2_ingest.ts`
@@ -215,6 +215,48 @@ scripts/
 7. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
 8. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；溯源完整性应以具体 `source_id` 是否存在 manifest 为准。
 
-## 9. 与历史文档关系
+## 9. OpenClaw Installer（当前主线）
+
+### 9.1 命令面与入口
+- 编译产物入口：`dist/openclaw_installer.js`
+- package script：`npm run start:openclaw-installer`
+- bin：`kb-openclaw-installer`
+- 命令面：
+  - `install --workspace <path> --kb-root <path> [--mcp-name <name>] [--force]`
+  - `check [--workspace <path>] [--mcp-name <name>] [--json]`
+  - `repair --workspace <path> [--kb-root <path>] [--mcp-name <name>] [--force]`
+  - `uninstall --workspace <path> [--mcp-name <name>] [--force]`
+
+### 9.2 操作命令（精确示例）
+
+```bash
+node dist/openclaw_installer.js install --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+node dist/openclaw_installer.js check --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb --json
+node dist/openclaw_installer.js repair --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb
+```
+
+### 9.3 当前实现约束（必须知晓）
+
+1. 仅支持当前默认 agent workspace
+- `--workspace` 必须与 OpenClaw 当前默认 agent 解析出的 workspace 一致；不一致时拒绝执行（manual config required / fail-closed）。
+
+2. `KB_ROOT` 是外部且显式的契约
+- `install` 强制 `--kb-root`；`repair` 可从 manifest/MCP 配置恢复，也可显式传入。
+- 卸载不会删除外部 `KB_ROOT` 内容，只清理 installer-owned 的 workspace 工件与 MCP 注册。
+
+3. 安装 skill 为 OpenClaw 适配变体
+- 安装目标：`<workspace>/skills/kb_ingest|kb_query|kb_lint/SKILL.md`
+- 版本集合：`openclaw-adapted-v1`
+- 适配规则：不依赖宿主机 `kb/...` 直接读文件，不自动执行 `kb_commit`。
+
+4. `kb_commit` 不属于默认 external-KB contract
+- MCP surface 仍包含 `kb_commit` 工具（兼容当前主线工具面），但 installer 下发的默认 skill 工作流不把 `kb_commit` 作为自动步骤。
+
+5. repo-path coupling 与冲突保守策略
+- manifest 记录 `repoRoot`，且期望 MCP 配置固定指向 `<repoRoot>/dist/mcp_server.js` + `KB_ROOT`；移动 repo 或 build 产物缺失会触发 drift。
+- 冲突（manifest ownership、MCP config、skill 内容/目录）默认拒绝覆盖并 fail-closed，只有显式 `--force` 才允许覆盖。
+
+## 10. 与历史文档关系
 
 仓库中的历史计划与评审文档（例如 `archived/plans/development-plan-v2.md`）仅用于背景追溯；当前工程事实以 README、`src/` 实现、`skills/` 规范与 `scripts/` 验证脚本为准。
