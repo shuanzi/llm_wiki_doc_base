@@ -13,6 +13,7 @@ Current live doc set:
 - [docs/product.md](./docs/product.md)
 - [docs/technical.md](./docs/technical.md)
 - [docs/progress.md](./docs/progress.md)
+- [docs/openclaw-installer-agent-guide.md](./docs/openclaw-installer-agent-guide.md)
 
 ## Status
 
@@ -152,6 +153,10 @@ Operator notes for current implementation:
 - `kb_commit` remains available in the MCP server surface, but it is not part of the default external-KB installer contract; adapted skills intentionally avoid automatic `kb_commit`.
 - Installer ownership is repo-coupled: expected MCP config points to this repo build artifact (`<repo>/dist/mcp_server.js`) plus the configured `KB_ROOT`.
 - Conflict handling is conservative by default and fails closed on ownership/config/content conflicts unless `--force` is explicitly provided.
+
+Agent-oriented execution guide:
+
+- [docs/openclaw-installer-agent-guide.md](./docs/openclaw-installer-agent-guide.md)
 
 ## Skills (Operator-facing Workflows)
 
