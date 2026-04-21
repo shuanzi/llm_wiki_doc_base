@@ -3,3 +3,9 @@ dist/
 .DS_Store
 *.tsbuildinfo
 .worktree/
+
+# Local agent/editor settings
+.claude/settings.local.json
+
+# KB machine cache; rebuildable from kb/wiki
+kb/state/cache/

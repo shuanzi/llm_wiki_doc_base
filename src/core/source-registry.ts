@@ -36,6 +36,10 @@ function manifestsDir(workspace: WorkspaceLike): string {
   return resolveKbPath("state/manifests", getKbRoot(workspace));
 }
 
+function buildSourceLocator(filePath: string): string {
+  return path.basename(filePath);
+}
+
 export function listRegisteredManifests(workspace: WorkspaceLike): Manifest[] {
   const dir = manifestsDir(workspace);
   if (!fs.existsSync(dir)) {
@@ -129,7 +133,7 @@ export function registerSourceFile(
   const file_name = path.basename(input.file_path);
   const manifest: Manifest = {
     source_id,
-    source_locator: absolutePath,
+    source_locator: buildSourceLocator(input.file_path),
     source_kind,
     content_hash,
     canonical_path,

@@ -453,7 +453,7 @@ async function testSourceAddHappyPathAndDuplicateContent(): Promise<void> {
     assert(!duplicate.success, "kb_source_add unexpectedly accepted duplicate content");
     assert(
       duplicate.error ===
-        `Duplicate content: source already registered as ${first.data?.source_id} (${path.resolve(sourcePath)})`,
+        `Duplicate content: source already registered as ${first.data?.source_id} (source.md)`,
       "kb_source_add should preserve duplicate-content error text"
     );
   } finally {
