@@ -13,7 +13,13 @@ import type {
   InstallerManifest,
   InstallerProbeSnapshot,
   InstallerSkillInstallationMetadata,
+  InstallerWorkspaceDocInstallationMetadata,
+  InstallerWorkspaceDocName,
 } from "./types";
+import {
+  INSTALLER_WORKSPACE_DOC_NAMES,
+} from "./types";
+import { renderOpenClawWorkspaceDoc } from "./workspace-docs";
 
 export const INSTALLER_MANIFEST_RELATIVE_PATH = ".llm-kb/openclaw-install.json" as const;
 
@@ -46,6 +52,7 @@ export interface CreateInstallerManifestOptions {
   kbRoot: string;
   mcpName: string;
   installedSkills: InstallerSkillInstallationMetadata[];
+  installedWorkspaceDocs?: InstallerWorkspaceDocInstallationMetadata[];
   expectedMcpConfig: InstallerExpectedMcpConfig;
   installedAt?: string;
   lastSuccessfulProbe?: InstallerProbeSnapshot;
@@ -74,6 +81,7 @@ export function createInstallerManifest(
     installedAt: options.installedAt ?? new Date().toISOString(),
     skillVariantSet: "openclaw-adapted-v1",
     installedSkills: options.installedSkills,
+    installedWorkspaceDocs: options.installedWorkspaceDocs ?? [],
     expectedMcpConfig: options.expectedMcpConfig,
     lastSuccessfulProbe: options.lastSuccessfulProbe,
   });
@@ -123,6 +131,7 @@ export function validateInstallerManifest(
   validateOwnershipRoots(normalizedManifest, expectation, driftItems);
   validateMcpExpectation(normalizedManifest, expectation, driftItems);
   validateSkillProvenance(normalizedManifest, driftItems);
+  validateWorkspaceDocMetadata(normalizedManifest, driftItems);
 
   if (driftItems.some((item) => item.kind === "unknown_ownership")) {
     return { status: "unknown_ownership", driftItems };
@@ -280,6 +289,182 @@ function validateSkillProvenance(
       continue;
     }
     validateSingleSkillEntry(manifest, skill, driftItems);
+  }
+}
+
+function validateWorkspaceDocMetadata(
+  manifest: InstallerManifest,
+  driftItems: InstallerDriftItem[]
+): void {
+  validateWorkspaceDocWorkspaceRootPath(manifest, driftItems);
+
+  const entriesByDocName = new Map<
+    InstallerWorkspaceDocName,
+    InstallerWorkspaceDocInstallationMetadata
+  >();
+  const seen = new Set<InstallerWorkspaceDocName>();
+
+  for (const doc of manifest.installedWorkspaceDocs) {
+    if (seen.has(doc.docName)) {
+      driftItems.push({
+        kind: "workspace_doc_hash_drift",
+        message: `Duplicate installed workspace-doc entry in manifest: ${doc.docName}`,
+        repairable: true,
+      });
+      continue;
+    }
+    seen.add(doc.docName);
+    entriesByDocName.set(doc.docName, doc);
+  }
+
+  for (const expectedDocName of INSTALLER_WORKSPACE_DOC_NAMES) {
+    const doc = entriesByDocName.get(expectedDocName);
+    if (!doc) {
+      driftItems.push({
+        kind: "workspace_doc_hash_drift",
+        message: `Manifest is missing installer-owned workspace doc entry: ${expectedDocName}`,
+        repairable: true,
+      });
+      continue;
+    }
+
+    validateSingleWorkspaceDocEntry(manifest, doc, driftItems);
+  }
+}
+
+function validateWorkspaceDocWorkspaceRootPath(
+  manifest: InstallerManifest,
+  driftItems: InstallerDriftItem[]
+): void {
+  if (!fs.existsSync(manifest.workspacePath)) {
+    return;
+  }
+
+  const workspaceLstat = fs.lstatSync(manifest.workspacePath);
+  if (workspaceLstat.isSymbolicLink()) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message:
+        `Workspace root must not be a symlink for installer-managed workspace docs: ${manifest.workspacePath}`,
+      repairable: false,
+    });
+  }
+}
+
+function validateSingleWorkspaceDocEntry(
+  manifest: InstallerManifest,
+  doc: InstallerWorkspaceDocInstallationMetadata,
+  driftItems: InstallerDriftItem[]
+): void {
+  const expectedDocFile = path.resolve(manifest.workspacePath, doc.docName);
+
+  if (!arePathsEquivalent(doc.docFile, expectedDocFile)) {
+    driftItems.push({
+      kind: "workspace_doc_hash_drift",
+      message: `Workspace doc ${doc.docName} docFile differs from expected installer location.`,
+      repairable: true,
+      expected: expectedDocFile,
+      actual: doc.docFile,
+    });
+  }
+
+  if (!isPathInside(manifest.workspacePath, doc.docFile)) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message: `Workspace doc ${doc.docName} path metadata points outside workspace ownership scope.`,
+      repairable: false,
+    });
+  }
+
+  if (!isHexSha256(doc.contentHash)) {
+    driftItems.push({
+      kind: "workspace_doc_hash_drift",
+      message: `Workspace doc ${doc.docName} contentHash is not a valid sha256 hex digest.`,
+      repairable: true,
+      actual: doc.contentHash,
+    });
+  }
+
+  validateWorkspaceDocPreinstallSnapshot(doc, driftItems);
+
+  if (!fs.existsSync(doc.docFile)) {
+    driftItems.push({
+      kind: "missing_workspace_doc",
+      message: `Workspace doc missing on disk for ${doc.docName}: ${doc.docFile}`,
+      repairable: true,
+    });
+    return;
+  }
+
+  const docLstat = fs.lstatSync(doc.docFile);
+  if (docLstat.isSymbolicLink()) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message: `Workspace doc ${doc.docName} must not be symlinked: ${doc.docFile}`,
+      repairable: false,
+    });
+    return;
+  }
+
+  if (!docLstat.isFile()) {
+    driftItems.push({
+      kind: "missing_workspace_doc",
+      message: `Workspace doc path is not a regular file for ${doc.docName}: ${doc.docFile}`,
+      repairable: true,
+    });
+    return;
+  }
+
+  try {
+    const expectedRenderedDoc = renderOpenClawWorkspaceDoc({
+      docName: doc.docName,
+    });
+
+    if (doc.contentHash !== expectedRenderedDoc.contentHash) {
+      driftItems.push({
+        kind: "workspace_doc_hash_drift",
+        message: `Workspace doc ${doc.docName} contentHash does not match deterministic renderer output.`,
+        repairable: true,
+        expected: expectedRenderedDoc.contentHash,
+        actual: doc.contentHash,
+      });
+    }
+  } catch (error) {
+    driftItems.push({
+      kind: "other",
+      message: `Unable to render expected workspace doc ${doc.docName}: ${stringifyError(error)}`,
+      repairable: true,
+    });
+  }
+}
+
+function validateWorkspaceDocPreinstallSnapshot(
+  doc: InstallerWorkspaceDocInstallationMetadata,
+  driftItems: InstallerDriftItem[]
+): void {
+  if (!doc.preinstallSnapshot.existed) {
+    return;
+  }
+
+  if (!isHexSha256(doc.preinstallSnapshot.contentHash)) {
+    driftItems.push({
+      kind: "workspace_doc_hash_drift",
+      message: `Workspace doc ${doc.docName} preinstall snapshot hash is invalid.`,
+      repairable: true,
+      actual: doc.preinstallSnapshot.contentHash,
+    });
+    return;
+  }
+
+  const calculatedSnapshotHash = sha256(doc.preinstallSnapshot.content);
+  if (calculatedSnapshotHash !== doc.preinstallSnapshot.contentHash) {
+    driftItems.push({
+      kind: "workspace_doc_hash_drift",
+      message: `Workspace doc ${doc.docName} preinstall snapshot content/hash mismatch.`,
+      repairable: true,
+      expected: calculatedSnapshotHash,
+      actual: doc.preinstallSnapshot.contentHash,
+    });
   }
 }
 
@@ -477,6 +662,9 @@ function parseInstallerManifest(value: unknown): InstallerManifest {
   const installedSkills = installedSkillsRaw.map((entry, index) =>
     parseInstallerSkillEntry(entry, `installedSkills[${index}]`)
   );
+  const installedWorkspaceDocs = parseWorkspaceDocsArray(
+    value.installedWorkspaceDocs
+  );
 
   const parsed: InstallerManifest = {
     schemaVersion: 1,
@@ -488,6 +676,7 @@ function parseInstallerManifest(value: unknown): InstallerManifest {
     installedAt: readString(value.installedAt, "installedAt"),
     skillVariantSet: "openclaw-adapted-v1",
     installedSkills,
+    installedWorkspaceDocs,
     expectedMcpConfig: parseExpectedMcpConfig(value.expectedMcpConfig, "expectedMcpConfig"),
     lastSuccessfulProbe:
       value.lastSuccessfulProbe === undefined
@@ -529,6 +718,73 @@ function parseInstallerSkillEntry(
     ) as InstallerSkillInstallationMetadata["variantSet"],
     sourceProvenance,
   };
+}
+
+function parseWorkspaceDocsArray(
+  value: unknown
+): InstallerWorkspaceDocInstallationMetadata[] {
+  if (value === undefined) {
+    // Backward-compatible parsing for older manifests that predate
+    // installedWorkspaceDocs. Validation will report this as repairable drift.
+    return [];
+  }
+
+  const installedWorkspaceDocsRaw = readArray(
+    value,
+    "installedWorkspaceDocs"
+  );
+
+  return installedWorkspaceDocsRaw.map((entry, index) =>
+    parseWorkspaceDocEntry(entry, `installedWorkspaceDocs[${index}]`)
+  );
+}
+
+function parseWorkspaceDocEntry(
+  value: unknown,
+  label: string
+): InstallerWorkspaceDocInstallationMetadata {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+
+  return {
+    docName: readWorkspaceDocName(value.docName, `${label}.docName`),
+    docFile: readString(value.docFile, `${label}.docFile`),
+    contentHash: readString(value.contentHash, `${label}.contentHash`),
+    installedAt: readString(value.installedAt, `${label}.installedAt`),
+    preinstallSnapshot: parseWorkspaceDocPreinstallSnapshot(
+      value.preinstallSnapshot,
+      `${label}.preinstallSnapshot`
+    ),
+  };
+}
+
+function parseWorkspaceDocPreinstallSnapshot(
+  value: unknown,
+  label: string
+): InstallerWorkspaceDocInstallationMetadata["preinstallSnapshot"] {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+
+  const existed = readBoolean(value.existed, `${label}.existed`);
+  if (!existed) {
+    return { existed: false };
+  }
+
+  return {
+    existed: true,
+    content: readStringAllowEmpty(value.content, `${label}.content`),
+    contentHash: readString(value.contentHash, `${label}.contentHash`),
+  };
+}
+
+function readWorkspaceDocName(value: unknown, label: string): InstallerWorkspaceDocName {
+  const docName = readString(value, label);
+  if (!isInstallerWorkspaceDocName(docName)) {
+    throw new Error(`${label} must be one of: ${INSTALLER_WORKSPACE_DOC_NAMES.join(", ")}`);
+  }
+  return docName;
 }
 
 function parseSourceProvenance(
@@ -611,6 +867,22 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
     }))
     .sort((left, right) => left.skillName.localeCompare(right.skillName));
 
+  const installedWorkspaceDocs = [...manifest.installedWorkspaceDocs]
+    .map((entry) => ({
+      docName: entry.docName,
+      docFile: path.resolve(entry.docFile),
+      contentHash: entry.contentHash,
+      installedAt: entry.installedAt,
+      preinstallSnapshot: entry.preinstallSnapshot.existed
+        ? {
+            existed: true as const,
+            content: entry.preinstallSnapshot.content,
+            contentHash: entry.preinstallSnapshot.contentHash,
+          }
+        : { existed: false as const },
+    }))
+    .sort((left, right) => left.docName.localeCompare(right.docName));
+
   return {
     schemaVersion: 1,
     installerVersion: manifest.installerVersion,
@@ -621,6 +893,7 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
     installedAt: manifest.installedAt,
     skillVariantSet: "openclaw-adapted-v1",
     installedSkills,
+    installedWorkspaceDocs,
     expectedMcpConfig: normalizeExpectedMcpConfig(manifest.expectedMcpConfig),
     lastSuccessfulProbe: manifest.lastSuccessfulProbe
       ? {
@@ -736,6 +1009,13 @@ function readString(value: unknown, label: string): string {
   return value;
 }
 
+function readStringAllowEmpty(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be a string.`);
+  }
+  return value;
+}
+
 function readLiteralNumber(value: unknown, label: string): number {
   if (typeof value !== "number" || Number.isNaN(value)) {
     throw new Error(`${label} must be a number.`);
@@ -780,6 +1060,10 @@ function normalizePlainStringMap(value: unknown, label: string): Record<string, 
 
 function isHexSha256(value: string): boolean {
   return /^[a-f0-9]{64}$/u.test(value);
+}
+
+function isInstallerWorkspaceDocName(value: string): value is InstallerWorkspaceDocName {
+  return INSTALLER_WORKSPACE_DOC_NAMES.includes(value as InstallerWorkspaceDocName);
 }
 
 function normalizeTextFile(content: string): string {

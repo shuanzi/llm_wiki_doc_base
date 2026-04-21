@@ -21,6 +21,7 @@ import {
   type OpenClawMcpServerDefinition,
 } from "./openclaw-cli";
 import { renderAllOpenClawSkills } from "./skills";
+import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import {
   OpenClawWorkspaceResolutionError,
   resolveOpenClawWorkspace,
@@ -66,6 +67,8 @@ interface RollbackState {
   createdSkillFiles: string[];
   overwrittenSkillFiles: Array<{ filePath: string; content: string }>;
   createdSkillDirectories: string[];
+  createdWorkspaceDocFiles: string[];
+  overwrittenWorkspaceDocFiles: Array<{ filePath: string; content: string }>;
   createdManifestPath?: string;
   overwrittenManifest?: { manifestPath: string; content: string };
   createdMcpRegistration: boolean;
@@ -116,6 +119,8 @@ export async function installOpenClawIntegration(
     createdSkillFiles: [],
     overwrittenSkillFiles: [],
     createdSkillDirectories: [],
+    createdWorkspaceDocFiles: [],
+    overwrittenWorkspaceDocFiles: [],
     createdMcpRegistration: false,
     mcpName: args.mcpName,
     mutated: false,
@@ -162,6 +167,7 @@ export async function installOpenClawIntegration(
     });
 
     const renderedSkills = renderAllOpenClawSkills(repoRoot);
+    const renderedWorkspaceDocs = renderAllOpenClawWorkspaceDocs();
     inspectSkillConflicts({
       workspacePath,
       renderedSkills,
@@ -173,6 +179,12 @@ export async function installOpenClawIntegration(
     const installedSkills = writeRenderedSkills({
       workspacePath,
       renderedSkills,
+      installedAt,
+      rollback,
+    });
+    const installedWorkspaceDocs = writeRenderedWorkspaceDocs({
+      workspacePath,
+      renderedWorkspaceDocs,
       installedAt,
       rollback,
     });
@@ -208,6 +220,7 @@ export async function installOpenClawIntegration(
       mcpName: args.mcpName,
       installedAt,
       installedSkills,
+      installedWorkspaceDocs,
       expectedMcpConfig,
       lastSuccessfulProbe: {
         checkedAt: probeResult.checkedAt,
@@ -543,6 +556,86 @@ function writeRenderedSkills(options: {
   return installedSkills;
 }
 
+function writeRenderedWorkspaceDocs(options: {
+  workspacePath: string;
+  renderedWorkspaceDocs: Array<{
+    docName: InstallerManifest["installedWorkspaceDocs"][number]["docName"];
+    installRelativeFile: string;
+    content: string;
+    contentHash: string;
+  }>;
+  installedAt: string;
+  rollback: RollbackState;
+}): InstallerManifest["installedWorkspaceDocs"] {
+  const installedWorkspaceDocs: InstallerManifest["installedWorkspaceDocs"] = [];
+  assertWorkspaceRootSafeForDocs(options.workspacePath);
+
+  for (const renderedDoc of options.renderedWorkspaceDocs) {
+    const docFile = path.resolve(options.workspacePath, renderedDoc.installRelativeFile);
+
+    const docFileAlreadyExisted = fs.existsSync(docFile);
+    let previousDocContent: string | undefined;
+
+    if (docFileAlreadyExisted) {
+      const existingDocStat = fs.lstatSync(docFile);
+      if (existingDocStat.isSymbolicLink()) {
+        throw new Error(`Workspace doc path must not be a symlink: ${docFile}`);
+      }
+      if (!existingDocStat.isFile()) {
+        throw new Error(`Workspace doc path is not a regular file: ${docFile}`);
+      }
+      previousDocContent = fs.readFileSync(docFile, "utf8");
+    }
+
+    fs.writeFileSync(docFile, renderedDoc.content, "utf8");
+
+    options.rollback.mutated = true;
+    if (!docFileAlreadyExisted) {
+      options.rollback.createdWorkspaceDocFiles.push(docFile);
+    } else if (previousDocContent !== undefined) {
+      options.rollback.overwrittenWorkspaceDocFiles.push({
+        filePath: docFile,
+        content: previousDocContent,
+      });
+    }
+
+    installedWorkspaceDocs.push({
+      docName: renderedDoc.docName,
+      docFile,
+      contentHash: renderedDoc.contentHash,
+      installedAt: options.installedAt,
+      preinstallSnapshot:
+        previousDocContent === undefined
+          ? {
+              existed: false,
+            }
+          : {
+              existed: true,
+              content: previousDocContent,
+              contentHash: sha256(previousDocContent),
+            },
+    });
+  }
+
+  installedWorkspaceDocs.sort((left, right) =>
+    left.docName.localeCompare(right.docName)
+  );
+  return installedWorkspaceDocs;
+}
+
+function assertWorkspaceRootSafeForDocs(workspacePath: string): void {
+  if (!fs.existsSync(workspacePath)) {
+    return;
+  }
+
+  const workspaceLstat = fs.lstatSync(workspacePath);
+  if (workspaceLstat.isSymbolicLink()) {
+    throw new Error(
+      `Workspace root must not be a symlink for installer-managed workspace docs: ${workspacePath}`
+    );
+  }
+}
+
 async function rollbackCreatedArtifacts(
   cli: OpenClawCli,
   workspacePath: string,
@@ -555,8 +648,15 @@ async function rollbackCreatedArtifacts(
     fs.mkdirSync(path.dirname(overwrittenSkillFile.filePath), { recursive: true });
     fs.writeFileSync(overwrittenSkillFile.filePath, overwrittenSkillFile.content, "utf8");
   }
+  for (const overwrittenWorkspaceDoc of rollback.overwrittenWorkspaceDocFiles) {
+    fs.mkdirSync(path.dirname(overwrittenWorkspaceDoc.filePath), { recursive: true });
+    fs.writeFileSync(overwrittenWorkspaceDoc.filePath, overwrittenWorkspaceDoc.content, "utf8");
+  }
 
   for (const filePath of rollback.createdSkillFiles) {
+    removeFileIfExists(filePath);
+  }
+  for (const filePath of rollback.createdWorkspaceDocFiles) {
     removeFileIfExists(filePath);
   }
 

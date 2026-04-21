@@ -3,6 +3,8 @@ import * as os from "os";
 import * as path from "path";
 import { spawnSync } from "child_process";
 import { renderAllOpenClawSkills } from "../src/openclaw-installer/skills";
+import { renderAllOpenClawWorkspaceDocs } from "../src/openclaw-installer/workspace-docs";
+import { sha256 } from "../src/utils/hash";
 
 interface FakeOpenClawState {
   configFile: string;
@@ -496,6 +498,380 @@ function testUnownedSkillWithInstallerContentStillConflicts(): void {
   }
 }
 
+function testInstallOverwritesWorkspaceRootDocsAndCapturesSnapshots(): void {
+  const sandbox = createSandbox("workspace-doc-overwrite");
+
+  try {
+    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
+    const renderedDocs = renderAllOpenClawWorkspaceDocs();
+    const preinstallContentByDocName = new Map<string, string>();
+
+    for (const renderedDoc of renderedDocs) {
+      const preinstallContent = `# user-local-${renderedDoc.docName}\n`;
+      preinstallContentByDocName.set(renderedDoc.docName, preinstallContent);
+      fs.writeFileSync(
+        path.join(sandbox.workspacePath, renderedDoc.installRelativeFile),
+        preinstallContent,
+        "utf8"
+      );
+    }
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Install should overwrite preexisting workspace-root docs.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    for (const renderedDoc of renderedDocs) {
+      const docPath = path.join(sandbox.workspacePath, renderedDoc.installRelativeFile);
+      assert(
+        fs.readFileSync(docPath, "utf8") === renderedDoc.content,
+        `Install should overwrite workspace-root doc content for ${renderedDoc.docName}`
+      );
+    }
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      installedWorkspaceDocs?: Array<{
+        docName?: string;
+        contentHash?: string;
+        preinstallSnapshot?: {
+          existed?: boolean;
+          content?: string;
+          contentHash?: string;
+        };
+      }>;
+    };
+
+    assert(
+      Array.isArray(parsedManifest.installedWorkspaceDocs),
+      "Manifest should include installedWorkspaceDocs metadata"
+    );
+
+    const entriesByDocName = new Map<
+      string,
+      NonNullable<typeof parsedManifest.installedWorkspaceDocs>[number]
+    >();
+    for (const entry of parsedManifest.installedWorkspaceDocs ?? []) {
+      if (typeof entry.docName === "string") {
+        entriesByDocName.set(entry.docName, entry);
+      }
+    }
+
+    for (const renderedDoc of renderedDocs) {
+      const entry = entriesByDocName.get(renderedDoc.docName);
+      assert(entry !== undefined, `Manifest missing workspace doc entry: ${renderedDoc.docName}`);
+      assert(
+        entry.contentHash === renderedDoc.contentHash,
+        `Manifest should track rendered content hash for ${renderedDoc.docName}`
+      );
+
+      const preinstallContent = preinstallContentByDocName.get(renderedDoc.docName);
+      assert(
+        preinstallContent !== undefined,
+        `Precondition failed: preinstall content missing for ${renderedDoc.docName}`
+      );
+      assert(
+        entry.preinstallSnapshot?.existed === true,
+        `Manifest snapshot should record preexisting doc for ${renderedDoc.docName}`
+      );
+      assert(
+        entry.preinstallSnapshot?.content === preinstallContent,
+        `Manifest snapshot should preserve overwritten content for ${renderedDoc.docName}`
+      );
+      assert(
+        entry.preinstallSnapshot?.contentHash === sha256(preinstallContent),
+        `Manifest snapshot should preserve overwritten content hash for ${renderedDoc.docName}`
+      );
+    }
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testCheckDetectsWorkspaceRootDocDrift(): void {
+  const sandbox = createSandbox("workspace-doc-drift");
+
+  try {
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Baseline install should succeed before workspace-doc drift check.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const driftedDocPath = path.join(sandbox.workspacePath, "TOOLS.md");
+    fs.writeFileSync(driftedDocPath, "# drifted\n", "utf8");
+    const missingDocPath = path.join(sandbox.workspacePath, "SOUL.md");
+    fs.unlinkSync(missingDocPath);
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 1,
+      `Workspace-root doc drift should fail check.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+
+    const parsed = parseCheckJson(check.stdout);
+    assert(parsed.ok === false, "Workspace-root doc drift should produce ok=false");
+    assert(
+      parsed.driftItems.some((item) => item.kind === "workspace_doc_hash_drift"),
+      `Check should report hash drift for modified workspace-root docs.\nitems:\n${JSON.stringify(
+        parsed.driftItems,
+        null,
+        2
+      )}`
+    );
+    assert(
+      parsed.driftItems.some((item) => item.kind === "missing_workspace_doc"),
+      `Check should report missing workspace-root docs.\nitems:\n${JSON.stringify(
+        parsed.driftItems,
+        null,
+        2
+      )}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testCheckDetectsMissingWorkspaceDocOwnershipInManifest(): void {
+  const sandbox = createSandbox("workspace-doc-manifest-ownership");
+
+  try {
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Baseline install should succeed before manifest-ownership drift check.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    const parsedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete parsedManifest.installedWorkspaceDocs;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(parsedManifest, null, 2)}\n`, "utf8");
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 1,
+      `Manifest missing workspace-doc ownership metadata should fail check.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+
+    const parsed = parseCheckJson(check.stdout);
+    assert(parsed.ok === false, "Manifest ownership drift should produce ok=false");
+    assert(
+      parsed.driftItems.some(
+        (item) =>
+          item.kind === "workspace_doc_hash_drift" &&
+          /missing installer-owned workspace doc entry/i.test(item.message)
+      ),
+      `Check should report missing workspace-doc ownership entries in manifest.\nitems:\n${JSON.stringify(
+        parsed.driftItems,
+        null,
+        2
+      )}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testInstallFailsClosedOnSymlinkedWorkspaceDocPath(): void {
+  const sandbox = createSandbox("workspace-doc-symlink-install");
+
+  try {
+    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
+    const externalTarget = path.join(sandbox.tempRoot, "external-agents.md");
+    fs.writeFileSync(externalTarget, "# external\n", "utf8");
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    fs.symlinkSync(externalTarget, agentsPath);
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+
+    assert(
+      install.status !== 0,
+      "Install should fail closed when workspace-root doc path is a symlink"
+    );
+    assert(
+      /must not be a symlink/i.test(`${install.stdout}\n${install.stderr}`),
+      "Symlink refusal should be explicit in install output"
+    );
+
+    const stateAfterFailure = readState(sandbox.statePath);
+    assert(
+      stateAfterFailure.mcpServers["llm-kb"] === undefined,
+      "Symlink refusal should not register MCP config"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testCheckFailsClosedOnSymlinkedWorkspaceDocPath(): void {
+  const sandbox = createSandbox("workspace-doc-symlink-check");
+
+  try {
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Baseline install should succeed before symlink check.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const externalTarget = path.join(sandbox.tempRoot, "external-tools.md");
+    fs.writeFileSync(externalTarget, "# external-tools\n", "utf8");
+    const toolsPath = path.join(sandbox.workspacePath, "TOOLS.md");
+    fs.unlinkSync(toolsPath);
+    fs.symlinkSync(externalTarget, toolsPath);
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 1,
+      `Symlinked workspace-root doc should fail check.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+
+    const parsed = parseCheckJson(check.stdout);
+    assert(parsed.ok === false, "Symlinked workspace-root doc should produce ok=false");
+    assert(
+      parsed.driftItems.some(
+        (item) => item.kind === "unknown_ownership" && /symlink/i.test(item.message)
+      ),
+      `Check should report symlinked workspace-root docs as unknown ownership drift.\nitems:\n${JSON.stringify(
+        parsed.driftItems,
+        null,
+        2
+      )}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testWorkspaceSymlinkAliasFailsClosedForWorkspaceDocs(): void {
+  const sandbox = createSandbox("workspace-symlink-alias-root");
+
+  try {
+    const realWorkspace = path.join(sandbox.tempRoot, "workspace-real");
+    fs.mkdirSync(realWorkspace, { recursive: true });
+    fs.symlinkSync(realWorkspace, sandbox.workspacePath);
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+
+    assert(
+      install.status !== 0,
+      "Install should fail closed when workspace root path is a symlink alias"
+    );
+    assert(
+      /workspace root must not be a symlink/i.test(
+        `${install.stdout}\n${install.stderr}`
+      ),
+      "Install failure should explicitly mention workspace-root symlink refusal"
+    );
+
+    const stateAfterInstallFailure = readState(sandbox.statePath);
+    assert(
+      stateAfterInstallFailure.mcpServers["llm-kb"] === undefined,
+      "Symlink-alias workspace refusal should not register MCP config"
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 1,
+      `Check should fail for symlinked workspace root alias.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+
+    const parsed = parseCheckJson(check.stdout);
+    assert(parsed.ok === false, "Symlinked workspace root alias should produce ok=false");
+    assert(
+      parsed.driftItems.some(
+        (item) =>
+          item.kind === "unknown_ownership" &&
+          /workspace root must not be a symlink/i.test(item.message)
+      ),
+      `Check should report workspace-root symlink alias as unknown ownership.\nitems:\n${JSON.stringify(
+        parsed.driftItems,
+        null,
+        2
+      )}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testForceRollbackRestoresOverwrittenArtifacts(): void {
   const sandbox = createSandbox("rollback-restore");
 
@@ -531,6 +907,9 @@ function testForceRollbackRestoresOverwrittenArtifacts(): void {
       },
     };
     const preexistingSkillContent = "# preexisting skill content\n";
+    const overwrittenAgentsContent = "# preexisting agents doc\n";
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const soulPath = path.join(sandbox.workspacePath, "SOUL.md");
 
     const stateBefore = readState(sandbox.statePath);
     stateBefore.mcpServers["llm-kb"] = previousMcpConfig;
@@ -544,6 +923,12 @@ function testForceRollbackRestoresOverwrittenArtifacts(): void {
       path.join(sandbox.workspacePath, "skills", "kb_query", "SKILL.md"),
       preexistingSkillContent,
       "utf8"
+    );
+    fs.writeFileSync(agentsPath, overwrittenAgentsContent, "utf8");
+    fs.unlinkSync(soulPath);
+    assert(
+      !fs.existsSync(soulPath),
+      "Precondition: SOUL.md should be absent so install creates it before rollback"
     );
 
     const install = runInstallerCommand(
@@ -583,6 +968,14 @@ function testForceRollbackRestoresOverwrittenArtifacts(): void {
     assert(
       fs.readFileSync(manifestPath, "utf8") === preexistingManifestContent,
       "Rollback should restore overwritten installer manifest content"
+    );
+    assert(
+      fs.readFileSync(agentsPath, "utf8") === overwrittenAgentsContent,
+      "Rollback should restore overwritten workspace-root doc content"
+    );
+    assert(
+      !fs.existsSync(soulPath),
+      "Rollback should remove workspace-root docs that were newly created during failed install"
     );
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
@@ -810,6 +1203,12 @@ function main(): void {
   testExistingPartialKbRootFailsClosedWithoutForce();
   testConservativeConflictFailure();
   testUnownedSkillWithInstallerContentStillConflicts();
+  testInstallOverwritesWorkspaceRootDocsAndCapturesSnapshots();
+  testCheckDetectsWorkspaceRootDocDrift();
+  testCheckDetectsMissingWorkspaceDocOwnershipInManifest();
+  testInstallFailsClosedOnSymlinkedWorkspaceDocPath();
+  testCheckFailsClosedOnSymlinkedWorkspaceDocPath();
+  testWorkspaceSymlinkAliasFailsClosedForWorkspaceDocs();
   testForceRollbackRestoresOverwrittenArtifacts();
   testMalformedCheckJsonInvocationSemantics();
   testAmbiguousDefaultAgentSuppressesEligibilityChecks();

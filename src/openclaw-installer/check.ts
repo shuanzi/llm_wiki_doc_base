@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import { sha256 } from "../utils/hash";
 import { validateMinimumKbStructure } from "./kb-bootstrap";
 import {
   readInstallerManifest,
@@ -17,6 +18,7 @@ import {
   OpenClawWorkspaceResolutionError,
   resolveOpenClawWorkspace,
 } from "./workspace";
+import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import type {
   InstallerCheckResult,
   InstallerDriftItem,
@@ -69,6 +71,7 @@ export async function checkOpenClawInstallation(
   await checkOpenClawCliAvailability(cli, driftItems, context);
   await resolveWorkspace(cli, requestedWorkspace, environment, driftItems, context);
   await checkManifest(environment, driftItems, context);
+  checkWorkspaceDocs(environment, driftItems, context);
   checkBuildArtifact(environment, driftItems, context);
   await checkSavedMcpConfig(cli, environment, driftItems, context);
   checkKbStructure(driftItems, context, environment);
@@ -248,6 +251,86 @@ async function checkManifest(
   });
 
   driftItems.push(...validationResult.driftItems);
+}
+
+function checkWorkspaceDocs(
+  environment: ResolvedInstallerEnvironment,
+  driftItems: InstallerDriftItem[],
+  context: CheckContext
+): void {
+  const workspacePath = context.resolvedWorkspacePath ?? environment.workspace;
+  if (!workspacePath) {
+    driftItems.push({
+      kind: "missing_workspace_doc",
+      message:
+        "Cannot resolve target workspace, so workspace-root doc status is unknown.",
+      repairable: false,
+    });
+    return;
+  }
+
+  if (!fs.existsSync(workspacePath) || !fs.statSync(workspacePath).isDirectory()) {
+    driftItems.push({
+      kind: "missing_workspace_doc",
+      message: `Workspace is unavailable; workspace-root docs cannot be checked: ${workspacePath}`,
+      repairable: false,
+    });
+    return;
+  }
+
+  const workspaceLstat = fs.lstatSync(workspacePath);
+  if (workspaceLstat.isSymbolicLink()) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message: `Workspace root must not be a symlink for installer-managed workspace docs: ${workspacePath}`,
+      repairable: false,
+    });
+    return;
+  }
+
+  const renderedWorkspaceDocs = renderAllOpenClawWorkspaceDocs();
+
+  for (const renderedDoc of renderedWorkspaceDocs) {
+    const docFile = path.resolve(workspacePath, renderedDoc.installRelativeFile);
+    if (!fs.existsSync(docFile)) {
+      driftItems.push({
+        kind: "missing_workspace_doc",
+        message: `Workspace-root doc is missing: ${docFile}`,
+        repairable: true,
+      });
+      continue;
+    }
+
+    const docLstat = fs.lstatSync(docFile);
+    if (docLstat.isSymbolicLink()) {
+      driftItems.push({
+        kind: "unknown_ownership",
+        message: `Workspace-root doc path must not be a symlink: ${docFile}`,
+        repairable: false,
+      });
+      continue;
+    }
+
+    if (!docLstat.isFile()) {
+      driftItems.push({
+        kind: "missing_workspace_doc",
+        message: `Workspace-root doc path is not a regular file: ${docFile}`,
+        repairable: true,
+      });
+      continue;
+    }
+
+    const diskContentHash = sha256(fs.readFileSync(docFile, "utf8"));
+    if (diskContentHash !== renderedDoc.contentHash) {
+      driftItems.push({
+        kind: "workspace_doc_hash_drift",
+        message: `Workspace-root doc drift detected: ${docFile}`,
+        repairable: true,
+        expected: renderedDoc.contentHash,
+        actual: diskContentHash,
+      });
+    }
+  }
 }
 
 function checkBuildArtifact(

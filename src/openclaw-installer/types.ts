@@ -13,6 +13,8 @@ export const INSTALLER_DRIFT_ITEM_KINDS = [
   "missing_build_artifact",
   "missing_skill",
   "skill_hash_drift",
+  "missing_workspace_doc",
+  "workspace_doc_hash_drift",
   "mcp_config_drift",
   "mcp_probe_failure",
   "unknown_ownership",
@@ -89,6 +91,16 @@ export interface InstallerExpectedMcpConfig {
   env: Record<string, string>;
 }
 
+export const INSTALLER_WORKSPACE_DOC_NAMES = [
+  "AGENTS.md",
+  "HEARTBEAT.md",
+  "TOOLS.md",
+  "SOUL.md",
+] as const;
+
+export type InstallerWorkspaceDocName =
+  (typeof INSTALLER_WORKSPACE_DOC_NAMES)[number];
+
 export type InstallerSkillVariantSet = "openclaw-adapted-v1";
 
 export interface InstallerSkillSourceProvenance {
@@ -115,6 +127,24 @@ export interface InstallerSkillInstallationMetadata {
   sourceProvenance: InstallerSkillSourceProvenance;
 }
 
+export type InstallerWorkspaceDocPreinstallSnapshot =
+  | {
+      existed: false;
+    }
+  | {
+      existed: true;
+      content: string;
+      contentHash: string;
+    };
+
+export interface InstallerWorkspaceDocInstallationMetadata {
+  docName: InstallerWorkspaceDocName;
+  docFile: string;
+  contentHash: string;
+  installedAt: string;
+  preinstallSnapshot: InstallerWorkspaceDocPreinstallSnapshot;
+}
+
 export interface InstallerManifest {
   schemaVersion: 1;
   installerVersion: string;
@@ -125,6 +155,7 @@ export interface InstallerManifest {
   installedAt: string;
   skillVariantSet: InstallerSkillVariantSet;
   installedSkills: InstallerSkillInstallationMetadata[];
+  installedWorkspaceDocs: InstallerWorkspaceDocInstallationMetadata[];
   expectedMcpConfig: InstallerExpectedMcpConfig;
   lastSuccessfulProbe?: InstallerProbeSnapshot;
 }
