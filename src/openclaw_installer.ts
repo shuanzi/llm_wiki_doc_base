@@ -8,6 +8,8 @@ import {
   isParsedCheckJsonInvocation,
   parseInstallerArgs,
 } from "./openclaw-installer/args";
+import { checkOpenClawInstallation } from "./openclaw-installer/check";
+import { installOpenClawIntegration } from "./openclaw-installer/install";
 import type {
   CheckCommandArgs,
   InstallCommandArgs,
@@ -28,17 +30,6 @@ class InstallerNotImplementedError extends Error {
   }
 }
 
-class InstallerCheckJsonError extends Error {
-  readonly exitCode = 1;
-  readonly result: InstallerCheckResult;
-
-  constructor(result: InstallerCheckResult) {
-    super('OpenClaw installer command "check" is not implemented yet.');
-    this.name = "InstallerCheckJsonError";
-    this.result = result;
-  }
-}
-
 async function main(): Promise<void> {
   const args = parseInstallerArgs(process.argv.slice(2));
   const environment = resolveInstallerEnvironment(args);
@@ -48,7 +39,12 @@ async function main(): Promise<void> {
       await runInstall(args, environment);
       return;
     case "check":
-      await runCheck(args, environment);
+      {
+        const result = await runCheck(args, environment);
+        if (!result.ok) {
+          process.exitCode = 1;
+        }
+      }
       return;
     case "repair":
       await runRepair(args, environment);
@@ -74,31 +70,55 @@ function resolveInstallerEnvironment(args: ParsedInstallerArgs): ResolvedInstall
 }
 
 async function runInstall(
-  _args: InstallCommandArgs,
-  _environment: ResolvedInstallerEnvironment
-): Promise<never> {
-  throw new InstallerNotImplementedError("install");
+  args: InstallCommandArgs,
+  environment: ResolvedInstallerEnvironment
+): Promise<void> {
+  const result = await installOpenClawIntegration(args, environment);
+  process.stdout.write(
+    [
+      "OpenClaw installer completed successfully.",
+      `workspace: ${result.checkResult.environment.workspace}`,
+      `kb_root: ${result.checkResult.environment.kbRoot}`,
+      `manifest: ${result.manifestPath}`,
+    ].join("\n") + "\n"
+  );
 }
 
 async function runCheck(
   args: CheckCommandArgs,
   environment: ResolvedInstallerEnvironment
-): Promise<never> {
+): Promise<InstallerCheckResult> {
+  const result = await checkOpenClawInstallation({
+    environment,
+    requestedWorkspace: args.workspace,
+    mcpName: args.mcpName,
+  });
+
   if (args.json) {
-    throw new InstallerCheckJsonError({
-      ok: false,
-      environment,
-      driftItems: [
-        {
-          kind: "other",
-          message: 'OpenClaw installer command "check" is not implemented yet.',
-          repairable: false,
-        },
-      ],
-    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return result;
   }
 
-  throw new InstallerNotImplementedError("check");
+  if (result.ok) {
+    process.stdout.write(
+      [
+        "OpenClaw installer check passed.",
+        `workspace: ${result.environment.workspace}`,
+        `kb_root: ${result.environment.kbRoot ?? "(unknown)"}`,
+      ].join("\n") + "\n"
+    );
+    return result;
+  }
+
+  process.stdout.write(
+    [
+      "OpenClaw installer check detected drift:",
+      ...result.driftItems.map(
+        (item) => `- [${item.kind}] ${item.message}${item.repairable ? " (repairable)" : ""}`
+      ),
+    ].join("\n") + "\n"
+  );
+  return result;
 }
 
 async function runRepair(
@@ -118,10 +138,7 @@ async function runUninstall(
 main().catch((error: unknown) => {
   const rawArgv = process.argv.slice(2);
   if (isParsedCheckJsonInvocation(rawArgv)) {
-    const result =
-      error instanceof InstallerCheckJsonError
-        ? error.result
-        : buildCheckJsonFailureResult(rawArgv, error);
+    const result = buildCheckJsonFailureResult(rawArgv, error);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     process.exit(error instanceof InstallerCliUsageError ? error.exitCode : 1);
   }
@@ -175,7 +192,12 @@ function readOptionValue(argv: readonly string[], name: string): string | undefi
 
     if (token === longForm) {
       const next = argv[index + 1];
-      if (next !== undefined && next !== "-h" && next !== "--help") {
+      if (
+        next !== undefined &&
+        next !== "-h" &&
+        next !== "--help" &&
+        !next.startsWith("--")
+      ) {
         return next;
       }
       return undefined;

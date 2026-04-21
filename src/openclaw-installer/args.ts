@@ -67,46 +67,7 @@ export function isParsedCheckJsonInvocation(argv: readonly string[]): boolean {
     return false;
   }
 
-  for (let index = 0; index < rest.length; index += 1) {
-    const token = rest[index];
-
-    if (token === "-h") {
-      continue;
-    }
-
-    if (!token.startsWith("--")) {
-      return false;
-    }
-
-    const normalized = token.slice(2);
-
-    if (!normalized) {
-      return false;
-    }
-
-    const [name, inlineValue] = normalized.split("=", 2);
-
-    if (inlineValue !== undefined) {
-      continue;
-    }
-
-    if (expectsValue(name)) {
-      const value = rest[index + 1];
-
-      if (value === undefined || isHelpValueToken(value)) {
-        return false;
-      }
-
-      index += 1;
-      continue;
-    }
-
-    if (name === "json") {
-      return true;
-    }
-  }
-
-  return false;
+  return rest.some((token) => token === "--json" || token.startsWith("--json="));
 }
 
 export function formatInstallerUsage(command?: InstallerCommandName): string {
@@ -241,7 +202,11 @@ function parseOptions(argv: readonly string[]): ParsedOption {
     const value = argv[index + 1];
 
     if (expectsValue(name)) {
-      if (value === undefined || isHelpValueToken(value)) {
+      if (
+        value === undefined ||
+        isHelpValueToken(value) ||
+        isLikelyOptionToken(value)
+      ) {
         throw new InstallerCliUsageError(`Option --${name} requires a value.`);
       }
 
@@ -327,6 +292,10 @@ function isHelpToken(token: string): boolean {
 
 function isHelpValueToken(token: string): boolean {
   return token === "--help" || token === "-h";
+}
+
+function isLikelyOptionToken(token: string): boolean {
+  return token.startsWith("--");
 }
 
 function isInstallerCommandName(value: string): value is InstallerCommandName {
