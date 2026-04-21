@@ -13,14 +13,17 @@ import {
 } from "./manifest";
 import { OpenClawCli } from "./openclaw-cli";
 import { OPENCLAW_SKILL_NAMES } from "./skills";
+import { renderOpenClawWorkspaceDoc } from "./workspace-docs";
+import {
+  INSTALLER_WORKSPACE_DOC_NAMES,
+  type InstallerWorkspaceDocName,
+  type ResolvedInstallerEnvironment,
+  type UninstallCommandArgs,
+} from "./types";
 import {
   OpenClawWorkspaceResolutionError,
   resolveOpenClawWorkspace,
 } from "./workspace";
-import type {
-  ResolvedInstallerEnvironment,
-  UninstallCommandArgs,
-} from "./types";
 
 export interface UninstallOpenClawIntegrationOptions {
   cli?: OpenClawCli;
@@ -250,13 +253,51 @@ function planWorkspaceDocLifecycleActions(options: {
     return planned;
   }
 
+  const docsByName = new Map<
+    InstallerWorkspaceDocName,
+    NonNullable<ReturnType<typeof readInstallerManifest>>["installedWorkspaceDocs"][number]
+  >();
   for (const installedDoc of options.manifest.installedWorkspaceDocs) {
+    if (docsByName.has(installedDoc.docName)) {
+      if (!options.force) {
+        throw new Error(
+          `Uninstall refused because workspace-doc ownership metadata is duplicated for ${installedDoc.docName}.`
+        );
+      }
+      continue;
+    }
+    docsByName.set(installedDoc.docName, installedDoc);
+  }
+
+  for (const expectedDocName of INSTALLER_WORKSPACE_DOC_NAMES) {
+    const installedDoc = docsByName.get(expectedDocName);
+    if (!installedDoc) {
+      if (!options.force) {
+        throw new Error(
+          `Uninstall refused because workspace-doc ownership metadata is missing for ${expectedDocName}.`
+        );
+      }
+      continue;
+    }
+
     const expectedDocFile = path.resolve(options.workspacePath, installedDoc.docName);
     const manifestDocFile = path.resolve(installedDoc.docFile);
 
     if (manifestDocFile !== expectedDocFile && !options.force) {
       throw new Error(
         `Uninstall refused because workspace-doc ownership path drifted for ${installedDoc.docName}.`
+      );
+    }
+
+    const expectedRenderedDoc = renderOpenClawWorkspaceDoc({
+      docName: installedDoc.docName,
+    });
+    if (
+      installedDoc.contentHash !== expectedRenderedDoc.contentHash &&
+      !options.force
+    ) {
+      throw new Error(
+        `Uninstall refused because workspace-doc ownership metadata drifted for ${installedDoc.docName}.`
       );
     }
 
@@ -281,7 +322,7 @@ function planWorkspaceDocLifecycleActions(options: {
     validateWorkspaceDocRestoreTarget({
       docName: installedDoc.docName,
       docFile: expectedDocFile,
-      expectedInstalledContentHash: installedDoc.contentHash,
+      expectedInstalledContentHash: expectedRenderedDoc.contentHash,
       force: options.force,
     });
 

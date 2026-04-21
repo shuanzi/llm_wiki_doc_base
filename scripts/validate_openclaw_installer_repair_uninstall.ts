@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { spawnSync } from "child_process";
+import { sha256 } from "../src/utils/hash";
 
 interface FakeOpenClawState {
   configFile: string;
@@ -25,6 +26,15 @@ interface ValidationSandbox {
   kbRoot: string;
   statePath: string;
   env: NodeJS.ProcessEnv;
+}
+
+interface ValidationManifestWorkspaceDocEntry {
+  docName?: string;
+  contentHash?: string;
+}
+
+interface ValidationManifestShape {
+  installedWorkspaceDocs?: ValidationManifestWorkspaceDocEntry[];
 }
 
 function assert(condition: boolean, message: string): void {
@@ -784,6 +794,119 @@ function testUninstallRefusesToClobberUserModifiedWorkspaceDocByDefault(): void 
   }
 }
 
+function testUninstallRefusesTamperedWorkspaceDocOwnershipHashByDefault(): void {
+  const sandbox = createSandbox("uninstall-protect-tampered-workspace-doc-hash");
+
+  try {
+    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
+    const agentsPath = path.join(sandbox.workspacePath, "AGENTS.md");
+    const preinstallAgentsContent = "# AGENTS.md\n\npreinstall user content\n";
+    fs.writeFileSync(agentsPath, preinstallAgentsContent, "utf8");
+
+    runBaselineInstall(sandbox);
+
+    const userEditedAgentsContent = "# AGENTS.md\n\nuser edited after install\n";
+    fs.writeFileSync(agentsPath, userEditedAgentsContent, "utf8");
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    const manifest = JSON.parse(
+      fs.readFileSync(manifestPath, "utf8")
+    ) as ValidationManifestShape;
+    const agentsEntry = manifest.installedWorkspaceDocs?.find(
+      (entry) => entry.docName === "AGENTS.md"
+    );
+    assert(
+      agentsEntry !== undefined,
+      "Precondition: manifest should include AGENTS.md workspace-doc ownership metadata"
+    );
+    agentsEntry.contentHash = sha256(userEditedAgentsContent);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail closed when workspace-doc ownership hash metadata is tampered"
+    );
+    assert(
+      /workspace-doc ownership metadata drifted|workspace doc .*user-modified since install/i.test(
+        `${uninstall.stdout}\n${uninstall.stderr}`
+      ),
+      "Uninstall refusal should explain tampered workspace-doc ownership metadata protection"
+    );
+    assert(
+      fs.readFileSync(agentsPath, "utf8") === userEditedAgentsContent,
+      "Uninstall refusal should preserve user-edited AGENTS.md content when manifest hash is tampered"
+    );
+
+    const stateAfter = readState(sandbox.statePath);
+    assert(
+      stateAfter.mcpServers["llm-kb"] !== undefined,
+      "Tampered workspace-doc hash refusal should not remove MCP registration"
+    );
+    assert(
+      fs.existsSync(manifestPath),
+      "Tampered workspace-doc hash refusal should leave installer manifest intact"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testUninstallRefusesWhenWorkspaceDocOwnershipMetadataMissing(): void {
+  const sandbox = createSandbox("uninstall-missing-workspace-doc-ownership-metadata");
+
+  try {
+    runBaselineInstall(sandbox);
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    const manifest = JSON.parse(
+      fs.readFileSync(manifestPath, "utf8")
+    ) as ValidationManifestShape;
+    manifest.installedWorkspaceDocs = (manifest.installedWorkspaceDocs ?? []).filter(
+      (entry) => entry.docName !== "SOUL.md"
+    );
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail closed when workspace-doc ownership metadata is missing"
+    );
+    assert(
+      /workspace-doc ownership metadata is missing for SOUL\.md/i.test(
+        `${uninstall.stdout}\n${uninstall.stderr}`
+      ),
+      "Uninstall refusal should explain missing workspace-doc ownership metadata"
+    );
+
+    const stateAfter = readState(sandbox.statePath);
+    assert(
+      stateAfter.mcpServers["llm-kb"] !== undefined,
+      "Missing workspace-doc ownership refusal should not remove MCP registration"
+    );
+    assert(
+      fs.existsSync(manifestPath),
+      "Missing workspace-doc ownership refusal should leave installer manifest intact"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testUninstallPreservesInstallerGeneratedWorkspaceDocWhenNoPreinstallSnapshot(): void {
   const sandbox = createSandbox("uninstall-preserve-generated-doc");
 
@@ -1001,6 +1124,8 @@ function main(): void {
   testUninstallRemovesOnlyInstallerOwnedArtifacts();
   testUninstallRestoresPreinstallWorkspaceDocContent();
   testUninstallRefusesToClobberUserModifiedWorkspaceDocByDefault();
+  testUninstallRefusesTamperedWorkspaceDocOwnershipHashByDefault();
+  testUninstallRefusesWhenWorkspaceDocOwnershipMetadataMissing();
   testUninstallPreservesInstallerGeneratedWorkspaceDocWhenNoPreinstallSnapshot();
   testUninstallLeavesExternalKbUntouched();
   testUninstallRefusesWhenSkillDirHasExtraUserContent();
