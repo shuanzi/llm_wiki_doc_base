@@ -7,10 +7,12 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "start:mcp": "node dist/mcp_server.js"
+    "start:mcp": "node dist/mcp_server.js",
+    "start:openclaw-installer": "node dist/openclaw_installer.js"
   },
   "bin": {
-    "kb-mcp": "dist/mcp_server.js"
+    "kb-mcp": "dist/mcp_server.js",
+    "kb-openclaw-installer": "dist/openclaw_installer.js"
   },
   "repository": {
     "type": "git",
