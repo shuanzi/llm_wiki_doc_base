@@ -50,6 +50,41 @@ test("commitKbChanges scopes staging to the configured kb_root path", () => {
   assert.match(status, /^M kb\/decoy\.md$/m);
 });
 
+test("commitKbChanges commits tracked deletions when kb_root has been removed", () => {
+  const repoRoot = initRepo();
+  const kbRoot = path.join(repoRoot, "external-kb");
+  const decoyKbRoot = path.join(repoRoot, "kb");
+
+  fs.mkdirSync(path.join(kbRoot, "nested"), { recursive: true });
+  fs.mkdirSync(decoyKbRoot, { recursive: true });
+  fs.writeFileSync(path.join(kbRoot, "note.md"), "initial\n", "utf8");
+  fs.writeFileSync(path.join(kbRoot, "nested", "child.md"), "initial\n", "utf8");
+  fs.writeFileSync(path.join(decoyKbRoot, "decoy.md"), "initial\n", "utf8");
+
+  runGit(["add", "."], repoRoot);
+  runGit(["commit", "-m", "initial"], repoRoot);
+
+  fs.rmSync(kbRoot, { recursive: true, force: true });
+  fs.writeFileSync(path.join(decoyKbRoot, "decoy.md"), "should stay unstaged\n", "utf8");
+
+  const result = commitKbChanges("remove external kb", { kb_root: kbRoot });
+
+  assert.match(result.commit_hash, /^[0-9a-f]{40}$/);
+  assert.equal(result.message, "remove external kb");
+
+  const committedFiles = runGit(
+    ["show", "--name-status", "--pretty=format:", "HEAD"],
+    repoRoot
+  ).split("\n").filter(Boolean).sort();
+  assert.deepEqual(committedFiles, [
+    "D\texternal-kb/nested/child.md",
+    "D\texternal-kb/note.md",
+  ]);
+
+  const status = runGit(["status", "--short"], repoRoot);
+  assert.match(status, /^M kb\/decoy\.md$/m);
+});
+
 test("commitKbChanges rejects kb_root paths outside a git working tree", () => {
   const outsideKbRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kb-outside-"));
 
