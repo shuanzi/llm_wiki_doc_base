@@ -4,17 +4,38 @@
 
 // --- Source & Manifest ---
 
-export type SourceKind = "markdown" | "plaintext";
+export type SourceKind = "markdown" | "plaintext" | "converted_markdown";
+
+export interface SourceConversionMetadata {
+  required: boolean;
+  converter: "none" | "plaintext" | "markitdown";
+  converter_version?: string;
+  disabled_features: string[];
+  warnings?: string[];
+}
 
 export interface Manifest {
   source_id: string;
   source_locator: string;
   source_kind: SourceKind;
+  /** Hash of the original source bytes; kept as source identity across converter changes. */
   content_hash: string;
+  /** Canonical Markdown path consumed by kb_read_source / ingest. */
   canonical_path: string;
   file_name: string;
   ingest_status: "registered" | "ingested" | "failed";
   created_at: string;
+
+  /** Original file artifact for non-Markdown sources. Old manifests may omit these fields. */
+  original_path?: string;
+  original_file_name?: string;
+  original_extension?: string;
+  original_content_hash?: string;
+
+  /** Canonical conversion artifact metadata. */
+  converted_path?: string;
+  converted_content_hash?: string;
+  conversion?: SourceConversionMetadata;
 }
 
 // --- Page Frontmatter ---

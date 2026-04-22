@@ -2,7 +2,7 @@ import type { Manifest, ToolResult, WorkspaceConfig } from "../types";
 import { registerSourceFile } from "../core/source-registry";
 
 export interface KbSourceAddInput {
-  file_path: string; // path to the .md or .txt file to ingest
+  file_path: string; // path to a supported local source file to ingest
 }
 
 export interface KbSourceAddOutput {

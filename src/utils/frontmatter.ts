@@ -1,107 +1,129 @@
+import { stringify as stringifyYaml, parseDocument } from "yaml";
 import type { PageFrontmatter, FrontmatterValidation } from "../types";
 import { CORE_PAGE_TYPES, PAGE_ID_PATTERN } from "../types";
 
+const FRONTMATTER_FIELD_ORDER = [
+  "id",
+  "type",
+  "title",
+  "updated_at",
+  "status",
+  "tags",
+  "aliases",
+  "source_ids",
+  "related",
+] as const;
+
+const ARRAY_FIELDS = ["tags", "aliases", "source_ids", "related"] as const;
+const STATUS_VALUES = ["active", "stub", "deprecated"] as const;
+
+function removeBom(content: string): string {
+  return content.startsWith("\uFEFF") ? content.slice(1) : content;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function splitFrontmatter(content: string): { yamlBlock: string; body: string } | null {
+  const text = removeBom(content);
+  const openingMatch = text.match(/^---[ \t]*(?:\r?\n|$)/u);
+  if (!openingMatch) {
+    return null;
+  }
+
+  const yamlStart = openingMatch[0].length;
+  const closingPattern = /\r?\n---[ \t]*(?=\r?\n|$)/gu;
+  closingPattern.lastIndex = yamlStart;
+  const closingMatch = closingPattern.exec(text);
+  if (!closingMatch) {
+    return null;
+  }
+
+  const yamlBlock = text.slice(yamlStart, closingMatch.index);
+  let bodyStart = closingMatch.index + closingMatch[0].length;
+  if (text.startsWith("\r\n", bodyStart)) {
+    bodyStart += 2;
+  } else if (text.startsWith("\n", bodyStart)) {
+    bodyStart += 1;
+  }
+
+  return {
+    yamlBlock,
+    body: text.slice(bodyStart).trimStart(),
+  };
+}
+
+function normalizeYamlError(message: string): string {
+  return message.replace(/\s+/g, " ").trim();
+}
+
 /**
- * Parse a markdown file's frontmatter (YAML between --- delimiters)
- * and body content. This is a lightweight parser that handles the
- * subset of YAML used in wiki page frontmatter.
+ * Parse a markdown file's YAML frontmatter and body content.
+ *
+ * Delimiters are matched only as standalone `---` lines at the beginning of
+ * the file and at the end of the YAML block. YAML itself is parsed with the
+ * `yaml` package rather than a custom subset parser.
  */
 export function parseFrontmatter(content: string): {
   frontmatter: Partial<PageFrontmatter>;
   body: string;
 } {
-  const trimmed = content.trimStart();
-  if (!trimmed.startsWith("---")) {
+  const parts = splitFrontmatter(content);
+  if (!parts) {
     return { frontmatter: {}, body: content };
   }
 
-  const endIndex = trimmed.indexOf("---", 3);
-  if (endIndex === -1) {
-    return { frontmatter: {}, body: content };
+  const document = parseDocument(parts.yamlBlock, {
+    prettyErrors: false,
+    uniqueKeys: true,
+  });
+
+  if (document.errors.length > 0) {
+    const details = document.errors.map((error) => normalizeYamlError(error.message)).join("; ");
+    throw new Error(`Invalid YAML frontmatter: ${details}`);
   }
 
-  const yamlBlock = trimmed.substring(3, endIndex).trim();
-  const body = trimmed.substring(endIndex + 3).trimStart();
-  const frontmatter = parseSimpleYaml(yamlBlock);
+  if (document.warnings.length > 0) {
+    const details = document.warnings
+      .map((warning) => normalizeYamlError(warning.message))
+      .join("; ");
+    throw new Error(`Invalid YAML frontmatter: ${details}`);
+  }
 
-  return { frontmatter: frontmatter as Partial<PageFrontmatter>, body };
+  const parsed = document.toJS({ mapAsMap: false }) as unknown;
+  if (parsed === null || parsed === undefined) {
+    return { frontmatter: {}, body: parts.body };
+  }
+
+  if (!isPlainRecord(parsed)) {
+    throw new Error("Invalid YAML frontmatter: root value must be a mapping/object.");
+  }
+
+  return { frontmatter: parsed as Partial<PageFrontmatter>, body: parts.body };
 }
 
-/**
- * Minimal YAML parser for frontmatter fields.
- * Supports: strings, arrays (inline [...] and multiline - item), booleans, numbers.
- */
-function parseSimpleYaml(yaml: string): Record<string, unknown> {
+function orderFrontmatterFields(fm: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  const lines = yaml.split("\n");
-  let currentKey: string | null = null;
-  let currentArray: string[] | null = null;
-  const stripOptionalQuotes = (value: string): string => {
-    if (value.length < 2) return value;
-    const quote = value[0];
-    if ((quote === `"` || quote === "'") && value[value.length - 1] === quote) {
-      return value.slice(1, -1);
+  const consumed = new Set<string>();
+
+  for (const key of FRONTMATTER_FIELD_ORDER) {
+    const value = fm[key];
+    if (value !== undefined && value !== null) {
+      result[key] = value;
+      consumed.add(key);
     }
-    return value;
-  };
-
-  for (const line of lines) {
-    // Multiline array item
-    const arrayItemMatch = line.match(/^\s+-\s+(.+)$/);
-    if (arrayItemMatch && currentKey && currentArray) {
-      currentArray.push(stripOptionalQuotes(arrayItemMatch[1].trim()));
-      continue;
-    }
-
-    // Flush pending array
-    if (currentKey && currentArray) {
-      result[currentKey] = currentArray;
-      currentKey = null;
-      currentArray = null;
-    }
-
-    // Key: value pair
-    const kvMatch = line.match(/^(\w[\w_]*)\s*:\s*(.*)$/);
-    if (!kvMatch) continue;
-
-    const key = kvMatch[1];
-    const rawValue = kvMatch[2].trim();
-
-    // Inline array: [item1, item2]
-    if (rawValue.startsWith("[") && rawValue.endsWith("]")) {
-      const inner = rawValue.slice(1, -1).trim();
-      if (inner === "") {
-        result[key] = [];
-      } else {
-        result[key] = inner.split(",").map((s) => stripOptionalQuotes(s.trim()));
-      }
-      continue;
-    }
-
-    // Empty value — might be start of multiline array
-    if (rawValue === "") {
-      currentKey = key;
-      currentArray = [];
-      continue;
-    }
-
-    // Boolean
-    if (rawValue === "true") { result[key] = true; continue; }
-    if (rawValue === "false") { result[key] = false; continue; }
-
-    // Number
-    if (/^-?\d+(\.\d+)?$/.test(rawValue)) {
-      result[key] = Number(rawValue);
-      continue;
-    }
-
-    // String (strip optional quotes)
-    result[key] = stripOptionalQuotes(rawValue);
   }
 
-  // Flush final pending array
-  if (currentKey && currentArray) {
-    result[currentKey] = currentArray;
+  for (const key of Object.keys(fm).sort((left, right) => left.localeCompare(right))) {
+    if (consumed.has(key)) {
+      continue;
+    }
+
+    const value = fm[key];
+    if (value !== undefined && value !== null) {
+      result[key] = value;
+    }
   }
 
   return result;
@@ -111,17 +133,72 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
  * Serialize frontmatter fields back to YAML string (between --- delimiters).
  */
 export function serializeFrontmatter(fm: Record<string, unknown>): string {
-  const lines: string[] = ["---"];
-  for (const [key, value] of Object.entries(fm)) {
-    if (value === undefined || value === null) continue;
-    if (Array.isArray(value)) {
-      lines.push(`${key}: [${value.join(", ")}]`);
-    } else {
-      lines.push(`${key}: ${value}`);
-    }
+  const ordered = orderFrontmatterFields(fm);
+  const yaml = stringifyYaml(ordered, {
+    lineWidth: 0,
+    sortMapEntries: false,
+  }).trimEnd();
+
+  return ["---", yaml, "---"].join("\n");
+}
+
+function requireNonEmptyString(
+  fm: Partial<PageFrontmatter>,
+  key: keyof PageFrontmatter,
+  errors: string[]
+): string | undefined {
+  const value = fm[key];
+  if (value === undefined || value === null || value === "") {
+    errors.push(`Missing required field: ${key}`);
+    return undefined;
   }
-  lines.push("---");
-  return lines.join("\n");
+
+  if (typeof value !== "string") {
+    errors.push(`Invalid field type: ${key} must be a string`);
+    return undefined;
+  }
+
+  if (value.trim().length === 0) {
+    errors.push(`Missing required field: ${key}`);
+    return undefined;
+  }
+
+  return value;
+}
+
+function isValidIsoDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    return false;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function validateStringArrayField(
+  fm: Partial<PageFrontmatter>,
+  key: (typeof ARRAY_FIELDS)[number],
+  errors: string[]
+): void {
+  const value = fm[key];
+  if (value === undefined || value === null) {
+    return;
+  }
+
+  if (!Array.isArray(value)) {
+    errors.push(`Invalid field type: ${key} must be an array of strings`);
+    return;
+  }
+
+  const invalidIndex = value.findIndex((item) => typeof item !== "string");
+  if (invalidIndex !== -1) {
+    errors.push(`Invalid field type: ${key}[${invalidIndex}] must be a string`);
+  }
 }
 
 /**
@@ -134,32 +211,38 @@ export function validateFrontmatter(
   const errors: string[] = [];
   const warnings: string[] = [];
 
-  // Required fields
-  if (!fm.id) errors.push("Missing required field: id");
-  if (!fm.type) errors.push("Missing required field: type");
-  if (!fm.title) errors.push("Missing required field: title");
-  if (!fm.updated_at) errors.push("Missing required field: updated_at");
-  if (!fm.status) errors.push("Missing required field: status");
+  const id = requireNonEmptyString(fm, "id", errors);
+  const type = requireNonEmptyString(fm, "type", errors);
+  requireNonEmptyString(fm, "title", errors);
+  const updatedAt = requireNonEmptyString(fm, "updated_at", errors);
+  const status = requireNonEmptyString(fm, "status", errors);
 
-  // ID format
-  if (fm.id && !PAGE_ID_PATTERN.test(fm.id)) {
+  if (id && !PAGE_ID_PATTERN.test(id)) {
     errors.push(
-      `Invalid id format: "${fm.id}" — must match [a-z0-9_-]+`
+      `Invalid id format: "${id}" — must match [a-z0-9_-]+`
     );
   }
 
-  // Status enum
-  if (fm.status && !["active", "stub", "deprecated"].includes(fm.status)) {
+  if (updatedAt && !isValidIsoDateOnly(updatedAt)) {
     errors.push(
-      `Invalid status: "${fm.status}" — must be active, stub, or deprecated`
+      `Invalid updated_at: "${updatedAt}" — must use YYYY-MM-DD format`
     );
   }
 
-  // Type: core types are validated, custom types get a warning
-  if (fm.type && !(CORE_PAGE_TYPES as readonly string[]).includes(fm.type)) {
+  if (status && !(STATUS_VALUES as readonly string[]).includes(status)) {
+    errors.push(
+      `Invalid status: "${status}" — must be active, stub, or deprecated`
+    );
+  }
+
+  if (type && !(CORE_PAGE_TYPES as readonly string[]).includes(type)) {
     warnings.push(
-      `Unknown page type: "${fm.type}" — not in core types (${CORE_PAGE_TYPES.join(", ")})`
+      `Unknown page type: "${type}" — not in core types (${CORE_PAGE_TYPES.join(", ")})`
     );
+  }
+
+  for (const key of ARRAY_FIELDS) {
+    validateStringArrayField(fm, key, errors);
   }
 
   return {

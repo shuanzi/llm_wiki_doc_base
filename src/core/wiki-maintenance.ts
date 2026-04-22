@@ -73,6 +73,7 @@ interface ScannedWikiPage {
   body: string;
   rebuildEntry: PageIndexEntry | null;
   validation: ReturnType<typeof validateFrontmatter>;
+  parseError?: string;
 }
 
 interface MetaPageSpec {
@@ -241,15 +242,32 @@ function scanWikiPages(workspace: WorkspaceLike): ScannedWikiPage[] {
   return listWikiMarkdownPaths(workspace).map((relativePath) => {
     const absolutePath = resolveKbPath(relativePath, getKbRoot(workspace));
     const content = fs.readFileSync(absolutePath, "utf8");
-    const { frontmatter, body } = parseFrontmatter(content);
 
-    return {
-      path: relativePath,
-      frontmatter,
-      body,
-      rebuildEntry: buildPageIndexEntry(relativePath, content),
-      validation: validateFrontmatter(frontmatter),
-    };
+    try {
+      const { frontmatter, body } = parseFrontmatter(content);
+      return {
+        path: relativePath,
+        frontmatter,
+        body,
+        rebuildEntry: buildPageIndexEntry(relativePath, content),
+        validation: validateFrontmatter(frontmatter),
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        path: relativePath,
+        frontmatter: {},
+        body: "",
+        rebuildEntry: null,
+        validation: {
+          valid: false,
+          errors: [message],
+          warnings: [],
+          parsed: {},
+        },
+        parseError: message,
+      };
+    }
   });
 }
 
@@ -345,7 +363,16 @@ function listWikiMarkdownPaths(workspace: WorkspaceLike): string[] {
 }
 
 function buildPageIndexEntry(filePath: string, content: string): PageIndexEntry | null {
-  const { frontmatter, body } = parseFrontmatter(content);
+  let frontmatter: Partial<PageFrontmatter>;
+  let body: string;
+  try {
+    const parsed = parseFrontmatter(content);
+    frontmatter = parsed.frontmatter;
+    body = parsed.body;
+  } catch {
+    return null;
+  }
+
   const fm = frontmatter as Partial<PageFrontmatter>;
 
   if (typeof fm.id !== "string" || typeof fm.type !== "string") {
@@ -398,7 +425,13 @@ function getMetaPageState(
   }
 
   const content = fs.readFileSync(absolutePath, "utf8");
-  const { frontmatter } = parseFrontmatter(content);
+  let frontmatter: Partial<PageFrontmatter>;
+  try {
+    frontmatter = parseFrontmatter(content).frontmatter;
+  } catch {
+    return { action: "rewrite", absolutePath };
+  }
+
   const validation = validateFrontmatter(frontmatter);
 
   if (!validation.valid) {
