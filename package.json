@@ -1,0 +1,31 @@
+{
+  "name": "@openclaw/kb",
+  "version": "0.1.0",
+  "description": "OpenClaw knowledge base native plugin — LLM-maintained knowledge compilation system",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "start:mcp": "node dist/mcp_server.js",
+    "start:openclaw-installer": "node dist/openclaw_installer.js"
+  },
+  "bin": {
+    "kb-mcp": "dist/mcp_server.js",
+    "kb-openclaw-installer": "dist/openclaw_installer.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/shuanzi/llm_doc_base.git"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0"
+  }
+}
