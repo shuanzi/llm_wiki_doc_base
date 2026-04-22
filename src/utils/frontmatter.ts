@@ -36,12 +36,20 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
   const lines = yaml.split("\n");
   let currentKey: string | null = null;
   let currentArray: string[] | null = null;
+  const stripOptionalQuotes = (value: string): string => {
+    if (value.length < 2) return value;
+    const quote = value[0];
+    if ((quote === `"` || quote === "'") && value[value.length - 1] === quote) {
+      return value.slice(1, -1);
+    }
+    return value;
+  };
 
   for (const line of lines) {
     // Multiline array item
     const arrayItemMatch = line.match(/^\s+-\s+(.+)$/);
     if (arrayItemMatch && currentKey && currentArray) {
-      currentArray.push(arrayItemMatch[1].trim());
+      currentArray.push(stripOptionalQuotes(arrayItemMatch[1].trim()));
       continue;
     }
 
@@ -65,7 +73,7 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
       if (inner === "") {
         result[key] = [];
       } else {
-        result[key] = inner.split(",").map((s) => s.trim());
+        result[key] = inner.split(",").map((s) => stripOptionalQuotes(s.trim()));
       }
       continue;
     }
@@ -88,7 +96,7 @@ function parseSimpleYaml(yaml: string): Record<string, unknown> {
     }
 
     // String (strip optional quotes)
-    result[key] = rawValue.replace(/^["']|["']$/g, "");
+    result[key] = stripOptionalQuotes(rawValue);
   }
 
   // Flush final pending array

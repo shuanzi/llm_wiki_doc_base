@@ -50,6 +50,11 @@ function getKbRoot(workspace: WorkspaceLike): string {
   return typeof workspace === "string" ? workspace : workspace.kb_root;
 }
 
+function getHeadingLevel(line: string): number | null {
+  const match = line.trimEnd().match(/^(#{1,6})\s+.+$/);
+  return match ? match[1].length : null;
+}
+
 function upsertPageIndexEntry(workspace: WorkspaceLike, entry: PageIndexEntry): void {
   const pageIndexPath = resolveKbPath(PAGE_INDEX_PATH, getKbRoot(workspace));
   const pageIndex: PageIndex = loadPageIndexLenient(workspace);
@@ -125,6 +130,13 @@ export function updateWikiSection(
   input: UpdateWikiSectionInput,
   workspace: WorkspaceLike
 ): UpdateWikiSectionResult {
+  const headingLevel = getHeadingLevel(input.heading);
+  if (headingLevel === null) {
+    throw new Error(
+      `Invalid heading "${input.heading}" for ${input.path}; expected a Markdown heading like "## Summary".`
+    );
+  }
+
   const resolvedPath = resolveWikiScopedPath(input.path, workspace);
   assertNotSymlinkWriteTarget(input.path, resolvedPath.absolutePath);
   if (!fs.existsSync(resolvedPath.absolutePath)) {
@@ -156,9 +168,6 @@ export function updateWikiSection(
     newBody = `${body.trimEnd()}\n\n${input.heading}\n\n${input.content}`;
     action = "created_section";
   } else {
-    const headingLevelMatch = input.heading.match(/^(#{1,6})\s/);
-    const headingLevel = headingLevelMatch ? headingLevelMatch[1].length : 0;
-
     let nextHeadingLineIndex = lines.length;
     for (let index = headingLineIndex + 1; index < lines.length; index++) {
       const match = lines[index].match(/^(#{1,6})\s/);
