@@ -116,9 +116,9 @@ scripts/
 - 关键行为：`page_id` 通过 `page-index.json` 解析；拒绝读取 symlink。
 
 8. `kb_commit`
-- 作用：在 git 仓库中执行 `git add kb/` 后提交。
-- 关键行为：仅检查 `kb/` staged 结果是否为空，再执行 commit。
-- 现状 caveat：若提交前已有非 `kb/` 文件 staged，仍可能被同次 commit 带入。
+- 作用：在 git 仓库中对配置的 `kb_root` 路径执行 stage 后提交。
+- 关键行为：要求 `kb_root` 位于某个 git working tree 内；仅检查该路径的 staged 结果是否为空，再执行 commit。
+- 现状 caveat：若提交前已有非 `kb_root` 范围文件 staged，仍可能被同次 commit 带入。
 
 ### 4.2 Maintenance tools（3 个）
 
@@ -207,7 +207,7 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 ## 8. 当前技术债 / 未完成项
 
 1. `kb_source_add` 文件类型仍是 MVP 范围（仅 `.md/.txt`），对 PDF/HTML/Office 等源无原生接入。
-2. `kb_commit` 只执行 `git add kb/`，但无法隔离“已预先 staged 的非 kb 文件”被一并提交的风险。
+2. `kb_commit` 只执行对配置 `kb_root` 范围的 stage，但无法隔离“已预先 staged 的非 `kb_root` 文件”被一并提交的风险。
 3. frontmatter 解析器是轻量实现（`parseSimpleYaml`），并非完整 YAML 解析器，复杂 YAML 语法兼容性有限。
 4. `page-index.json` 是增量维护模型；若页面被工具外手动删除/改名，索引可能漂移，需要 lint/重建机制兜底。
 5. `kb_search_wiki` 基于索引字段做轻量打分检索，不是全文/语义检索，召回与排序能力有限。

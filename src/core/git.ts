@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { execSync } from "child_process";
 import * as path from "path";
 import type { WorkspaceConfig } from "../types";
@@ -17,18 +18,52 @@ function escapeShellArg(value: string): string {
   return "'" + value.replace(/'/g, "'\\''") + "'";
 }
 
+function resolveKbGitScope(workspace: WorkspaceLike): { repoRoot: string; scope: string } {
+  const kbRoot = fs.realpathSync(path.resolve(getKbRoot(workspace)));
+  const execOpts = { cwd: kbRoot, encoding: "utf8" as const };
+
+  let repoRoot: string;
+  try {
+    repoRoot = fs.realpathSync(
+      execSync("git rev-parse --show-toplevel", {
+        ...execOpts,
+        stdio: ["ignore", "pipe", "pipe"],
+      }).trim()
+    );
+  } catch {
+    throw new Error(
+      `kb_root "${kbRoot}" is not inside a git repository; kb_commit only supports KB roots within a git working tree.`
+    );
+  }
+
+  const relativeKbRoot = path.relative(repoRoot, kbRoot);
+  if (
+    relativeKbRoot.startsWith(`..${path.sep}`) ||
+    relativeKbRoot === ".." ||
+    path.isAbsolute(relativeKbRoot)
+  ) {
+    throw new Error(
+      `kb_root "${kbRoot}" is outside the git repository "${repoRoot}"; kb_commit cannot safely scope the commit.`
+    );
+  }
+
+  const scope = (relativeKbRoot || ".").split(path.sep).join("/");
+  return { repoRoot, scope };
+}
+
 export function commitKbChanges(
   message: string,
   workspace: WorkspaceLike
 ): CommitKbChangesResult {
-  const repoRoot = path.dirname(getKbRoot(workspace));
+  const { repoRoot, scope } = resolveKbGitScope(workspace);
   const execOpts = { cwd: repoRoot, encoding: "utf8" as const };
+  const escapedScope = escapeShellArg(scope);
 
-  execSync("git add kb/", execOpts);
+  execSync(`git add -- ${escapedScope}`, execOpts);
 
-  const status = execSync("git diff --cached --name-only -- kb/", execOpts).trim();
+  const status = execSync(`git diff --cached --name-only -- ${escapedScope}`, execOpts).trim();
   if (!status) {
-    throw new Error("No staged changes in kb/ to commit.");
+    throw new Error(`No staged changes in "${scope}" to commit.`);
   }
 
   execSync(`git commit -m ${escapeShellArg(message)}`, execOpts);
