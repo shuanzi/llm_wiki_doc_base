@@ -74,7 +74,7 @@ export function formatInstallerUsage(command?: InstallerCommandName): string {
   const sections = [
     "Usage:",
     "  kb-openclaw-installer install --workspace <path> --kb-root <path> [--mcp-name <name>] [--force]",
-    "  kb-openclaw-installer check [--workspace <path>] [--mcp-name <name>] [--json]",
+    "  kb-openclaw-installer check --workspace <path> [--mcp-name <name>] [--json]",
     "  kb-openclaw-installer repair --workspace <path> [--kb-root <path>] [--mcp-name <name>] [--force]",
     "  kb-openclaw-installer uninstall --workspace <path> [--mcp-name <name>] [--force]",
     "",
@@ -90,24 +90,24 @@ export function formatInstallerUsage(command?: InstallerCommandName): string {
   const details: Record<InstallerCommandName, string[]> = {
     install: [
       "install flags:",
-      "  --workspace <path>   Required OpenClaw workspace path",
+      "  --workspace <path>   Required explicit workspace target path",
       "  --kb-root <path>     Required KB root path",
       "  --force              Allow overwriting installer-owned state",
     ],
     check: [
       "check flags:",
-      "  --workspace <path>   Optional explicit workspace path",
+      "  --workspace <path>   Required explicit workspace target path",
       "  --json               Emit machine-readable JSON output",
     ],
     repair: [
       "repair flags:",
-      "  --workspace <path>   Required OpenClaw workspace path",
+      "  --workspace <path>   Required explicit workspace target path",
       "  --kb-root <path>     Optional KB root override",
       "  --force              Allow overwriting installer-owned state",
     ],
     uninstall: [
       "uninstall flags:",
-      "  --workspace <path>   Required OpenClaw workspace path",
+      "  --workspace <path>   Required explicit workspace target path",
       "  --force              Allow removing installer-owned state without prompts",
     ],
   };
@@ -132,7 +132,7 @@ function parseCheckArgs(options: ParsedOption): CheckCommandArgs {
 
   return {
     command: "check",
-    workspace: readOptionalValue(options, "workspace"),
+    workspace: requireValue(options, "workspace", "check"),
     mcpName: readMcpName(options),
     json: options.flags.has("json"),
   };
@@ -231,8 +231,12 @@ function requireValue(
   const value = readOptionalValue(options, name);
 
   if (!value) {
+    const requirementMessage =
+      name === "workspace"
+        ? `Command "${command}" requires --workspace to explicitly target a workspace path.`
+        : `Command "${command}" requires --${name}.`;
     throw new InstallerCliUsageError(
-      `Command "${command}" requires --${name}.\n\n${formatInstallerUsage(command)}`
+      `${requirementMessage}\n\n${formatInstallerUsage(command)}`
     );
   }
 

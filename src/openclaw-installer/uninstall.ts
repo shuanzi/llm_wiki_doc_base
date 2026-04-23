@@ -20,10 +20,7 @@ import {
   type ResolvedInstallerEnvironment,
   type UninstallCommandArgs,
 } from "./types";
-import {
-  OpenClawWorkspaceResolutionError,
-  resolveOpenClawWorkspace,
-} from "./workspace";
+import { resolveExplicitWorkspacePath } from "./workspace";
 
 export interface UninstallOpenClawIntegrationOptions {
   cli?: OpenClawCli;
@@ -57,7 +54,7 @@ export async function uninstallOpenClawIntegration(
   const cli = options.cli ?? new OpenClawCli();
   await ensureOpenClawCliReady(cli);
 
-  const workspacePath = await resolveAndValidateWorkspace(cli, args.workspace);
+  const workspacePath = resolveExplicitWorkspacePath(args.workspace);
   const manifestPath = resolveInstallerManifestPath(workspacePath);
 
   const manifest = readManifestForUninstall(workspacePath, args.force);
@@ -473,25 +470,6 @@ async function ensureOpenClawCliReady(cli: OpenClawCli): Promise<void> {
     await cli.getConfigFilePath();
   } catch (error) {
     throw new Error(`OpenClaw CLI is missing or invalid: ${stringifyError(error)}`);
-  }
-}
-
-async function resolveAndValidateWorkspace(
-  cli: OpenClawCli,
-  requestedWorkspace: string
-): Promise<string> {
-  try {
-    const resolved = await resolveOpenClawWorkspace({
-      cli,
-      requestedWorkspace,
-      requireExistingDirectory: false,
-    });
-    return resolved.resolvedWorkspace;
-  } catch (error) {
-    if (error instanceof OpenClawWorkspaceResolutionError) {
-      throw new Error(error.message);
-    }
-    throw error;
   }
 }
 

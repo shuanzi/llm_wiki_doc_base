@@ -16,7 +16,6 @@ import type {
   CheckCommandArgs,
   InstallCommandArgs,
   InstallerCheckResult,
-  ParsedInstallerArgs,
   RepairCommandArgs,
   ResolvedInstallerEnvironment,
   UninstallCommandArgs,
@@ -47,7 +46,14 @@ async function main(): Promise<void> {
   }
 }
 
-function resolveInstallerEnvironment(args: ParsedInstallerArgs): ResolvedInstallerEnvironment {
+type InstallerEnvironmentSeed = Pick<
+  ResolvedInstallerEnvironment,
+  "command" | "workspace" | "kbRoot" | "mcpName"
+>;
+
+function resolveInstallerEnvironment(
+  args: InstallerEnvironmentSeed
+): ResolvedInstallerEnvironment {
   const repoRoot = path.resolve(__dirname, "..");
 
   return {
@@ -55,8 +61,8 @@ function resolveInstallerEnvironment(args: ParsedInstallerArgs): ResolvedInstall
     installerEntrypoint: path.resolve(__dirname, "openclaw_installer.js"),
     mcpServerEntrypoint: path.resolve(__dirname, "mcp_server.js"),
     command: args.command,
-    workspace: "workspace" in args ? args.workspace : undefined,
-    kbRoot: "kbRoot" in args ? args.kbRoot : undefined,
+    workspace: args.workspace,
+    kbRoot: args.kbRoot,
     mcpName: args.mcpName,
   };
 }
@@ -188,7 +194,6 @@ function buildCheckJsonFailureResult(
       command: "check",
       workspace: readOptionValue(argv, "workspace"),
       mcpName: readOptionValue(argv, "mcp-name") ?? "llm-kb",
-      json: true,
     }),
     driftItems: [
       {

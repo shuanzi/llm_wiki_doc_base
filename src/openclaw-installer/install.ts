@@ -22,10 +22,7 @@ import {
 } from "./openclaw-cli";
 import { renderAllOpenClawSkills } from "./skills";
 import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
-import {
-  OpenClawWorkspaceResolutionError,
-  resolveOpenClawWorkspace,
-} from "./workspace";
+import { resolveExplicitWorkspacePath } from "./workspace";
 import type {
   InstallCommandArgs,
   InstallerCheckResult,
@@ -59,8 +56,6 @@ export interface InstallOpenClawIntegrationResult {
 }
 
 interface RollbackState {
-  workspaceCreated: boolean;
-  createdWorkspacePath?: string;
   createdKbRoot: boolean;
   createdKbFiles: string[];
   createdKbDirectories: string[];
@@ -108,11 +103,10 @@ export async function installOpenClawIntegration(
   ensureBuildArtifactExists(mcpServerEntrypoint);
   await ensureOpenClawCliReady(cli);
 
-  const workspacePath = await resolveAndValidateWorkspace(cli, args.workspace);
+  const workspacePath = resolveExplicitWorkspacePath(args.workspace);
   installEnvironment.workspace = workspacePath;
 
   const rollback: RollbackState = {
-    workspaceCreated: false,
     createdKbRoot: false,
     createdKbFiles: [],
     createdKbDirectories: [],
@@ -127,8 +121,6 @@ export async function installOpenClawIntegration(
   };
 
   try {
-    ensureWorkspaceDirectory(workspacePath, rollback);
-
     const kbRootExistedBefore = fs.existsSync(kbRoot);
     if (kbRootExistedBefore) {
       const kbValidation = validateMinimumKbStructure(kbRoot);
@@ -309,41 +301,6 @@ async function ensureOpenClawCliReady(cli: OpenClawCli): Promise<void> {
   } catch (error) {
     throw new Error(`OpenClaw CLI is missing or invalid: ${stringifyError(error)}`);
   }
-}
-
-async function resolveAndValidateWorkspace(
-  cli: OpenClawCli,
-  requestedWorkspace: string
-): Promise<string> {
-  try {
-    const resolved = await resolveOpenClawWorkspace({
-      cli,
-      requestedWorkspace,
-      requireExistingDirectory: false,
-    });
-
-    return resolved.resolvedWorkspace;
-  } catch (error) {
-    if (error instanceof OpenClawWorkspaceResolutionError) {
-      throw new Error(error.message);
-    }
-    throw error;
-  }
-}
-
-function ensureWorkspaceDirectory(workspacePath: string, rollback: RollbackState): void {
-  if (fs.existsSync(workspacePath)) {
-    const stat = fs.statSync(workspacePath);
-    if (!stat.isDirectory()) {
-      throw new Error(`Workspace path is not a directory: ${workspacePath}`);
-    }
-    return;
-  }
-
-  fs.mkdirSync(workspacePath, { recursive: true });
-  rollback.workspaceCreated = true;
-  rollback.createdWorkspacePath = workspacePath;
-  rollback.mutated = true;
 }
 
 function trackBootstrapRollback(
@@ -708,10 +665,6 @@ async function rollbackCreatedArtifacts(
 
   if (rollback.createdManifestPath) {
     removeDirectoryIfEmpty(path.dirname(rollback.createdManifestPath));
-  }
-
-  if (rollback.workspaceCreated && rollback.createdWorkspacePath) {
-    removeDirectoryIfEmpty(rollback.createdWorkspacePath);
   }
 
   if (rollback.createdKbRoot) {

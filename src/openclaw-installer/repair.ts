@@ -26,10 +26,7 @@ import {
   type OpenClawMcpServerDefinition,
 } from "./openclaw-cli";
 import { renderAllOpenClawSkills } from "./skills";
-import {
-  OpenClawWorkspaceResolutionError,
-  resolveOpenClawWorkspace,
-} from "./workspace";
+import { resolveExplicitWorkspacePath } from "./workspace";
 import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import type {
   InstallerCheckResult,
@@ -101,8 +98,7 @@ export async function repairOpenClawIntegration(
   ensureBuildArtifactExists(mcpServerEntrypoint);
   await ensureOpenClawCliReady(cli);
 
-  const workspacePath = await resolveAndValidateWorkspace(cli, args.workspace);
-  ensureWorkspaceDirectory(workspacePath);
+  const workspacePath = resolveExplicitWorkspacePath(args.workspace);
 
   const resolvedEnvironment: ResolvedInstallerEnvironment = {
     ...environment,
@@ -936,37 +932,6 @@ async function ensureOpenClawCliReady(cli: OpenClawCli): Promise<void> {
   } catch (error) {
     throw new Error(`OpenClaw CLI is missing or invalid: ${stringifyError(error)}`);
   }
-}
-
-async function resolveAndValidateWorkspace(
-  cli: OpenClawCli,
-  requestedWorkspace: string
-): Promise<string> {
-  try {
-    const resolved = await resolveOpenClawWorkspace({
-      cli,
-      requestedWorkspace,
-      requireExistingDirectory: false,
-    });
-
-    return resolved.resolvedWorkspace;
-  } catch (error) {
-    if (error instanceof OpenClawWorkspaceResolutionError) {
-      throw new Error(error.message);
-    }
-    throw error;
-  }
-}
-
-function ensureWorkspaceDirectory(workspacePath: string): void {
-  if (fs.existsSync(workspacePath)) {
-    if (!fs.statSync(workspacePath).isDirectory()) {
-      throw new Error(`Workspace path is not a directory: ${workspacePath}`);
-    }
-    return;
-  }
-
-  fs.mkdirSync(workspacePath, { recursive: true });
 }
 
 function assertWorkspaceRootSafeForDocs(workspacePath: string): void {

@@ -11,6 +11,7 @@ interface FakeOpenClawState {
   };
   mcpServers: Record<string, unknown>;
   eligibleSkills: string[];
+  failMcpSetFor?: string[];
   failMcpUnsetFor?: string[];
 }
 
@@ -78,6 +79,7 @@ function createSandbox(name: string): ValidationSandbox {
   const binDir = path.join(tempRoot, "bin");
 
   fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(workspacePath, { recursive: true });
 
   const initialState: FakeOpenClawState = {
     configFile,
@@ -94,6 +96,7 @@ function createSandbox(name: string): ValidationSandbox {
     },
     mcpServers: {},
     eligibleSkills: ["kb_ingest", "kb_query", "kb_lint"],
+    failMcpSetFor: [],
     failMcpUnsetFor: [],
   };
 
@@ -205,6 +208,10 @@ function buildNodeCliSource(): string {
     "",
     "if (args[0] === 'mcp' && args[1] === 'set' && args.length === 4) {",
     "  const name = args[2];",
+    "  const failSetList = Array.isArray(state.failMcpSetFor) ? state.failMcpSetFor : [];",
+    "  if (failSetList.includes(name)) {",
+    "    fail(`Injected mcp set failure for ${JSON.stringify(name)}`);",
+    "  }",
     "  let parsed;",
     "  try {",
     "    parsed = JSON.parse(args[3]);",
@@ -293,6 +300,205 @@ function runBaselineInstall(sandbox: ValidationSandbox): void {
     install.status === 0,
     `Baseline install should succeed.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
   );
+}
+
+function testRepairAndUninstallAcceptTildeConfigFilePath(): void {
+  const sandbox = createSandbox("repair-uninstall-tilde-config-file");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const env = { ...sandbox.env, HOME: path.join(sandbox.tempRoot, "home-from-env") };
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      env
+    );
+    assert(
+      install.status === 0,
+      `Install should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    fs.rmSync(path.join(sandbox.workspacePath, "skills", "kb_query"), {
+      recursive: true,
+      force: true,
+    });
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallFailForMissingWorkspacePath(): void {
+  const sandbox = createSandbox("missing-workspace-repair-uninstall");
+
+  try {
+    const missingWorkspace = path.join(sandbox.tempRoot, "workspace-missing");
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", missingWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status !== 0,
+      "Repair should fail when --workspace points to a missing path"
+    );
+    assert(
+      /Workspace path does not exist/i.test(`${repair.stdout}\n${repair.stderr}`),
+      "Repair missing-workspace failure should mention non-existent workspace path"
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", missingWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail when --workspace points to a missing path"
+    );
+    assert(
+      /Workspace path does not exist/i.test(`${uninstall.stdout}\n${uninstall.stderr}`),
+      "Uninstall missing-workspace failure should mention non-existent workspace path"
+    );
+    assert(
+      !fs.existsSync(missingWorkspace),
+      "Repair/uninstall should not create missing workspace directories"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallFailForNonDirectoryWorkspacePath(): void {
+  const sandbox = createSandbox("workspace-file-repair-uninstall");
+
+  try {
+    const workspaceFile = path.join(sandbox.tempRoot, "workspace.txt");
+    fs.writeFileSync(workspaceFile, "not a directory\n", "utf8");
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", workspaceFile, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status !== 0,
+      "Repair should fail when --workspace points to a non-directory path"
+    );
+    assert(
+      /Workspace path is not a directory/i.test(`${repair.stdout}\n${repair.stderr}`),
+      "Repair non-directory failure should mention directory requirement"
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", workspaceFile, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail when --workspace points to a non-directory path"
+    );
+    assert(
+      /Workspace path is not a directory/i.test(`${uninstall.stdout}\n${uninstall.stderr}`),
+      "Uninstall non-directory failure should mention directory requirement"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallAllowExplicitWorkspaceWithAmbiguousDefaultAgent(): void {
+  const sandbox = createSandbox("explicit-workspace-ambiguous-default-agent");
+
+  try {
+    const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-explicit");
+    fs.mkdirSync(explicitWorkspace, { recursive: true });
+
+    const state = readState(sandbox.statePath);
+    state.config = {
+      agents: {
+        list: [
+          {
+            id: "agent-a",
+            default: true,
+            workspace: sandbox.workspacePath,
+          },
+          {
+            id: "agent-b",
+            default: true,
+            workspace: path.join(sandbox.tempRoot, "workspace-other"),
+          },
+        ],
+      },
+    };
+    writeState(sandbox.statePath, state);
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        explicitWorkspace,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Install should succeed for explicit workspace even with ambiguous default-agent config.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    fs.rmSync(path.join(explicitWorkspace, "skills", "kb_query"), {
+      recursive: true,
+      force: true,
+    });
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", explicitWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should succeed for explicit workspace even with ambiguous default-agent config.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", explicitWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should succeed for explicit workspace even with ambiguous default-agent config.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
 }
 
 function testRepairFromMissingSkills(): void {
@@ -604,7 +810,7 @@ function testRepairLateFailureRollsBackMutations(): void {
         KB_ROOT: sandbox.kbRoot,
       },
     };
-    stateBefore.eligibleSkills = ["kb_ingest", "kb_query"];
+    stateBefore.failMcpSetFor = ["llm-kb"];
     writeState(sandbox.statePath, stateBefore);
 
     const removedSkillFile = path.join(
@@ -622,11 +828,11 @@ function testRepairLateFailureRollsBackMutations(): void {
     );
     assert(
       repair.status !== 0,
-      "Repair should fail when post-repair check detects non-repairable drift"
+      "Repair should fail in rollback scenario when MCP set is injected to fail"
     );
     assert(
-      /Post-repair check detected drift/i.test(`${repair.stdout}\n${repair.stderr}`),
-      "Repair rollback scenario should fail at post-repair check stage"
+      /Injected mcp set failure/i.test(`${repair.stdout}\n${repair.stderr}`),
+      "Repair rollback scenario should fail due to injected MCP set failure"
     );
 
     const stateAfter = readState(sandbox.statePath);
@@ -1114,6 +1320,10 @@ function testUninstallMcpUnsetFailureDoesNotDeleteLocalArtifacts(): void {
 function main(): void {
   ensureInstallerBuildExists();
 
+  testRepairAndUninstallAcceptTildeConfigFilePath();
+  testRepairAndUninstallFailForMissingWorkspacePath();
+  testRepairAndUninstallFailForNonDirectoryWorkspacePath();
+  testRepairAndUninstallAllowExplicitWorkspaceWithAmbiguousDefaultAgent();
   testRepairFromMissingSkills();
   testRepairRestoresWorkspaceDocs();
   testRepairFromMissingManifestWithSufficientState();

@@ -1,9 +1,12 @@
 import { spawn } from "child_process";
+import * as os from "os";
+import * as path from "path";
 
 export interface OpenClawCliOptions {
   command?: string;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  homeDirectoryResolver?: () => string;
 }
 
 export interface OpenClawCliInvocation {
@@ -83,11 +86,13 @@ export class OpenClawCli {
   private readonly command: string;
   private readonly cwd?: string;
   private readonly env?: NodeJS.ProcessEnv;
+  private readonly homeDirectoryResolver: () => string;
 
   constructor(options: OpenClawCliOptions = {}) {
     this.command = options.command ?? "openclaw";
     this.cwd = options.cwd;
     this.env = options.env;
+    this.homeDirectoryResolver = options.homeDirectoryResolver ?? os.homedir;
   }
 
   async getConfigValue<T>(configPath: string, options: { allowMissing?: boolean } = {}): Promise<T | undefined> {
@@ -111,7 +116,10 @@ export class OpenClawCli {
   async getConfigFilePath(): Promise<string> {
     const args = ["config", "file"];
     const output = await this.run(args);
-    const value = parseSingleAbsolutePathOutput(output.stdout);
+    const effectiveEnv = { ...process.env, ...this.env };
+    const value = parseSingleAbsolutePathOutput(output.stdout, {
+      homeDirectory: resolveUsableHomeDirectory(effectiveEnv.HOME, this.homeDirectoryResolver),
+    });
 
     if (!value) {
       throw new OpenClawCliParseError(
@@ -378,7 +386,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function parseSingleAbsolutePathOutput(stdout: string): string {
+function parseSingleAbsolutePathOutput(
+  stdout: string,
+  options: { homeDirectory?: string } = {}
+): string {
   const candidate = stripSingleTrailingNewline(stdout);
 
   if (candidate.includes("\n") || candidate.includes("\r")) {
@@ -389,7 +400,28 @@ function parseSingleAbsolutePathOutput(stdout: string): string {
     );
   }
 
-  if (!candidate || candidate !== candidate.trim() || !isExplicitAbsolutePath(candidate)) {
+  if (!candidate || candidate !== candidate.trim()) {
+    throw new OpenClawCliParseError(
+      "OpenClaw config file output must be a single absolute path.",
+      { command: "openclaw", args: ["config", "file"] },
+      { stdout, stderr: "" }
+    );
+  }
+
+  if (candidate.startsWith("~/")) {
+    const homeDirectory = options.homeDirectory;
+    if (!homeDirectory) {
+      throw new OpenClawCliParseError(
+        "OpenClaw config file output used ~/ but no usable home directory was available.",
+        { command: "openclaw", args: ["config", "file"] },
+        { stdout, stderr: "" }
+      );
+    }
+
+    return path.resolve(homeDirectory, candidate.slice(2));
+  }
+
+  if (!isExplicitAbsolutePath(candidate)) {
     throw new OpenClawCliParseError(
       "OpenClaw config file output must be a single absolute path.",
       { command: "openclaw", args: ["config", "file"] },
@@ -398,6 +430,32 @@ function parseSingleAbsolutePathOutput(stdout: string): string {
   }
 
   return candidate;
+}
+
+function resolveUsableHomeDirectory(
+  envHome: string | undefined,
+  fallbackResolver: () => string
+): string | undefined {
+  if (isUsableHomeDirectory(envHome)) {
+    return envHome;
+  }
+
+  let fallbackHome: string | undefined;
+  try {
+    fallbackHome = fallbackResolver();
+  } catch {
+    return undefined;
+  }
+
+  if (isUsableHomeDirectory(fallbackHome)) {
+    return fallbackHome;
+  }
+
+  return undefined;
+}
+
+function isUsableHomeDirectory(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0 && value === value.trim() && isExplicitAbsolutePath(value);
 }
 
 function isCanonicalSkillName(value: string): boolean {

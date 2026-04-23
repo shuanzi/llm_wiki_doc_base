@@ -13,6 +13,7 @@ interface FakeOpenClawState {
   };
   mcpServers: Record<string, unknown>;
   eligibleSkills: string[];
+  failMcpSetFor?: string[];
 }
 
 interface CommandResult {
@@ -70,6 +71,7 @@ function createSandbox(name: string): ValidationSandbox {
   const binDir = path.join(tempRoot, "bin");
 
   fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(workspacePath, { recursive: true });
 
   const initialState: FakeOpenClawState = {
     configFile,
@@ -86,6 +88,7 @@ function createSandbox(name: string): ValidationSandbox {
     },
     mcpServers: {},
     eligibleSkills: ["kb_ingest", "kb_query", "kb_lint"],
+    failMcpSetFor: [],
   };
 
   writeState(statePath, initialState);
@@ -197,6 +200,10 @@ function buildNodeCliSource(): string {
     "",
     "if (args[0] === 'mcp' && args[1] === 'set' && args.length === 4) {",
     "  const name = args[2];",
+    "  const failList = Array.isArray(state.failMcpSetFor) ? state.failMcpSetFor : [];",
+    "  if (failList.includes(name)) {",
+    "    fail(`Injected mcp set failure for ${JSON.stringify(name)}`);",
+    "  }",
     "  let parsed;",
     "  try {",
     "    parsed = JSON.parse(args[3]);",
@@ -251,6 +258,56 @@ function runInstallerCommand(
   };
 }
 
+function runCliGetConfigFilePath(
+  env: NodeJS.ProcessEnv,
+  options: {
+    forceEmptyHomeDirectoryResolver?: boolean;
+    cliHomeOverride?: string;
+  } = {}
+): CommandResult {
+  const openclawCliModulePath = path.resolve(
+    repoRoot(),
+    "dist",
+    "openclaw-installer",
+    "openclaw-cli.js"
+  );
+  const cliOptionLiterals: string[] = [];
+  if (typeof options.cliHomeOverride === "string") {
+    cliOptionLiterals.push(`env: { HOME: ${JSON.stringify(options.cliHomeOverride)} }`);
+  }
+  if (options.forceEmptyHomeDirectoryResolver) {
+    cliOptionLiterals.push("homeDirectoryResolver: () => ''");
+  }
+  const cliInstantiationLine =
+    cliOptionLiterals.length > 0
+      ? `  const cli = new OpenClawCli({ ${cliOptionLiterals.join(", ")} });`
+      : "  const cli = new OpenClawCli();";
+  const script = [
+    "const { OpenClawCli } = require(process.argv[1]);",
+    "(async () => {",
+    cliInstantiationLine,
+    "  const value = await cli.getConfigFilePath();",
+    "  process.stdout.write(value);",
+    "})().catch((error) => {",
+    "  const message = error instanceof Error ? error.message : String(error);",
+    "  process.stderr.write(`${message}\\n`);",
+    "  process.exit(1);",
+    "});",
+  ].join("\n");
+
+  const result = spawnSync(process.execPath, ["-e", script, openclawCliModulePath], {
+    cwd: repoRoot(),
+    env,
+    encoding: "utf8",
+  });
+
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
 function parseCheckJson(stdout: string): {
   ok: boolean;
   driftItems: Array<{ kind: string; message: string }>;
@@ -264,6 +321,204 @@ function parseCheckJson(stdout: string): {
     };
   } catch (error) {
     throw new Error(`Failed to parse check JSON output: ${String(error)}\nstdout:\n${stdout}`);
+  }
+}
+
+function testConfigFilePathParserExpandsTildeUsingHomeEnv(): void {
+  const sandbox = createSandbox("config-file-parser-home-env");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const homeDirectory = path.join(sandbox.tempRoot, "home-from-env");
+    const env = { ...sandbox.env, HOME: homeDirectory };
+    const result = runCliGetConfigFilePath(env);
+
+    assert(
+      result.status === 0,
+      `Config-file parser should accept ~/.openclaw/openclaw.json when HOME is set.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    );
+    assert(
+      result.stdout === path.resolve(homeDirectory, ".openclaw", "openclaw.json"),
+      `Config-file parser should normalize ~/ path using HOME.\nstdout:\n${result.stdout}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testConfigFilePathParserUsesCliEnvHomeOverride(): void {
+  const sandbox = createSandbox("config-file-parser-cli-home-override");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const processHomeDirectory = path.join(sandbox.tempRoot, "home-from-process-env");
+    const cliHomeDirectory = path.join(sandbox.tempRoot, "home-from-cli-options-env");
+    const env = { ...sandbox.env, HOME: processHomeDirectory };
+    const result = runCliGetConfigFilePath(env, {
+      cliHomeOverride: cliHomeDirectory,
+    });
+
+    assert(
+      result.status === 0,
+      `Config-file parser should accept ~/.openclaw/openclaw.json when CLI env overrides HOME.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    );
+    assert(
+      result.stdout === path.resolve(cliHomeDirectory, ".openclaw", "openclaw.json"),
+      `Config-file parser should use OpenClawCli env HOME override when normalizing ~/ path.\nstdout:\n${result.stdout}`
+    );
+    assert(
+      result.stdout !== path.resolve(processHomeDirectory, ".openclaw", "openclaw.json"),
+      "Config-file parser should not use process HOME when CLI env HOME override is provided"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testConfigFilePathParserFallsBackToPlatformHomeDirectory(): void {
+  const sandbox = createSandbox("config-file-parser-home-fallback");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const env = { ...sandbox.env };
+    delete env.HOME;
+    const result = runCliGetConfigFilePath(env);
+
+    assert(
+      result.status === 0,
+      `Config-file parser should fall back to platform home-directory helper when HOME is unset.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    );
+    assert(
+      result.stdout === path.resolve(os.homedir(), ".openclaw", "openclaw.json"),
+      `Config-file parser should normalize ~/ path using platform home-directory helper.\nstdout:\n${result.stdout}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testConfigFilePathParserFailsClosedWithoutUsableHomeDirectory(): void {
+  const sandbox = createSandbox("config-file-parser-home-fail-closed");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const env = { ...sandbox.env };
+    delete env.HOME;
+    const result = runCliGetConfigFilePath(env, {
+      forceEmptyHomeDirectoryResolver: true,
+    });
+
+    assert(
+      result.status !== 0,
+      "Config-file parser should fail closed when ~/ output cannot resolve a usable home directory"
+    );
+    assert(
+      /no usable home directory/i.test(`${result.stdout}\n${result.stderr}`),
+      `Fail-closed home-directory error should mention unusable home directory.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testConfigFilePathParserRejectsMalformedOutput(): void {
+  const sandbox = createSandbox("config-file-parser-invalid-output");
+
+  try {
+    const validAbsolutePath = path.join(sandbox.tempRoot, "openclaw.json");
+    const invalidOutputs = [
+      {
+        label: "empty output",
+        value: "",
+      },
+      {
+        label: "extra newline content",
+        value: `${validAbsolutePath}\n`,
+      },
+      {
+        label: "whitespace-padded value",
+        value: ` ${validAbsolutePath}`,
+      },
+      {
+        label: "tab-padded value",
+        value: `${validAbsolutePath}\t`,
+      },
+      {
+        label: "unsupported relative path",
+        value: ".openclaw/openclaw.json",
+      },
+    ];
+
+    for (const testCase of invalidOutputs) {
+      const state = readState(sandbox.statePath);
+      state.configFile = testCase.value;
+      writeState(sandbox.statePath, state);
+
+      const result = runCliGetConfigFilePath(sandbox.env);
+      assert(
+        result.status !== 0,
+        `Config-file parser should reject ${testCase.label}`
+      );
+      assert(
+        /config file output/i.test(`${result.stdout}\n${result.stderr}`),
+        `Config-file parser rejection should mention malformed config file output for ${testCase.label}.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+      );
+    }
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testInstallAndCheckAcceptTildeConfigFilePath(): void {
+  const sandbox = createSandbox("config-file-tilde-install-check");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const env = { ...sandbox.env, HOME: path.join(sandbox.tempRoot, "home-from-env") };
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      env
+    );
+    assert(
+      install.status === 0,
+      `Install should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      env
+    );
+    assert(
+      check.status === 0,
+      `Check should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+    assert(
+      parseCheckJson(check.stdout).ok,
+      "Check should still report ok=true when openclaw config file path uses ~/..."
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
   }
 }
 
@@ -327,17 +582,18 @@ function testSuccessfulInstallAndProbe(): void {
   }
 }
 
-function testWorkspaceMismatchFailure(): void {
-  const sandbox = createSandbox("workspace-mismatch");
+function testExplicitNonDefaultWorkspaceIsAccepted(): void {
+  const sandbox = createSandbox("workspace-non-default");
 
   try {
-    const mismatchedWorkspace = path.join(sandbox.tempRoot, "workspace-other");
+    const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-other");
+    fs.mkdirSync(explicitWorkspace, { recursive: true });
 
     const install = runInstallerCommand(
       [
         "install",
         "--workspace",
-        mismatchedWorkspace,
+        explicitWorkspace,
         "--kb-root",
         sandbox.kbRoot,
       ],
@@ -345,20 +601,27 @@ function testWorkspaceMismatchFailure(): void {
     );
 
     assert(
-      install.status !== 0,
-      "Install should fail when --workspace does not match current default-agent workspace"
-    );
-    assert(
-      /manual config required|does not match the current default-agent workspace/i.test(
-        `${install.stdout}\n${install.stderr}`
-      ),
-      "Workspace mismatch failure should explain manual config requirement"
+      install.status === 0,
+      `Install should accept an explicit non-default workspace target.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
     );
 
-    const stateAfterFailure = readState(sandbox.statePath);
+    const stateAfterInstall = readState(sandbox.statePath);
     assert(
-      stateAfterFailure.mcpServers["llm-kb"] === undefined,
-      "Workspace mismatch failure should not write MCP config"
+      stateAfterInstall.mcpServers["llm-kb"] !== undefined,
+      "Install should write MCP config for explicit non-default workspace"
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", explicitWorkspace, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 0,
+      `Check should succeed for explicit non-default workspace target.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+    assert(
+      parseCheckJson(check.stdout).ok,
+      "Check JSON should report ok=true for explicit non-default workspace target"
     );
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
@@ -814,6 +1077,7 @@ function testWorkspaceSymlinkAliasFailsClosedForWorkspaceDocs(): void {
   try {
     const realWorkspace = path.join(sandbox.tempRoot, "workspace-real");
     fs.mkdirSync(realWorkspace, { recursive: true });
+    fs.rmSync(sandbox.workspacePath, { recursive: true, force: true });
     fs.symlinkSync(realWorkspace, sandbox.workspacePath);
 
     const install = runInstallerCommand(
@@ -913,7 +1177,7 @@ function testForceRollbackRestoresOverwrittenArtifacts(): void {
 
     const stateBefore = readState(sandbox.statePath);
     stateBefore.mcpServers["llm-kb"] = previousMcpConfig;
-    stateBefore.eligibleSkills = ["kb_ingest", "kb_query"];
+    stateBefore.failMcpSetFor = ["llm-kb"];
     writeState(sandbox.statePath, stateBefore);
 
     fs.mkdirSync(path.join(sandbox.workspacePath, "skills", "kb_query"), {
@@ -946,6 +1210,10 @@ function testForceRollbackRestoresOverwrittenArtifacts(): void {
     assert(
       install.status !== 0,
       "Forced install should fail in this scenario so rollback can be verified"
+    );
+    assert(
+      /Injected mcp set failure/i.test(`${install.stdout}\n${install.stderr}`),
+      "Forced install rollback scenario should fail due to injected MCP set failure"
     );
 
     const stateAfter = readState(sandbox.statePath);
@@ -1015,10 +1283,176 @@ function testMalformedCheckJsonInvocationSemantics(): void {
   }
 }
 
-function testAmbiguousDefaultAgentSuppressesEligibilityChecks(): void {
+function testCheckRequiresExplicitWorkspace(): void {
+  const sandbox = createSandbox("check-requires-workspace");
+
+  try {
+    const plainCheck = runInstallerCommand(["check"], sandbox.env);
+    assert(
+      plainCheck.status === 2,
+      `check without --workspace should be rejected as usage error.\nstdout:\n${plainCheck.stdout}\nstderr:\n${plainCheck.stderr}`
+    );
+    assert(
+      /requires --workspace/i.test(`${plainCheck.stdout}\n${plainCheck.stderr}`),
+      "check usage failure should explain that --workspace is required"
+    );
+
+    const jsonCheck = runInstallerCommand(["check", "--json"], sandbox.env);
+    assert(
+      jsonCheck.status === 2,
+      `check --json without --workspace should preserve usage exit code.\nstdout:\n${jsonCheck.stdout}\nstderr:\n${jsonCheck.stderr}`
+    );
+    const parsed = parseCheckJson(jsonCheck.stdout);
+    assert(
+      parsed.ok === false,
+      "check --json without --workspace should emit structured ok=false output"
+    );
+    assert(
+      parsed.driftItems.some((item) =>
+        /requires --workspace/i.test(item.message)
+      ),
+      "check --json usage failure should include --workspace requirement"
+    );
+    assert(
+      !/OpenClaw installer check detected drift/i.test(
+        `${jsonCheck.stdout}\n${jsonCheck.stderr}`
+      ),
+      "check --json usage failures should not fall back to human-readable drift output"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testMissingWorkspacePathFailsDirectly(): void {
+  const sandbox = createSandbox("missing-workspace-path");
+
+  try {
+    const missingWorkspace = path.join(sandbox.tempRoot, "workspace-missing");
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        missingWorkspace,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status !== 0,
+      "Install should fail when --workspace points to a missing path"
+    );
+    assert(
+      /Workspace path does not exist/i.test(`${install.stdout}\n${install.stderr}`),
+      "Install missing-path failure should mention non-existent workspace path"
+    );
+    assert(
+      !fs.existsSync(missingWorkspace),
+      "Install should not create a missing workspace directory"
+    );
+
+    const stateAfter = readState(sandbox.statePath);
+    assert(
+      stateAfter.mcpServers["llm-kb"] === undefined,
+      "Missing workspace install failure should not register MCP config"
+    );
+
+    const plainCheck = runInstallerCommand(
+      ["check", "--workspace", missingWorkspace],
+      sandbox.env
+    );
+    assert(
+      plainCheck.status === 1,
+      `Plain check should fail directly when --workspace path is missing.\nstdout:\n${plainCheck.stdout}\nstderr:\n${plainCheck.stderr}`
+    );
+    assert(
+      /Workspace path does not exist/i.test(`${plainCheck.stdout}\n${plainCheck.stderr}`),
+      "Plain check missing-path failure should report invalid workspace path directly"
+    );
+    assert(
+      !/OpenClaw installer check detected drift/i.test(
+        `${plainCheck.stdout}\n${plainCheck.stderr}`
+      ),
+      "Plain check missing-path failure should not render drift report output"
+    );
+
+    const jsonCheck = runInstallerCommand(
+      ["check", "--workspace", missingWorkspace, "--json"],
+      sandbox.env
+    );
+    assert(
+      jsonCheck.status === 1,
+      `check --json should fail with structured output for missing workspace path.\nstdout:\n${jsonCheck.stdout}\nstderr:\n${jsonCheck.stderr}`
+    );
+    const parsed = parseCheckJson(jsonCheck.stdout);
+    assert(parsed.ok === false, "Missing-path check --json should emit ok=false");
+    assert(
+      parsed.driftItems.some((item) =>
+        /Workspace path does not exist/i.test(item.message)
+      ),
+      "Missing-path check --json should include workspace-path validation failure"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testNonDirectoryWorkspacePathFailsDirectly(): void {
+  const sandbox = createSandbox("workspace-path-is-file");
+
+  try {
+    const workspaceFile = path.join(sandbox.tempRoot, "workspace.txt");
+    fs.writeFileSync(workspaceFile, "not a directory\n", "utf8");
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        workspaceFile,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status !== 0,
+      "Install should fail when --workspace points to a non-directory path"
+    );
+    assert(
+      /Workspace path is not a directory/i.test(`${install.stdout}\n${install.stderr}`),
+      "Install non-directory workspace failure should mention directory requirement"
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", workspaceFile, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 1,
+      `check --json should fail when --workspace points to a non-directory path.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+    const parsed = parseCheckJson(check.stdout);
+    assert(parsed.ok === false, "Non-directory workspace check --json should emit ok=false");
+    assert(
+      parsed.driftItems.some((item) =>
+        /Workspace path is not a directory/i.test(item.message)
+      ),
+      "Non-directory workspace check --json should include directory validation failure"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testAmbiguousDefaultAgentDoesNotBlockExplicitWorkspaceTargeting(): void {
   const sandbox = createSandbox("ambiguous-default-agent");
 
   try {
+    const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-explicit");
+    fs.mkdirSync(explicitWorkspace, { recursive: true });
+
     const state = readState(sandbox.statePath);
     state.config = {
       agents: {
@@ -1036,160 +1470,86 @@ function testAmbiguousDefaultAgentSuppressesEligibilityChecks(): void {
         ],
       },
     };
-    state.eligibleSkills = [];
     writeState(sandbox.statePath, state);
 
-    fs.mkdirSync(sandbox.workspacePath, { recursive: true });
-
-    const check = runInstallerCommand(
+    const install = runInstallerCommand(
       [
-        "check",
+        "install",
         "--workspace",
-        sandbox.workspacePath,
-        "--json",
+        explicitWorkspace,
+        "--kb-root",
+        sandbox.kbRoot,
       ],
       sandbox.env
     );
-
     assert(
-      check.status === 1,
-      `Ambiguous default-agent resolution should fail check.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+      install.status === 0,
+      `Ambiguous default-agent config should not block explicit workspace install.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", explicitWorkspace, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 0,
+      `Ambiguous default-agent config should not block explicit workspace check.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+    assert(
+      parseCheckJson(check.stdout).ok,
+      "Explicit workspace check should pass even when default-agent selection is ambiguous"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testDefaultAgentSkillRestrictionsDoNotBlockExplicitWorkspaceCheck(): void {
+  const sandbox = createSandbox("ignore-default-agent-eligible-skills");
+
+  try {
+    const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-explicit");
+    fs.mkdirSync(explicitWorkspace, { recursive: true });
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        explicitWorkspace,
+        "--kb-root",
+        sandbox.kbRoot,
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Install should succeed before eligibility regression check.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const state = readState(sandbox.statePath);
+    state.eligibleSkills = ["kb_ingest"];
+    writeState(sandbox.statePath, state);
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", explicitWorkspace, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 0,
+      `Explicit workspace check should ignore default-agent skill eligibility restrictions.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
     );
 
     const parsed = parseCheckJson(check.stdout);
-    assert(parsed.ok === false, "Ambiguous default-agent check should produce ok=false");
     assert(
-      parsed.driftItems.some((item) =>
-        /multiple agents.*default|manual config required/i.test(item.message)
-      ),
-      "Ambiguous default-agent resolution should report manual config required"
+      parsed.ok,
+      "Explicit workspace check should still report ok=true when eligible skills are restricted"
     );
     assert(
       !parsed.driftItems.some((item) =>
         /not eligible|skills excludes required|missing kb_/i.test(item.message)
       ),
-      "Eligibility-specific drift should be suppressed when default-agent workspace confirmation failed"
+      "Check output should not contain default-agent-only eligibility drift"
     );
-  } finally {
-    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
-  }
-}
-
-function testFreshArtifactRollbackCleansUpNewState(): void {
-  const sandbox = createSandbox("rollback-cleanup-new");
-
-  try {
-    const stateBefore = readState(sandbox.statePath);
-    stateBefore.eligibleSkills = ["kb_ingest", "kb_query"];
-    writeState(sandbox.statePath, stateBefore);
-
-    const install = runInstallerCommand(
-      [
-        "install",
-        "--workspace",
-        sandbox.workspacePath,
-        "--kb-root",
-        sandbox.kbRoot,
-      ],
-      sandbox.env
-    );
-
-    assert(
-      install.status !== 0,
-      "Install should fail after creating fresh artifacts so cleanup-only rollback can be verified"
-    );
-
-    const stateAfter = readState(sandbox.statePath);
-    assert(
-      stateAfter.mcpServers["llm-kb"] === undefined,
-      "Cleanup-only rollback should remove newly created MCP registration"
-    );
-
-    const manifestPath = path.join(
-      sandbox.workspacePath,
-      ".llm-kb",
-      "openclaw-install.json"
-    );
-    assert(
-      !fs.existsSync(manifestPath),
-      "Cleanup-only rollback should remove newly created manifest"
-    );
-
-    const createdSkillPath = path.join(
-      sandbox.workspacePath,
-      "skills",
-      "kb_query",
-      "SKILL.md"
-    );
-    assert(
-      !fs.existsSync(createdSkillPath),
-      "Cleanup-only rollback should remove newly created skill files"
-    );
-  } finally {
-    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
-  }
-}
-
-function testIneligibleSkillFailureWithFilesPresent(): void {
-  const sandbox = createSandbox("ineligible");
-
-  try {
-    const install = runInstallerCommand(
-      [
-        "install",
-        "--workspace",
-        sandbox.workspacePath,
-        "--kb-root",
-        sandbox.kbRoot,
-      ],
-      sandbox.env
-    );
-
-    assert(
-      install.status === 0,
-      `Baseline install should succeed before eligibility drift check.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
-    );
-
-    const state = readState(sandbox.statePath);
-    state.eligibleSkills = ["kb_ingest", "kb_query"];
-    writeState(sandbox.statePath, state);
-
-    const check = runInstallerCommand(
-      [
-        "check",
-        "--workspace",
-        sandbox.workspacePath,
-        "--json",
-      ],
-      sandbox.env
-    );
-
-    assert(
-      check.status === 1,
-      `Eligibility drift should fail check with exit code 1.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
-    );
-
-    const parsed = parseCheckJson(check.stdout);
-    assert(parsed.ok === false, "Eligibility drift should produce ok=false");
-    assert(
-      parsed.driftItems.some((item) =>
-        /not eligible|missing kb_lint|skills excludes required/i.test(item.message)
-      ),
-      "Eligibility drift should be reported even when skill files are present"
-    );
-
-    for (const skillName of ["kb_ingest", "kb_query", "kb_lint"]) {
-      const skillFilePath = path.join(
-        sandbox.workspacePath,
-        "skills",
-        skillName,
-        "SKILL.md"
-      );
-      assert(
-        fs.existsSync(skillFilePath),
-        `Skill file should still exist during ineligible-skill check: ${skillFilePath}`
-      );
-    }
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
   }
@@ -1198,8 +1558,14 @@ function testIneligibleSkillFailureWithFilesPresent(): void {
 function main(): void {
   ensureInstallerBuildExists();
 
+  testConfigFilePathParserExpandsTildeUsingHomeEnv();
+  testConfigFilePathParserUsesCliEnvHomeOverride();
+  testConfigFilePathParserFallsBackToPlatformHomeDirectory();
+  testConfigFilePathParserFailsClosedWithoutUsableHomeDirectory();
+  testConfigFilePathParserRejectsMalformedOutput();
+  testInstallAndCheckAcceptTildeConfigFilePath();
   testSuccessfulInstallAndProbe();
-  testWorkspaceMismatchFailure();
+  testExplicitNonDefaultWorkspaceIsAccepted();
   testExistingPartialKbRootFailsClosedWithoutForce();
   testConservativeConflictFailure();
   testUnownedSkillWithInstallerContentStillConflicts();
@@ -1210,10 +1576,12 @@ function main(): void {
   testCheckFailsClosedOnSymlinkedWorkspaceDocPath();
   testWorkspaceSymlinkAliasFailsClosedForWorkspaceDocs();
   testForceRollbackRestoresOverwrittenArtifacts();
+  testCheckRequiresExplicitWorkspace();
+  testMissingWorkspacePathFailsDirectly();
+  testNonDirectoryWorkspacePathFailsDirectly();
   testMalformedCheckJsonInvocationSemantics();
-  testAmbiguousDefaultAgentSuppressesEligibilityChecks();
-  testFreshArtifactRollbackCleansUpNewState();
-  testIneligibleSkillFailureWithFilesPresent();
+  testAmbiguousDefaultAgentDoesNotBlockExplicitWorkspaceTargeting();
+  testDefaultAgentSkillRestrictionsDoNotBlockExplicitWorkspaceCheck();
 
   process.stdout.write(
     "validate_openclaw_installer_install: all scenarios passed\n"

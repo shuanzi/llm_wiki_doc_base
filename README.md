@@ -121,33 +121,33 @@ npm run typecheck
 npm run build
 ```
 
-Install (requires explicit default-agent workspace and explicit external `KB_ROOT`):
+Install (requires explicit workspace target and explicit external `KB_ROOT`):
 
 ```bash
-node dist/openclaw_installer.js install --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+node dist/openclaw_installer.js install --workspace /absolute/path/to/target-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
 ```
 
 Check:
 
 ```bash
-node dist/openclaw_installer.js check --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb --json
+node dist/openclaw_installer.js check --workspace /absolute/path/to/target-workspace --mcp-name llm-kb --json
 ```
 
 Repair:
 
 ```bash
-node dist/openclaw_installer.js repair --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+node dist/openclaw_installer.js repair --workspace /absolute/path/to/target-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
 ```
 
 Uninstall:
 
 ```bash
-node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb
+node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/target-workspace --mcp-name llm-kb
 ```
 
 Operator notes for current implementation:
 
-- Current implementation only supports the OpenClaw current default-agent workspace. If `--workspace` does not match the resolved default-agent workspace, installer commands fail closed with manual-config guidance.
+- Installer commands target only the explicit path provided by `--workspace` (required for `install`, `check`, `repair`, and `uninstall`).
 - `KB_ROOT` is an explicit external root in the installer contract (`install` requires `--kb-root`; `repair` can infer from manifest/MCP config but accepts explicit override).
 - Installed skills are OpenClaw-adapted variants (`openclaw-adapted-v1`) written under `<workspace>/skills/{kb_ingest|kb_query|kb_lint}`.
 - `kb_commit` remains available in the MCP server surface, but it is not part of the default external-KB installer contract; adapted skills intentionally avoid automatic `kb_commit`.

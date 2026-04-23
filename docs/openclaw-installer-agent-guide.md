@@ -26,7 +26,7 @@ It does not move the KB into the OpenClaw workspace. The KB stays external.
 
 The agent must enforce these rules:
 
-1. `--workspace` must match the current OpenClaw default-agent workspace.
+1. `--workspace` is required for every installer command and explicitly targets that workspace path.
 2. `install` requires an explicit external `--kb-root`.
 3. `uninstall` must not delete the external `KB_ROOT`.
 4. Conflict handling is conservative by default. Do not add `--force` unless there is a specific reason.
@@ -54,7 +54,7 @@ Before running installer commands, the agent should verify:
 1. It is operating from the correct repository checkout.
 2. `npm run typecheck` and `npm run build` have completed successfully.
 3. `openclaw` CLI is available on `PATH`.
-4. The target workspace path is the current default-agent workspace.
+4. The target workspace path is the intended explicit installer target.
 5. The target external `KB_ROOT` path is known.
 
 ## Standard Install Procedure
@@ -72,7 +72,7 @@ npm run build
 
 ```bash
 node dist/openclaw_installer.js install \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
   --mcp-name llm-kb
 ```
@@ -81,7 +81,7 @@ Equivalent bin form:
 
 ```bash
 kb-openclaw-installer install \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
   --mcp-name llm-kb
 ```
@@ -90,7 +90,7 @@ kb-openclaw-installer install \
 
 ```bash
 node dist/openclaw_installer.js check \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --mcp-name llm-kb \
   --json
 ```
@@ -105,7 +105,7 @@ Use `repair` when installer-owned state has drifted but ownership is still valid
 
 ```bash
 node dist/openclaw_installer.js repair \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
   --mcp-name llm-kb
 ```
@@ -125,7 +125,7 @@ Use `uninstall` only when removing this installer-owned integration.
 
 ```bash
 node dist/openclaw_installer.js uninstall \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --mcp-name llm-kb
 ```
 
@@ -148,24 +148,25 @@ Use `--force` only when:
 
 Do not use `--force` by default for:
 
-- unknown workspace mismatch
+- invalid workspace path or unknown workspace ownership
 - unknown or third-party MCP ownership
 - unexplained skill-directory drift
 - unexplained `KB_ROOT` retargeting
 
 ## Common Failure Cases
 
-### Workspace mismatch
+### Missing or invalid workspace target
 
 Symptom:
 
-- installer reports manual-config-required or workspace mismatch
+- usage error because `--workspace` is missing
+- installer reports that the explicit workspace path cannot be used
 
 Action:
 
 - stop
-- resolve the actual current default-agent workspace
-- rerun with the matching `--workspace`
+- provide the intended explicit `--workspace` path
+- rerun with the corrected explicit workspace
 
 ### Missing build artifact
 

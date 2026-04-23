@@ -51,7 +51,7 @@ export interface InstallCommandArgs extends InstallerCliCommonArgs {
 
 export interface CheckCommandArgs extends InstallerCliCommonArgs {
   command: "check";
-  workspace?: string;
+  workspace: string;
   json: boolean;
 }
 
