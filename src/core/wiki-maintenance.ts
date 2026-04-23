@@ -8,6 +8,7 @@ import {
   resolveKbPath,
   validateFrontmatter,
 } from "../utils";
+import { markSearchIndexesStale } from "./wiki-search";
 
 const PAGE_INDEX_PATH = "state/cache/page-index.json";
 const WRITTEN_TO_PATH = "kb/state/cache/page-index.json";
@@ -709,6 +710,7 @@ export function rebuildPageIndex(workspace: WorkspaceLike): RebuildPageIndexResu
 
   fs.mkdirSync(path.dirname(pageIndexPath), { recursive: true });
   fs.writeFileSync(pageIndexPath, JSON.stringify(pageIndex, null, 2), "utf8");
+  markSearchIndexesStale(workspace, "page index rebuilt");
 
   return {
     version: 2,

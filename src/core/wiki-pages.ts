@@ -12,6 +12,7 @@ import {
 import {
   assertNotSymlinkWriteTarget,
   loadPageIndexLenient,
+  markSearchIndexesStale,
   resolveWikiScopedPath,
   type ResolvedWikiPath,
 } from "./wiki-search";
@@ -69,6 +70,36 @@ function upsertPageIndexEntry(workspace: WorkspaceLike, entry: PageIndexEntry): 
   fs.writeFileSync(pageIndexPath, JSON.stringify(pageIndex, null, 2), "utf8");
 }
 
+export function refreshPageIndexEntryForPath(
+  targetPath: string,
+  workspace: WorkspaceLike
+): PageIndexEntry | null {
+  const resolvedPath = resolveWikiScopedPath(targetPath, workspace);
+  if (!fs.existsSync(resolvedPath.absolutePath) || !fs.statSync(resolvedPath.absolutePath).isFile()) {
+    return null;
+  }
+
+  const content = fs.readFileSync(resolvedPath.absolutePath, "utf8");
+  const { frontmatter, body } = parseFrontmatter(content);
+  const validation = validateFrontmatter(frontmatter);
+  if (!validation.valid) {
+    throw new Error(`Frontmatter validation failed:\n${validation.errors.join("\n")}`);
+  }
+
+  const entry: PageIndexEntry = {
+    page_id: frontmatter.id as string,
+    path: resolvedPath.relativePath,
+    type: frontmatter.type ?? "",
+    title: frontmatter.title ?? "",
+    aliases: Array.isArray(frontmatter.aliases) ? frontmatter.aliases : [],
+    tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
+    headings: extractHeadings(body),
+    body_excerpt: extractExcerpt(body),
+  };
+  upsertPageIndexEntry(workspace, entry);
+  return entry;
+}
+
 export function writeWikiPage(
   input: WriteWikiPageInput,
   workspace: WorkspaceLike
@@ -117,6 +148,7 @@ export function writeWikiPage(
     headings: extractHeadings(body),
     body_excerpt: extractExcerpt(body),
   });
+  markSearchIndexesStale(workspace, `write ${relativePath}`);
 
   return {
     path: relativePath,
@@ -214,6 +246,7 @@ export function updateWikiSection(
       fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), "utf8");
     }
   }
+  markSearchIndexesStale(workspace, `update section ${resolvedPath.relativePath}`);
 
   return {
     path: resolvedPath.relativePath,

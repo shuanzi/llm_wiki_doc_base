@@ -108,8 +108,8 @@ scripts/
 - 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；重复调用返回 `already_exists`；支持 anchor heading 定位插入。
 
 6. `kb_search_wiki`
-- 作用：基于 `page-index.json` 搜索。
-- 关键行为：关键词加权（title/alias/tag/heading/excerpt）、`type_filter`、全量 tag 命中、`resolve_link` 解析 `[[...]]`/`[[id|title]]`。
+- 作用：搜索 wiki 页面。
+- 关键行为：支持 `mode: auto | index | rg | bm25 | qmd`；保留 page-index 轻量搜索；新增 ripgrep 精确搜索、内置 BM25 全文排序、可选 QMD hybrid 搜索；支持 `type_filter`、全量 tag 命中、`resolve_link` 解析 `[[...]]`/`[[id|title]]`。
 
 7. `kb_read_page`
 - 作用：按路径或 `page_id` 读取页面，返回 frontmatter 与 body。
@@ -120,7 +120,7 @@ scripts/
 - 关键行为：要求 `kb_root` 位于某个 git working tree 内；仅检查该路径的 staged 结果是否为空，再执行 commit。
 - 现状 caveat：若提交前已有非 `kb_root` 范围文件 staged，仍可能被同次 commit 带入。
 
-### 4.2 Maintenance tools（3 个）
+### 4.2 Maintenance tools（5 个）
 
 9. `kb_rebuild_index`
 - 作用：扫描 `kb/wiki/**/*.md`，确定性重建 `kb/state/cache/page-index.json`。
@@ -130,7 +130,15 @@ scripts/
 - 作用：输出结构化 KB lint 报告，分离 deterministic findings 与 semantic warnings。
 - 关键行为：默认包含 semantic checks；支持 `include_semantic: false`；只读，不写 `kb/` 下任何文件。
 
-11. `kb_repair`
+11. `kb_search_index_status`
+- 作用：检查搜索后端健康状态。
+- 关键行为：报告 ripgrep/QMD 是否可用、BM25 cache 是否存在与 stale、当前 corpus hash、QMD index/collection 名称。
+
+12. `kb_search_rebuild_index`
+- 作用：重建搜索索引。
+- 关键行为：`backend: bm25 | qmd | all`；BM25 为内置 cache；QMD 为可选外部 CLI 后端，未安装时返回明确错误。
+
+13. `kb_repair`
 - 作用：仅修复结构性问题，并返回 fix 列表与 repair 后 lint 摘要。
 - 关键行为：支持 `dry_run`；写入范围仅限 `kb/wiki/index.md`、`kb/wiki/log.md`、`kb/state/cache/page-index.json`；不会改业务页内容，也不依赖 `kb/state/audit/*`。
 
@@ -206,14 +214,12 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 
 ## 8. 当前技术债 / 未完成项
 
-1. `kb_source_add` 文件类型仍是 MVP 范围（仅 `.md/.txt`），对 PDF/HTML/Office 等源无原生接入。
-2. `kb_commit` 只执行对配置 `kb_root` 范围的 stage，但无法隔离“已预先 staged 的非 `kb_root` 文件”被一并提交的风险。
-3. frontmatter 解析器是轻量实现（`parseSimpleYaml`），并非完整 YAML 解析器，复杂 YAML 语法兼容性有限。
-4. `page-index.json` 是增量维护模型；若页面被工具外手动删除/改名，索引可能漂移，需要 lint/重建机制兜底。
-5. `kb_search_wiki` 基于索引字段做轻量打分检索，不是全文/语义检索，召回与排序能力有限。
-6. `kb_run_lint` / `kb_repair` 已成为独立 MCP 工具，但 README 与流程文档仍需持续保持与 tool surface 同步，避免再次出现“8 tools”类滞后描述。
-7. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
-8. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；溯源完整性应以具体 `source_id` 是否存在 manifest 为准。
+1. `kb_commit` 只执行对配置 `kb_root` 范围的 stage，但无法隔离“已预先 staged 的非 `kb_root` 文件”被一并提交的风险。
+2. `page-index.json` 是增量维护模型；若页面被工具外手动删除/改名，索引可能漂移，需要 lint/重建机制兜底。
+3. QMD 搜索后端是可选 CLI 适配层；未安装或索引 stale 时，`auto` 会回退到内置 BM25，显式 `mode: qmd` 会报错。
+4. ripgrep 搜索依赖本机安装 `rg`；显式 `mode: rg` 在未安装时会报错，`auto` 可回退。
+5. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
+6. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；溯源完整性应以具体 `source_id` 是否存在 manifest 为准。
 
 ## 9. OpenClaw Installer（当前主线）
 

@@ -13,6 +13,8 @@ export const EXPECTED_KB_TOOL_NAMES = [
   "kb_commit",
   "kb_rebuild_index",
   "kb_run_lint",
+  "kb_search_index_status",
+  "kb_search_rebuild_index",
   "kb_repair",
 ] as const;
 

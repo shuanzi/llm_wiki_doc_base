@@ -104,6 +104,9 @@ export interface PageIndex {
 
 // --- Search ---
 
+export type SearchBackend = "index" | "rg" | "bm25" | "qmd";
+export type SearchMode = "auto" | SearchBackend;
+
 export interface SearchResult {
   page_id: string;
   path: string;
@@ -111,14 +114,21 @@ export interface SearchResult {
   type: string;
   score: number;
   excerpt: string;
+  backend?: SearchBackend | "wikilink";
+  match_kind?: "wikilink" | "page" | "line" | "document";
+  line_number?: number;
+  highlights?: string[];
 }
 
 export interface SearchQuery {
-  query: string;
+  query?: string;
   type_filter?: string;
   tags?: string[];
   limit?: number;
   resolve_link?: string;
+  mode?: SearchMode;
+  include_body?: boolean;
+  refresh_index?: boolean;
 }
 
 // --- Tool Results ---
