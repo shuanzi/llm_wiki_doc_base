@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MCP stdio server exposing all 8 V2 knowledge-base tools.
+ * MCP stdio server exposing the V2 knowledge-base tools.
  *
  * KB_ROOT resolution order:
  *   1. process.env.KB_ROOT        → used as-is (absolute override for kb_root)
@@ -17,14 +17,12 @@
  * package.json wildcard export ("./*": "./dist/cjs/*") omits the .js extension,
  * so Node.js CJS require() cannot resolve it at runtime. Dynamic import() with an
  * explicit .js suffix in the specifier bypasses this and resolves correctly via the
- * same wildcard. Static `import type` declarations work at compile time because the
- * TypeScript bundler moduleResolution uses typesVersions ("*": ["./dist/esm/*"]).
+ * same wildcard. Static `import type` declarations work because TypeScript
+ * Node16 moduleResolution follows the package export/type metadata during compilation.
  */
 
 import * as fs from "fs";
 import * as path from "path";
-
-import { Server } from "@modelcontextprotocol/sdk/server";
 
 import { kbSourceAdd } from "./tools/kb_source_add";
 import { kbReadSource } from "./tools/kb_read_source";
@@ -37,6 +35,8 @@ import { kbCommit } from "./tools/kb_commit";
 import { kbRebuildIndex } from "./tools/kb_rebuild_index";
 import { kbRunLint } from "./tools/kb_run_lint";
 import { kbRepair } from "./tools/kb_repair";
+import { kbSearchIndexStatus } from "./tools/kb_search_index_status";
+import { kbSearchRebuildIndex } from "./tools/kb_search_rebuild_index";
 
 import type { WorkspaceConfig } from "./types";
 
@@ -200,13 +200,13 @@ const WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_search_wiki",
     description:
-      "Search the wiki via page-index.json. Supports keyword search, type/tag filtering, and wikilink resolution.",
+      "Search the wiki. Supports wikilink resolution, legacy page-index search, ripgrep exact search, built-in BM25, and optional QMD hybrid search.",
     inputSchema: {
       type: "object" as const,
       properties: {
         query: {
           type: "string",
-          description: "Keyword query string.",
+          description: "Search query string. Optional only when resolve_link is provided.",
         },
         type_filter: {
           type: "string",
@@ -226,8 +226,22 @@ const WORKFLOW_TOOL_DEFINITIONS = [
           description:
             "If set, resolve this wikilink (e.g. '[[Foo]]' or 'Foo') and return the matching page (ignores query).",
         },
+        mode: {
+          type: "string",
+          enum: ["auto", "index", "rg", "bm25", "qmd"],
+          description:
+            "Search backend. auto prefers QMD when available/fresh, then BM25; exact/path-like queries try ripgrep first. Default: auto.",
+        },
+        include_body: {
+          type: "boolean",
+          description: "Return richer body snippets when supported. Default: true for BM25/ripgrep snippets.",
+        },
+        refresh_index: {
+          type: "boolean",
+          description: "Rebuild the selected search index before searching when supported.",
+        },
       },
-      required: ["query"],
+      anyOf: [{ required: ["query"] }, { required: ["resolve_link"] }],
     },
   },
   {
@@ -288,6 +302,30 @@ const MAINTENANCE_TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "kb_search_index_status",
+    description:
+      "Inspect search backend health and staleness for ripgrep, built-in BM25, and optional QMD.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "kb_search_rebuild_index",
+    description:
+      "Rebuild search indexes. backend='bm25' rebuilds the local BM25 cache; backend='qmd' updates the optional QMD collection; backend='all' does both.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        backend: {
+          type: "string",
+          enum: ["bm25", "qmd", "all"],
+          description: "Which search index to rebuild. Default: all.",
+        },
+      },
+    },
+  },
+  {
     name: "kb_repair",
     description:
       "Repair structural KB artifacts only: restore missing or malformed meta pages and rebuild page-index.json. Does not modify content pages.",
@@ -339,6 +377,10 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
     kbRunLint(args as unknown as Parameters<typeof kbRunLint>[0], workspace),
   kb_repair: (args, workspace) =>
     kbRepair(args as unknown as Parameters<typeof kbRepair>[0], workspace),
+  kb_search_index_status: (args, workspace) =>
+    kbSearchIndexStatus(args as unknown as Parameters<typeof kbSearchIndexStatus>[0], workspace),
+  kb_search_rebuild_index: (args, workspace) =>
+    kbSearchRebuildIndex(args as unknown as Parameters<typeof kbSearchRebuildIndex>[0], workspace),
 };
 
 async function dispatchTool(name: string, args: ToolArgs): Promise<ToolResult> {
@@ -395,11 +437,14 @@ async function main(): Promise<void> {
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import(
     "@modelcontextprotocol/sdk/types.js"
   );
+  const { Server: TypedServer } = await import(
+    "@modelcontextprotocol/sdk/server/index.js"
+  );
   const { StdioServerTransport: TypedStdioServerTransport } = await import(
     "@modelcontextprotocol/sdk/server/stdio.js"
   );
 
-  const server = new Server(
+  const server = new TypedServer(
     { name: "kb-mcp", version: "0.1.0" },
     {
       capabilities: {

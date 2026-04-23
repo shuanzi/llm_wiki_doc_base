@@ -18,6 +18,8 @@ const KB_TOOL_SUMMARIES: Record<(typeof EXPECTED_KB_TOOL_NAMES)[number], string>
   kb_commit: "Stage kb/ and create a git commit.",
   kb_rebuild_index: "Rebuild page-index.json deterministically from kb/wiki.",
   kb_run_lint: "Run deterministic + semantic lint checks without mutating content.",
+  kb_search_index_status: "Inspect ripgrep/BM25/QMD search backend health and staleness.",
+  kb_search_rebuild_index: "Rebuild BM25 and/or optional QMD search indexes.",
   kb_repair: "Repair structural KB artifacts with dry_run support.",
 };
 
@@ -119,7 +121,7 @@ function buildToolsDocContent(): string {
   const lines: string[] = [
     "# TOOLS.md",
     "",
-    "## KB MCP Tools (11)",
+    `## KB MCP Tools (${EXPECTED_KB_TOOL_NAMES.length})`,
   ];
 
   EXPECTED_KB_TOOL_NAMES.forEach((toolName, index) => {

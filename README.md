@@ -54,7 +54,7 @@ Rules for KB write scope and wiki operations are defined in [AGENTS.md](./AGENTS
 
 ## MCP Tools
 
-MCP server (`kb-mcp`) exposes 11 tools in total.
+MCP server (`kb-mcp`) exposes 13 tools in total.
 
 Workflow tools:
 
@@ -63,7 +63,7 @@ Workflow tools:
 3. `kb_write_page` - create/update full wiki page (frontmatter-validated)
 4. `kb_update_section` - replace or append a specific heading section
 5. `kb_ensure_entry` - idempotently append index/log entries with `dedup_key`
-6. `kb_search_wiki` - search `page-index.json` (query/filter/link resolution)
+6. `kb_search_wiki` - search wiki pages via `auto`, `index`, `rg`, `bm25`, or optional `qmd`; also resolves wikilinks
 7. `kb_read_page` - read wiki page by path or page id
 8. `kb_commit` - stage the configured `kb_root` path and create a git commit
 
@@ -71,11 +71,13 @@ Maintenance tools:
 
 9. `kb_rebuild_index` - rebuild `kb/state/cache/page-index.json` deterministically from `kb/wiki/**/*.md`
 10. `kb_run_lint` - run deterministic and semantic KB lint checks without mutating files
-11. `kb_repair` - repair only structural KB artifacts (`index.md`, `log.md`, `page-index.json`) with `dry_run` support
+11. `kb_search_index_status` - inspect ripgrep/BM25/QMD backend availability and staleness
+12. `kb_search_rebuild_index` - rebuild BM25 and/or optional QMD search indexes
+13. `kb_repair` - repair only structural KB artifacts (`index.md`, `log.md`, `page-index.json`) with `dry_run` support
 
 Tool caveats from current implementation:
 
-- `kb_source_add` currently accepts only `.md` and `.txt` sources.
+- `kb_source_add` preserves Markdown/plaintext import and converts supported non-Markdown files through MarkItDown before ingest.
 - `kb_commit` stages only the configured `kb_root` path when that path is inside a git working tree, but files staged earlier outside that scope can still be included in the same commit.
 
 ## Environment Semantics (`KB_ROOT` / `WORKSPACE_ROOT`)

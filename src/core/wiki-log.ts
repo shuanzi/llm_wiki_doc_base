@@ -1,7 +1,8 @@
 import * as fs from "fs";
 import type { WorkspaceConfig } from "../types";
 import { parseFrontmatter, serializeFrontmatter } from "../utils";
-import { assertNotSymlinkWriteTarget, resolveWikiScopedPath } from "./wiki-search";
+import { refreshPageIndexEntryForPath } from "./wiki-pages";
+import { assertNotSymlinkWriteTarget, markSearchIndexesStale, resolveWikiScopedPath } from "./wiki-search";
 
 export interface EnsureWikiEntryInput {
   path: string;
@@ -93,5 +94,7 @@ export function ensureWikiEntry(
   }
 
   fs.writeFileSync(resolvedPath.absolutePath, newContent, "utf8");
+  refreshPageIndexEntryForPath(resolvedPath.relativePath, workspace);
+  markSearchIndexesStale(workspace, `ensure entry ${resolvedPath.relativePath}`);
   return { action: "inserted" };
 }
