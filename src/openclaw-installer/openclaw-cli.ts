@@ -351,6 +351,7 @@ function isMissingNamedMcpServerError(error: unknown, serverName: string): boole
     `MCP server ${renderedName} not found`,
     `MCP server ${renderedName} does not exist`,
     `MCP entry ${renderedName} not found`,
+    `No MCP server named ${renderedName}`,
   ].some((pattern) => combined.includes(pattern));
 }
 
