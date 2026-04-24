@@ -16,7 +16,11 @@ This guide applies to the current installer implementation only.
 
 This is not a plugin install flow. It installs:
 
-- one MCP registration that points to this repository's `dist/mcp_server.js`
+- one workspace-local OpenClaw native plugin shim under `<workspace>/.openclaw/extensions/llmwiki-kb-tools`
+- the shim is pinned to the configured external `KB_ROOT`; real `llmwiki` session tool calls must not fall back to `cwd/kb`
+- OpenClaw plugin config for that shim: `plugins.load.paths`, `plugins.allow`, and `plugins.entries.llmwiki-kb-tools.enabled`
+- bound `llmwiki` agent tool policy allowing the `llmwiki-kb-tools` plugin group, normally via `tools.alsoAllow`
+- one MCP registration that points to this repository's `dist/mcp_server.js` as a secondary compatibility/debugging surface
 - three OpenClaw-adapted skills under the target workspace
 - one installer manifest under the target workspace
 
@@ -56,6 +60,7 @@ Before running installer commands, the agent should verify:
 3. `openclaw` CLI is available on `PATH`.
 4. The target workspace path is the intended explicit installer target.
 5. The target external `KB_ROOT` path is known.
+6. The explicit workspace is the OpenClaw agent workspace for `llmwiki`; missing or ambiguous binding is fail-closed.
 
 ## Standard Install Procedure
 
@@ -98,6 +103,8 @@ node dist/openclaw_installer.js check \
 Success condition:
 
 - JSON output contains `"ok": true`
+- `llmwiki` session-visible canonical `kb_*` tools are healthy for the explicit workspace
+- standalone MCP probe remains healthy as a secondary signal
 
 ## Standard Repair Procedure
 
@@ -113,8 +120,10 @@ node dist/openclaw_installer.js repair \
 Use cases:
 
 - missing adapted skills
+- missing or drifted workspace-local `llmwiki` session runtime shim
 - drifted or missing MCP config
 - missing installer manifest with enough surviving installer-owned state
+- legacy manifest that needs session-runtime metadata backfill
 - missing minimum KB structure under the external `KB_ROOT`
 
 Do not use `repair` to migrate a healthy install to a different `KB_ROOT`. That is intentionally fail-closed unless explicitly forced and justified.
@@ -131,6 +140,7 @@ node dist/openclaw_installer.js uninstall \
 
 Expected behavior:
 
+- removes installer-owned workspace-local `llmwiki` session runtime artifacts, clears their OpenClaw plugin config, and removes the `llmwiki-kb-tools` group from the bound `llmwiki` agent tool policy when ownership matches
 - removes installer-owned MCP registration if ownership matches
 - removes installer-owned skill directories if ownership matches
 - removes installer manifest
@@ -214,6 +224,7 @@ Do:
 
 - build before install
 - run `check --json` after install or repair
+- treat `llmwiki` session-visible `kb_*` tools as the primary success condition
 - preserve the external `KB_ROOT`
 - assume fail-closed behavior is intentional
 - treat manifest + MCP config + skill hashes as ownership signals
@@ -221,6 +232,7 @@ Do:
 Do not:
 
 - assume any workspace is valid
+- assume saved MCP config alone means OpenClaw agent usability
 - rewrite raw KB source materials as part of installer operations
 - treat `repair` as a normal migration tool
 - auto-add `--force` because a command failed once

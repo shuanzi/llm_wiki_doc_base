@@ -60,6 +60,8 @@ function resolveInstallerEnvironment(
     repoRoot,
     installerEntrypoint: path.resolve(__dirname, "openclaw_installer.js"),
     mcpServerEntrypoint: path.resolve(__dirname, "mcp_server.js"),
+    openclawPluginEntrypoint: path.resolve(__dirname, "openclaw_plugin.js"),
+    openclawPluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
     command: args.command,
     workspace: args.workspace,
     kbRoot: args.kbRoot,
@@ -71,12 +73,18 @@ async function runInstall(
   args: InstallCommandArgs,
   environment: ResolvedInstallerEnvironment
 ): Promise<void> {
-  const result = await installOpenClawIntegration(args, environment);
+  const result = await installOpenClawIntegration(args, environment, {
+    openclawPackageRoot: readOptionalEnv("OPENCLAW_PACKAGE_ROOT"),
+    resolvePluginToolsEntrypoint: readOptionalEnv(
+      "OPENCLAW_RESOLVE_PLUGIN_TOOLS_ENTRYPOINT"
+    ),
+  });
   process.stdout.write(
     [
       "OpenClaw installer completed successfully.",
       `workspace: ${result.checkResult.environment.workspace}`,
       `kb_root: ${result.checkResult.environment.kbRoot}`,
+      "llmwiki_session_kb_tools: ready",
       `manifest: ${result.manifestPath}`,
     ].join("\n") + "\n"
   );
@@ -90,6 +98,10 @@ async function runCheck(
     environment,
     requestedWorkspace: args.workspace,
     mcpName: args.mcpName,
+    openclawPackageRoot: readOptionalEnv("OPENCLAW_PACKAGE_ROOT"),
+    resolvePluginToolsEntrypoint: readOptionalEnv(
+      "OPENCLAW_RESOLVE_PLUGIN_TOOLS_ENTRYPOINT"
+    ),
   });
 
   if (args.json) {
@@ -103,6 +115,7 @@ async function runCheck(
         "OpenClaw installer check passed.",
         `workspace: ${result.environment.workspace}`,
         `kb_root: ${result.environment.kbRoot ?? "(unknown)"}`,
+        "llmwiki_session_kb_tools: ready",
       ].join("\n") + "\n"
     );
     return result;
@@ -123,7 +136,12 @@ async function runRepair(
   args: RepairCommandArgs,
   environment: ResolvedInstallerEnvironment
 ): Promise<void> {
-  const result = await repairOpenClawIntegration(args, environment);
+  const result = await repairOpenClawIntegration(args, environment, {
+    openclawPackageRoot: readOptionalEnv("OPENCLAW_PACKAGE_ROOT"),
+    resolvePluginToolsEntrypoint: readOptionalEnv(
+      "OPENCLAW_RESOLVE_PLUGIN_TOOLS_ENTRYPOINT"
+    ),
+  });
   process.stdout.write(
     [
       result.message,
@@ -231,4 +249,13 @@ function readOptionValue(argv: readonly string[], name: string): string | undefi
   }
 
   return undefined;
+}
+
+function readOptionalEnv(name: string): string | undefined {
+  const value = process.env[name];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }

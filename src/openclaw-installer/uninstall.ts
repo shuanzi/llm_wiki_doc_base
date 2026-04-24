@@ -3,6 +3,13 @@ import * as path from "path";
 
 import { sha256 } from "../utils/hash";
 import {
+  renderSessionRuntimePluginIndex,
+  renderSessionRuntimePluginManifest,
+  resolveSessionRuntimeArtifactPaths,
+} from "./session-runtime-artifact";
+import { removeSessionRuntimeAgentToolPolicy } from "./session-runtime-agent-policy";
+import { removeSessionRuntimePluginConfig } from "./session-runtime-config";
+import {
   areExpectedMcpConfigsEqual,
   normalizeActualMcpConfig,
 } from "./check";
@@ -44,6 +51,10 @@ interface PlannedWorkspaceDocLifecycleAction {
   docFile: string;
   action: "restore" | "keep";
   restoreContent?: string;
+}
+
+interface PlannedSessionRuntimeRemoval {
+  pluginRoot: string;
 }
 
 export async function uninstallOpenClawIntegration(
@@ -91,14 +102,51 @@ export async function uninstallOpenClawIntegration(
     manifest,
     force: args.force,
   });
+  const plannedSessionRuntimeRemoval = planSessionRuntimeRemoval({
+    workspacePath,
+    repoRoot: path.resolve(environment.repoRoot),
+    manifest,
+    force: args.force,
+  });
+
+  applyWorkspaceDocLifecycleActions(plannedWorkspaceDocLifecycleActions);
+
+  const removedSkillDirectories: string[] = [];
+  for (const removal of plannedSkillRemovals) {
+    if (!fs.existsSync(removal.installDir)) {
+      continue;
+    }
+
+    removeDirectoryRecursive(removal.installDir);
+    removedSkillDirectories.push(removal.installDir);
+  }
+
+  if (
+    plannedSessionRuntimeRemoval &&
+    fs.existsSync(plannedSessionRuntimeRemoval.pluginRoot)
+  ) {
+    removeDirectoryRecursive(plannedSessionRuntimeRemoval.pluginRoot);
+  }
+
+  cleanupInstallerSupportDirectory(workspacePath);
+  cleanupSessionRuntimeSupportDirectories(workspacePath);
+
+  if (plannedSessionRuntimeRemoval) {
+    await removeSessionRuntimeAgentToolPolicy({
+      cli,
+      workspacePath,
+    });
+    await removeSessionRuntimePluginConfig({
+      cli,
+      pluginRoot: plannedSessionRuntimeRemoval.pluginRoot,
+    });
+  }
 
   let removedMcpRegistration = false;
   if (existingMcpDefinition && canRemoveMcp) {
     await cli.unsetMcpServer(args.mcpName);
     removedMcpRegistration = true;
   }
-
-  applyWorkspaceDocLifecycleActions(plannedWorkspaceDocLifecycleActions);
 
   let removedManifest = false;
   if (fs.existsSync(manifestPath)) {
@@ -116,18 +164,6 @@ export async function uninstallOpenClawIntegration(
       removedManifest = true;
     }
   }
-
-  const removedSkillDirectories: string[] = [];
-  for (const removal of plannedSkillRemovals) {
-    if (!fs.existsSync(removal.installDir)) {
-      continue;
-    }
-
-    removeDirectoryRecursive(removal.installDir);
-    removedSkillDirectories.push(removal.installDir);
-  }
-
-  cleanupInstallerSupportDirectory(workspacePath);
 
   return {
     workspacePath,
@@ -396,6 +432,145 @@ function applyWorkspaceDocLifecycleActions(
   }
 }
 
+function planSessionRuntimeRemoval(options: {
+  workspacePath: string;
+  repoRoot: string;
+  manifest: ReturnType<typeof readInstallerManifest>;
+  force: boolean;
+}): PlannedSessionRuntimeRemoval | undefined {
+  if (options.manifest?.sessionRuntime) {
+    validateManagedSessionRuntimeForUninstall(
+      options.manifest.sessionRuntime.pluginRoot,
+      options.manifest.sessionRuntime.pluginIndexFile,
+      options.manifest.sessionRuntime.pluginManifestFile,
+      options.manifest.sessionRuntime.pluginIndexContentHash,
+      options.manifest.sessionRuntime.pluginManifestContentHash,
+      options.force
+    );
+    return {
+      pluginRoot: path.resolve(options.manifest.sessionRuntime.pluginRoot),
+    };
+  }
+
+  const expectedPaths = resolveSessionRuntimeArtifactPaths(options.workspacePath);
+  const hasRuntimeSignal =
+    fs.existsSync(expectedPaths.pluginRoot) ||
+    fs.existsSync(expectedPaths.pluginIndexFile) ||
+    fs.existsSync(expectedPaths.pluginManifestFile);
+  if (!hasRuntimeSignal) {
+    return undefined;
+  }
+
+  const expectedIndexHash = renderSessionRuntimePluginIndex({
+    sourcePluginEntrypoint: path.resolve(options.repoRoot, "dist", "openclaw_plugin.js"),
+  }).contentHash;
+  const expectedManifestHash = renderSessionRuntimePluginManifest({
+    sourcePluginManifestPath: path.resolve(options.repoRoot, "openclaw.plugin.json"),
+  }).contentHash;
+
+  validateManagedSessionRuntimeForUninstall(
+    expectedPaths.pluginRoot,
+    expectedPaths.pluginIndexFile,
+    expectedPaths.pluginManifestFile,
+    expectedIndexHash,
+    expectedManifestHash,
+    options.force
+  );
+
+  return {
+    pluginRoot: expectedPaths.pluginRoot,
+  };
+}
+
+function validateManagedSessionRuntimeForUninstall(
+  pluginRoot: string,
+  pluginIndexFile: string,
+  pluginManifestFile: string,
+  expectedIndexHash: string,
+  expectedManifestHash: string,
+  force: boolean
+): void {
+  if (!fs.existsSync(pluginRoot)) {
+    return;
+  }
+
+  const pluginRootLstat = fs.lstatSync(pluginRoot);
+  if (pluginRootLstat.isSymbolicLink() && !force) {
+    throw new Error(
+      `Uninstall refused because session runtime plugin root is symlinked: ${pluginRoot}`
+    );
+  }
+
+  if (!pluginRootLstat.isDirectory()) {
+    if (!force) {
+      throw new Error(
+        `Uninstall refused because session runtime plugin root is not a directory: ${pluginRoot}`
+      );
+    }
+    return;
+  }
+
+  const entries = fs.readdirSync(pluginRoot).sort((left, right) =>
+    left.localeCompare(right)
+  );
+  const hasOnlyInstallerFiles =
+    entries.length === 2 &&
+    entries[0] === "index.ts" &&
+    entries[1] === "openclaw.plugin.json";
+  if (!hasOnlyInstallerFiles && !force) {
+    throw new Error(
+      `Uninstall refused because session runtime directory contains unexpected content: ${pluginRoot}`
+    );
+  }
+
+  validateManagedSessionRuntimeFile(
+    pluginIndexFile,
+    expectedIndexHash,
+    "plugin index",
+    force
+  );
+  validateManagedSessionRuntimeFile(
+    pluginManifestFile,
+    expectedManifestHash,
+    "plugin manifest",
+    force
+  );
+}
+
+function validateManagedSessionRuntimeFile(
+  filePath: string,
+  expectedHash: string,
+  label: string,
+  force: boolean
+): void {
+  if (!fs.existsSync(filePath)) {
+    return;
+  }
+
+  const fileLstat = fs.lstatSync(filePath);
+  if (fileLstat.isSymbolicLink() && !force) {
+    throw new Error(
+      `Uninstall refused because session runtime ${label} path is symlinked: ${filePath}`
+    );
+  }
+
+  if (!fileLstat.isFile()) {
+    if (!force) {
+      throw new Error(
+        `Uninstall refused because session runtime ${label} path is not a regular file: ${filePath}`
+      );
+    }
+    return;
+  }
+
+  const diskHash = sha256(fs.readFileSync(filePath, "utf8"));
+  if (diskHash !== expectedHash && !force) {
+    throw new Error(
+      `Uninstall refused because session runtime ${label} appears user-modified: ${filePath}`
+    );
+  }
+}
+
 function validateManifestForUninstall(
   manifest: ReturnType<typeof readInstallerManifest>,
   options: {
@@ -462,6 +637,27 @@ function cleanupInstallerSupportDirectory(workspacePath: string): void {
 
   if (fs.readdirSync(supportDirectoryPath).length === 0) {
     fs.rmdirSync(supportDirectoryPath);
+  }
+}
+
+function cleanupSessionRuntimeSupportDirectories(workspacePath: string): void {
+  const extensionDirectoryPath = path.resolve(workspacePath, ".openclaw", "extensions");
+  const openclawDirectoryPath = path.resolve(workspacePath, ".openclaw");
+
+  if (
+    fs.existsSync(extensionDirectoryPath) &&
+    fs.statSync(extensionDirectoryPath).isDirectory() &&
+    fs.readdirSync(extensionDirectoryPath).length === 0
+  ) {
+    fs.rmdirSync(extensionDirectoryPath);
+  }
+
+  if (
+    fs.existsSync(openclawDirectoryPath) &&
+    fs.statSync(openclawDirectoryPath).isDirectory() &&
+    fs.readdirSync(openclawDirectoryPath).length === 0
+  ) {
+    fs.rmdirSync(openclawDirectoryPath);
   }
 }
 

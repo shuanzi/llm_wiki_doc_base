@@ -4,9 +4,15 @@
   "description": "OpenClaw knowledge base native plugin — LLM-maintained knowledge compilation system",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "openclaw": {
+    "extensions": [
+      "./dist/openclaw_plugin.js"
+    ]
+  },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "validate:plugin-surface": "npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_plugin_surface.ts",
     "start:mcp": "node dist/mcp_server.js",
     "start:openclaw-installer": "node dist/openclaw_installer.js"
   },

@@ -1,8 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import { KB_CANONICAL_TOOL_NAMES } from "../runtime/kb_tool_contract";
 import { sha256 } from "../utils/hash";
 import { validateMinimumKbStructure } from "./kb-bootstrap";
+import { resolveLlmwikiWorkspaceBinding } from "./llmwiki-binding";
 import {
   readInstallerManifest,
   validateInstallerManifest,
@@ -12,6 +14,12 @@ import {
   OpenClawCli,
   type OpenClawMcpServerDefinition,
 } from "./openclaw-cli";
+import { hasSessionRuntimeAgentToolPolicy } from "./session-runtime-agent-policy";
+import {
+  readSessionRuntimePluginConfig,
+  sessionRuntimePluginConfigDrift,
+} from "./session-runtime-config";
+import { probeSessionRuntimeSurface, toSessionRuntimeProbeSnapshot } from "./session-runtime-probe";
 import { resolveExplicitWorkspacePath } from "./workspace";
 import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import type {
@@ -29,16 +37,21 @@ export interface CheckOpenClawInstallationOptions {
   mcpName?: string;
   cli?: OpenClawCli;
   nodeCommand?: string;
+  openclawPackageRoot?: string;
+  resolvePluginToolsEntrypoint?: string;
+  openclawCliExecutablePath?: string;
 }
 
 interface CheckContext {
   cliReady: boolean;
+  llmwikiBindingOk: boolean;
   resolvedWorkspacePath?: string;
   resolvedManifest?: InstallerManifest;
   expectedMcpConfig?: InstallerExpectedMcpConfig;
   actualMcpConfig?: InstallerExpectedMcpConfig;
   effectiveKbRoot?: string;
   lastProbe?: InstallerProbeSnapshot;
+  lastSessionProbe?: InstallerProbeSnapshot;
 }
 
 export async function checkOpenClawInstallation(
@@ -62,15 +75,23 @@ export async function checkOpenClawInstallation(
   const driftItems: InstallerDriftItem[] = [];
   const context: CheckContext = {
     cliReady: false,
+    llmwikiBindingOk: false,
     resolvedWorkspacePath,
   };
 
   await checkOpenClawCliAvailability(cli, driftItems, context);
+  await checkLlmwikiWorkspaceBinding(cli, environment, driftItems, context);
   await checkManifest(environment, driftItems, context);
   checkWorkspaceDocs(environment, driftItems, context);
   checkBuildArtifact(environment, driftItems, context);
   await checkSavedMcpConfig(cli, environment, driftItems, context);
   checkKbStructure(driftItems, context, environment);
+  await checkSessionRuntime(driftItems, context, cli, environment, {
+    openclawPackageRoot: options.openclawPackageRoot,
+    resolvePluginToolsEntrypoint: options.resolvePluginToolsEntrypoint,
+    openclawCliExecutablePath:
+      options.openclawCliExecutablePath ?? cli.resolveExecutablePath(),
+  });
   await checkActiveProbe(driftItems, context, environment, options.nodeCommand);
 
   return {
@@ -79,6 +100,7 @@ export async function checkOpenClawInstallation(
     driftItems,
     manifest: context.resolvedManifest,
     lastProbe: context.lastProbe,
+    lastSessionProbe: context.lastSessionProbe,
   };
 }
 
@@ -146,6 +168,7 @@ async function checkManifest(
   }
 
   context.resolvedManifest = manifest;
+  context.lastSessionProbe = manifest.lastSuccessfulSessionProbe;
   environment.kbRoot = manifest.kbRoot;
 
   const expectedMcpConfig = buildExpectedMcpConfig({
@@ -165,6 +188,50 @@ async function checkManifest(
   });
 
   driftItems.push(...validationResult.driftItems);
+}
+
+async function checkLlmwikiWorkspaceBinding(
+  cli: OpenClawCli,
+  environment: ResolvedInstallerEnvironment,
+  driftItems: InstallerDriftItem[],
+  context: CheckContext
+): Promise<void> {
+  if (!context.cliReady) {
+    return;
+  }
+
+  const workspacePath = context.resolvedWorkspacePath ?? environment.workspace;
+  if (!workspacePath) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message:
+        "Cannot validate llmwiki workspace binding because explicit workspace is unresolved.",
+      repairable: false,
+    });
+    return;
+  }
+
+  try {
+    const bindingResult = await resolveLlmwikiWorkspaceBinding({
+      cli,
+      workspacePath,
+    });
+    if (bindingResult.status !== "bound") {
+      driftItems.push({
+        kind: "session_runtime_binding_failure",
+        message: bindingResult.message,
+        repairable: false,
+      });
+      return;
+    }
+    context.llmwikiBindingOk = true;
+  } catch (error) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message: `Failed to validate llmwiki workspace binding: ${stringifyError(error)}`,
+      repairable: false,
+    });
+  }
 }
 
 function checkWorkspaceDocs(
@@ -252,16 +319,38 @@ function checkBuildArtifact(
   driftItems: InstallerDriftItem[],
   context: CheckContext
 ): void {
-  const buildArtifactPath = context.resolvedManifest
-    ? expectedServerEntrypointForRepoRoot(context.resolvedManifest.repoRoot)
-    : environment.mcpServerEntrypoint;
+  const runtimeArtifacts = context.resolvedManifest
+    ? {
+        mcpEntrypoint: expectedServerEntrypointForRepoRoot(context.resolvedManifest.repoRoot),
+        pluginEntrypoint: expectedOpenClawPluginEntrypointForRepoRoot(
+          context.resolvedManifest.repoRoot
+        ),
+        pluginManifest: expectedOpenClawPluginManifestPathForRepoRoot(
+          context.resolvedManifest.repoRoot
+        ),
+      }
+    : {
+        mcpEntrypoint: environment.mcpServerEntrypoint,
+        pluginEntrypoint: environment.openclawPluginEntrypoint,
+        pluginManifest: environment.openclawPluginManifestPath,
+      };
 
-  if (!fs.existsSync(buildArtifactPath) || !fs.statSync(buildArtifactPath).isFile()) {
+  const artifactChecks = [
+    { label: "MCP build artifact", path: runtimeArtifacts.mcpEntrypoint },
+    { label: "OpenClaw plugin runtime artifact", path: runtimeArtifacts.pluginEntrypoint },
+    { label: "OpenClaw plugin manifest", path: runtimeArtifacts.pluginManifest },
+  ] as const;
+
+  for (const artifact of artifactChecks) {
+    if (fs.existsSync(artifact.path) && fs.statSync(artifact.path).isFile()) {
+      continue;
+    }
+
     driftItems.push({
       kind: "missing_build_artifact",
-      message: `MCP build artifact is missing: ${buildArtifactPath}`,
+      message: `${artifact.label} is missing: ${artifact.path}`,
       repairable: true,
-      expected: buildArtifactPath,
+      expected: artifact.path,
     });
   }
 }
@@ -381,6 +470,137 @@ function checkKbStructure(
   environment.kbRoot = validation.kbRoot;
 }
 
+async function checkSessionRuntime(
+  driftItems: InstallerDriftItem[],
+  context: CheckContext,
+  cli: OpenClawCli,
+  environment: ResolvedInstallerEnvironment,
+  options: {
+    openclawPackageRoot?: string;
+    resolvePluginToolsEntrypoint?: string;
+    openclawCliExecutablePath?: string;
+  }
+): Promise<void> {
+  if (!context.resolvedManifest) {
+    return;
+  }
+
+  const sessionRuntime = context.resolvedManifest.sessionRuntime;
+  if (!sessionRuntime) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message:
+        "Installer manifest is missing session runtime metadata for llmwiki session-visible tool integration.",
+      repairable: true,
+    });
+    return;
+  }
+
+  if (!context.cliReady) {
+    return;
+  }
+
+  let configuredPluginConfig: Awaited<ReturnType<typeof readSessionRuntimePluginConfig>>;
+  try {
+    configuredPluginConfig = await readSessionRuntimePluginConfig(cli);
+  } catch (error) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message:
+        `Failed to inspect session runtime plugin config: ${stringifyError(error)}`,
+      repairable: true,
+    });
+    return;
+  }
+  const pluginConfigDrift = sessionRuntimePluginConfigDrift({
+    snapshot: configuredPluginConfig,
+    pluginRoot: sessionRuntime.pluginRoot,
+  });
+  if (pluginConfigDrift.length > 0) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message:
+        `Session runtime plugin is not fully registered in OpenClaw config: ` +
+        pluginConfigDrift.join(", ") +
+        ".",
+      repairable: true,
+      expected: "enabled plugin entry, plugin allowlist entry, and plugin load path",
+      actual: JSON.stringify(configuredPluginConfig),
+    });
+  }
+
+  let agentToolPolicyOk = false;
+  try {
+    agentToolPolicyOk = await hasSessionRuntimeAgentToolPolicy({
+      cli,
+      workspacePath:
+        context.resolvedWorkspacePath ??
+        path.resolve(sessionRuntime.pluginRoot, "..", "..", ".."),
+    });
+  } catch (error) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message:
+        `Failed to inspect llmwiki agent tool policy: ${stringifyError(error)}`,
+      repairable: true,
+    });
+    return;
+  }
+  if (!agentToolPolicyOk) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message:
+        `Agent "${sessionRuntime.agentId}" does not allow the ` +
+        `"${sessionRuntime.pluginId}" plugin tool group in tools.allow/tools.alsoAllow.`,
+      repairable: true,
+      expected: sessionRuntime.pluginId,
+      actual: "missing from tools.allow/tools.alsoAllow",
+    });
+  }
+
+  if (!context.llmwikiBindingOk) {
+    return;
+  }
+
+  if (hasSessionRuntimeUnknownOwnershipDrift(driftItems)) {
+    return;
+  }
+
+  const invocationKbRoot =
+    context.effectiveKbRoot ??
+    context.resolvedManifest.kbRoot ??
+    context.actualMcpConfig?.env.KB_ROOT ??
+    environment.kbRoot;
+  if (!invocationKbRoot) {
+    driftItems.push({
+      kind: "session_runtime_probe_failure",
+      message:
+        "Session runtime probe cannot invoke kb_read_page because KB_ROOT is unresolved.",
+      repairable: true,
+    });
+    return;
+  }
+
+  const probeResult = await probeSessionRuntimeSurface({
+    sessionRuntime,
+    invocationKbRoot,
+    expectedToolNames: KB_CANONICAL_TOOL_NAMES,
+    openclawPackageRoot: options.openclawPackageRoot,
+    resolvePluginToolsEntrypoint: options.resolvePluginToolsEntrypoint,
+    openclawCliExecutablePath: options.openclawCliExecutablePath,
+  });
+  context.lastSessionProbe = toSessionRuntimeProbeSnapshot(probeResult);
+  if (!probeResult.ok) {
+    driftItems.push({
+      kind: "session_runtime_probe_failure",
+      message:
+        probeResult.failureReason ??
+        "Session runtime probe failed without a detailed error.",
+      repairable: true,
+    });
+  }
+}
+
 async function checkActiveProbe(
   driftItems: InstallerDriftItem[],
   context: CheckContext,
@@ -437,6 +657,17 @@ async function checkActiveProbe(
       repairable: true,
     });
   }
+}
+
+function hasSessionRuntimeUnknownOwnershipDrift(
+  driftItems: readonly InstallerDriftItem[]
+): boolean {
+  return driftItems.some((item) => {
+    if (item.kind !== "unknown_ownership") {
+      return false;
+    }
+    return item.message.toLowerCase().includes("session runtime");
+  });
 }
 
 function normalizeActualMcpConfig(
@@ -515,6 +746,14 @@ function expectedServerEntrypointForRepoRoot(repoRoot: string): string {
   return path.resolve(repoRoot, "dist", "mcp_server.js");
 }
 
+function expectedOpenClawPluginEntrypointForRepoRoot(repoRoot: string): string {
+  return path.resolve(repoRoot, "dist", "openclaw_plugin.js");
+}
+
+function expectedOpenClawPluginManifestPathForRepoRoot(repoRoot: string): string {
+  return path.resolve(repoRoot, "openclaw.plugin.json");
+}
+
 function buildExpectedMcpConfig(options: {
   mcpName: string;
   serverEntrypoint: string;
@@ -542,6 +781,8 @@ function stringifyError(error: unknown): string {
 export {
   areExpectedMcpConfigsEqual,
   buildExpectedMcpConfig,
+  expectedOpenClawPluginEntrypointForRepoRoot,
+  expectedOpenClawPluginManifestPathForRepoRoot,
   expectedServerEntrypointForRepoRoot,
   normalizeActualMcpConfig,
 };

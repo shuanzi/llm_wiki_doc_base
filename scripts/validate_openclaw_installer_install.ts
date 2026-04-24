@@ -62,7 +62,134 @@ function ensureInstallerBuildExists(): void {
   }
 }
 
+let cachedOpenClawPackageRootForValidation: string | undefined;
+
+function isUsableOpenClawPackageRoot(packageRoot: string): boolean {
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath) || !fs.statSync(packageJsonPath).isFile()) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
+      name?: unknown;
+    };
+    return parsed.name === "openclaw";
+  } catch {
+    return false;
+  }
+}
+
+function assertUsableOpenClawPackageRoot(packageRoot: string, sourceDescription: string): string {
+  const resolved = path.resolve(packageRoot);
+  if (!isUsableOpenClawPackageRoot(resolved)) {
+    throw new Error(
+      `${sourceDescription} does not point to the OpenClaw package root with package.json{name:"openclaw"}: ${resolved}`
+    );
+  }
+  return resolved;
+}
+
+function findOpenClawPackageRootByAscending(startPath: string): string | undefined {
+  let cursor = startPath;
+  if (!fs.existsSync(cursor)) {
+    return undefined;
+  }
+  if (!fs.statSync(cursor).isDirectory()) {
+    cursor = path.dirname(cursor);
+  }
+
+  while (true) {
+    if (isUsableOpenClawPackageRoot(cursor)) {
+      return cursor;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      return undefined;
+    }
+    cursor = parent;
+  }
+}
+
+function tryResolveOpenClawPackageRootFromNpxBinaryPath(): string | undefined {
+  const command =
+    process.platform === "win32"
+      ? ["-y", "-p", "openclaw", "cmd", "/d", "/s", "/c", "where openclaw"]
+      : ["-y", "-p", "openclaw", "sh", "-lc", "command -v openclaw"];
+  const result = spawnSync("npx", command, {
+    cwd: repoRoot(),
+    env: process.env,
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    return undefined;
+  }
+
+  const binaryPath = (result.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (typeof binaryPath !== "string") {
+    return undefined;
+  }
+
+  let realBinaryPath: string | undefined;
+  try {
+    realBinaryPath = fs.realpathSync(binaryPath);
+  } catch {
+    realBinaryPath = undefined;
+  }
+
+  if (typeof realBinaryPath === "string") {
+    const fromRealPath = findOpenClawPackageRootByAscending(realBinaryPath);
+    if (typeof fromRealPath === "string") {
+      return fromRealPath;
+    }
+  }
+
+  return findOpenClawPackageRootByAscending(binaryPath);
+}
+
+function resolveOpenClawPackageRootForValidation(): string {
+  if (typeof cachedOpenClawPackageRootForValidation === "string") {
+    return cachedOpenClawPackageRootForValidation;
+  }
+
+  const explicitFromEnv = process.env.OPENCLAW_PACKAGE_ROOT;
+  if (typeof explicitFromEnv === "string" && explicitFromEnv.trim().length > 0) {
+    cachedOpenClawPackageRootForValidation = assertUsableOpenClawPackageRoot(
+      explicitFromEnv,
+      "OPENCLAW_PACKAGE_ROOT"
+    );
+    return cachedOpenClawPackageRootForValidation;
+  }
+
+  try {
+    cachedOpenClawPackageRootForValidation = assertUsableOpenClawPackageRoot(
+      path.dirname(require.resolve("openclaw/package.json")),
+      "require.resolve('openclaw/package.json')"
+    );
+    return cachedOpenClawPackageRootForValidation;
+  } catch {
+    const npxResolvedRoot = tryResolveOpenClawPackageRootFromNpxBinaryPath();
+    if (typeof npxResolvedRoot === "string") {
+      cachedOpenClawPackageRootForValidation = npxResolvedRoot;
+      return cachedOpenClawPackageRootForValidation;
+    }
+
+    throw new Error(
+      [
+        "Validation requires the real OpenClaw package internals for official session-runtime probing.",
+        "Set OPENCLAW_PACKAGE_ROOT, install OpenClaw as a resolvable local package,",
+        "or make `npx -y -p openclaw sh -lc 'command -v openclaw'` available.",
+      ].join(" ")
+    );
+  }
+}
+
 function createSandbox(name: string): ValidationSandbox {
+  const openclawPackageRoot = resolveOpenClawPackageRootForValidation();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `openclaw-installer-${name}-`));
   const workspacePath = path.join(tempRoot, "workspace-default");
   const kbRoot = path.join(tempRoot, "external-kb");
@@ -79,7 +206,7 @@ function createSandbox(name: string): ValidationSandbox {
       agents: {
         list: [
           {
-            id: "default-agent",
+            id: "llmwiki",
             default: true,
             workspace: workspacePath,
           },
@@ -101,7 +228,15 @@ function createSandbox(name: string): ValidationSandbox {
     ...process.env,
     PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
     FAKE_OPENCLAW_STATE: statePath,
+    OPENCLAW_PACKAGE_ROOT: openclawPackageRoot,
   };
+  const resolvePluginToolsEntrypoint = process.env.OPENCLAW_RESOLVE_PLUGIN_TOOLS_ENTRYPOINT;
+  if (
+    typeof resolvePluginToolsEntrypoint === "string" &&
+    resolvePluginToolsEntrypoint.trim().length > 0
+  ) {
+    env.OPENCLAW_RESOLVE_PLUGIN_TOOLS_ENTRYPOINT = resolvePluginToolsEntrypoint;
+  }
 
   return {
     tempRoot,
@@ -139,6 +274,8 @@ function buildPosixShim(): string {
 function buildNodeCliSource(): string {
   return [
     "const fs = require('fs');",
+    "const path = require('path');",
+    "const { spawnSync } = require('child_process');",
     "",
     "function fail(message) {",
     "  process.stderr.write(`${message}\\n`);",
@@ -165,6 +302,36 @@ function buildNodeCliSource(): string {
     "  return cursor;",
     "}",
     "",
+    "function setPathValue(root, dottedPath, value) {",
+    "  const segments = dottedPath.split('.');",
+    "  let cursor = root;",
+    "  for (let index = 0; index < segments.length - 1; index += 1) {",
+    "    const segment = segments[index];",
+    "    const next = cursor[segment];",
+    "    if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) {",
+    "      cursor[segment] = {};",
+    "    }",
+    "    cursor = cursor[segment];",
+    "  }",
+    "  cursor[segments[segments.length - 1]] = value;",
+    "}",
+    "",
+    "function deletePathValue(root, dottedPath) {",
+    "  const segments = dottedPath.split('.');",
+    "  let cursor = root;",
+    "  for (let index = 0; index < segments.length - 1; index += 1) {",
+    "    const segment = segments[index];",
+    "    if (!cursor || typeof cursor !== 'object') {",
+    "      return;",
+    "    }",
+    "    cursor = cursor[segment];",
+    "  }",
+    "  if (!cursor || typeof cursor !== 'object') {",
+    "    return;",
+    "  }",
+    "  delete cursor[segments[segments.length - 1]];",
+    "}",
+    "",
     "const statePath = process.env.FAKE_OPENCLAW_STATE;",
     "if (!statePath) {",
     "  fail('FAKE_OPENCLAW_STATE is required');",
@@ -185,6 +352,28 @@ function buildNodeCliSource(): string {
     "    fail(`Config path ${JSON.stringify(configPath)} not found`);",
     "  }",
     "  process.stdout.write(`${JSON.stringify(value)}\\n`);",
+    "  process.exit(0);",
+    "}",
+    "",
+    "if (args[0] === 'config' && args[1] === 'set' && args[4] === '--strict-json') {",
+    "  const configPath = args[2];",
+    "  let parsed;",
+    "  try {",
+    "    parsed = JSON.parse(args[3]);",
+    "  } catch (error) {",
+    "    fail(`Invalid config JSON payload: ${error instanceof Error ? error.message : String(error)}`);",
+    "  }",
+    "  setPathValue(state.config, configPath, parsed);",
+    "  saveState(statePath, state);",
+    "  process.stdout.write('ok\\n');",
+    "  process.exit(0);",
+    "}",
+    "",
+    "if (args[0] === 'config' && args[1] === 'unset' && args.length === 3) {",
+    "  const configPath = args[2];",
+    "  deletePathValue(state.config, configPath);",
+    "  saveState(statePath, state);",
+    "  process.stdout.write('ok\\n');",
     "  process.exit(0);",
     "}",
     "",
@@ -241,12 +430,124 @@ function readState(statePath: string): FakeOpenClawState {
   return JSON.parse(fs.readFileSync(statePath, "utf8")) as FakeOpenClawState;
 }
 
+function bindLlmwikiWorkspace(statePath: string, workspacePath: string): void {
+  const state = readState(statePath);
+  state.config = {
+    ...state.config,
+    agents: {
+      list: [
+        {
+          id: "llmwiki",
+          default: true,
+          workspace: workspacePath,
+        },
+      ],
+    },
+  };
+  writeState(statePath, state);
+}
+
 function runInstallerCommand(
   args: string[],
   env: NodeJS.ProcessEnv
 ): CommandResult {
   const result = spawnSync(process.execPath, [installerEntrypoint(), ...args], {
     cwd: repoRoot(),
+    env,
+    encoding: "utf8",
+  });
+
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function runOfficialSessionRuntimeProbeCommand(
+  workspacePath: string,
+  invocationKbRoot: string,
+  env: NodeJS.ProcessEnv
+): CommandResult {
+  const manifestModulePath = path.resolve(
+    repoRoot(),
+    "dist",
+    "openclaw-installer",
+    "manifest.js"
+  );
+  const probeModulePath = path.resolve(
+    repoRoot(),
+    "dist",
+    "openclaw-installer",
+    "session-runtime-probe.js"
+  );
+  const script = [
+    "const { readInstallerManifest } = require(process.argv[1]);",
+    "const { probeSessionRuntimeSurface } = require(process.argv[2]);",
+    "const workspacePath = process.argv[3];",
+    "const invocationKbRoot = process.argv[4];",
+    "(async () => {",
+    "  const manifest = readInstallerManifest(workspacePath);",
+    "  if (!manifest || typeof manifest !== 'object' || !manifest.sessionRuntime) {",
+    "    throw new Error(`Missing sessionRuntime metadata for workspace: ${workspacePath}`);",
+    "  }",
+    "  const sessionRuntime = manifest.sessionRuntime;",
+    "  const result = await probeSessionRuntimeSurface({",
+    "    sessionRuntime,",
+    "    invocationKbRoot,",
+    "    invocationPathOrId: 'wiki/index.md',",
+    "    expectedToolNames: Array.isArray(sessionRuntime.canonicalToolNames) ? sessionRuntime.canonicalToolNames : undefined,",
+    "    openclawPackageRoot: process.env.OPENCLAW_PACKAGE_ROOT,",
+    "    resolvePluginToolsEntrypoint: process.env.OPENCLAW_RESOLVE_PLUGIN_TOOLS_ENTRYPOINT,",
+    "  });",
+    "  process.stdout.write(`${JSON.stringify(result)}\\n`);",
+    "})().catch((error) => {",
+    "  const message = error instanceof Error ? error.message : String(error);",
+    "  process.stderr.write(`${message}\\n`);",
+    "  process.exit(1);",
+    "});",
+  ].join("\n");
+
+  const result = spawnSync(
+    process.execPath,
+    ["-e", script, manifestModulePath, probeModulePath, workspacePath, invocationKbRoot],
+    {
+      cwd: repoRoot(),
+      env,
+      encoding: "utf8",
+    }
+  );
+
+  return {
+    status: result.status,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function runWorkspaceShimReadPageWithoutAmbientKbEnv(options: {
+  pluginIndexFile: string;
+  cwd: string;
+}): CommandResult {
+  const script = [
+    "const plugin = require(process.argv[1]);",
+    "const tools = new Map();",
+    "plugin.register({ registerTool(tool) { tools.set(tool.name, tool); } });",
+    "const readPage = tools.get('kb_read_page');",
+    "if (!readPage) throw new Error('kb_read_page was not registered');",
+    "(async () => {",
+    "  const result = await readPage.execute('test-call', { path_or_id: 'wiki/index.md' });",
+    "  process.stdout.write(`${JSON.stringify(result)}\\n`);",
+    "})().catch((error) => {",
+    "  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\\n`);",
+    "  process.exit(1);",
+    "});",
+  ].join("\n");
+  const env = { ...process.env };
+  delete env.KB_ROOT;
+  delete env.WORKSPACE_ROOT;
+  const result = spawnSync(process.execPath, ["-e", script, options.pluginIndexFile], {
+    cwd: options.cwd,
     env,
     encoding: "utf8",
   });
@@ -312,15 +613,43 @@ function parseCheckJson(stdout: string): {
   ok: boolean;
   driftItems: Array<{ kind: string; message: string }>;
   lastProbe?: { ok: boolean };
+  lastSessionProbe?: { ok: boolean };
 } {
   try {
     return JSON.parse(stdout) as {
       ok: boolean;
       driftItems: Array<{ kind: string; message: string }>;
       lastProbe?: { ok: boolean };
+      lastSessionProbe?: { ok: boolean };
     };
   } catch (error) {
     throw new Error(`Failed to parse check JSON output: ${String(error)}\nstdout:\n${stdout}`);
+  }
+}
+
+function parseSessionRuntimeProbeJson(stdout: string): {
+  ok: boolean;
+  toolNames: string[];
+  expectedToolNames: string[];
+  missingToolNames: string[];
+  unexpectedToolNames: string[];
+  duplicateToolNames: string[];
+  failureReason?: string;
+} {
+  try {
+    return JSON.parse(stdout) as {
+      ok: boolean;
+      toolNames: string[];
+      expectedToolNames: string[];
+      missingToolNames: string[];
+      unexpectedToolNames: string[];
+      duplicateToolNames: string[];
+      failureReason?: string;
+    };
+  } catch (error) {
+    throw new Error(
+      `Failed to parse session runtime probe JSON output: ${String(error)}\nstdout:\n${stdout}`
+    );
   }
 }
 
@@ -406,6 +735,29 @@ function testConfigFilePathParserFallsBackToPlatformHomeDirectory(): void {
   }
 }
 
+function testConfigFilePathParserAcceptsNoisyUniquePathOutput(): void {
+  const sandbox = createSandbox("config-file-parser-noisy-unique-path");
+
+  try {
+    const expectedConfigPath = path.join(sandbox.tempRoot, "openclaw.json");
+    const state = readState(sandbox.statePath);
+    state.configFile = `OpenClaw config path:\n${expectedConfigPath}`;
+    writeState(sandbox.statePath, state);
+
+    const result = runCliGetConfigFilePath(sandbox.env);
+    assert(
+      result.status === 0,
+      `Config-file parser should accept noisy output with exactly one path line.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+    );
+    assert(
+      result.stdout === expectedConfigPath,
+      `Config-file parser should return the unique path line from noisy output.\nstdout:\n${result.stdout}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
 function testConfigFilePathParserFailsClosedWithoutUsableHomeDirectory(): void {
   const sandbox = createSandbox("config-file-parser-home-fail-closed");
 
@@ -444,8 +796,8 @@ function testConfigFilePathParserRejectsMalformedOutput(): void {
         value: "",
       },
       {
-        label: "extra newline content",
-        value: `${validAbsolutePath}\n`,
+        label: "ambiguous extra path content",
+        value: `${validAbsolutePath}\n${path.join(sandbox.tempRoot, "other-openclaw.json")}`,
       },
       {
         label: "whitespace-padded value",
@@ -549,6 +901,29 @@ function testSuccessfulInstallAndProbe(): void {
       stateAfterInstall.mcpServers["llm-kb"] !== undefined,
       "Install should register llm-kb MCP config via fake openclaw"
     );
+    assert(
+      stateAfterInstall.config &&
+        typeof stateAfterInstall.config === "object" &&
+        (stateAfterInstall.config as { plugins?: { entries?: { ["llmwiki-kb-tools"]?: { enabled?: boolean } } } }).plugins?.entries?.["llmwiki-kb-tools"]?.enabled ===
+          true,
+      "Install should explicitly enable the workspace-local llmwiki session runtime plugin"
+    );
+    assert(
+      (stateAfterInstall.config as { plugins?: { allow?: string[] } }).plugins?.allow?.includes(
+        "llmwiki-kb-tools"
+      ) === true,
+      "Install should add the llmwiki session runtime plugin to plugins.allow"
+    );
+    assert(
+      (
+        stateAfterInstall.config as {
+          agents?: { list?: Array<{ id?: string; tools?: { alsoAllow?: string[] } }> };
+        }
+      ).agents?.list
+        ?.find((agent) => agent.id === "llmwiki")
+        ?.tools?.alsoAllow?.includes("llmwiki-kb-tools") === true,
+      "Install should allow the llmwiki-kb-tools plugin group in the llmwiki agent tool policy"
+    );
 
     const manifestPath = path.join(
       sandbox.workspacePath,
@@ -556,6 +931,42 @@ function testSuccessfulInstallAndProbe(): void {
       "openclaw-install.json"
     );
     assert(fs.existsSync(manifestPath), "Install should write workspace manifest");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      sessionRuntime?: { pluginRoot?: string };
+      lastSuccessfulSessionProbe?: { ok?: boolean };
+    };
+    assert(
+      typeof manifest.sessionRuntime?.pluginRoot === "string",
+      "Install should persist session runtime metadata in the manifest"
+    );
+    assert(
+      manifest.lastSuccessfulSessionProbe?.ok === true,
+      "Install manifest should record successful session runtime probe metadata"
+    );
+    assert(
+      fs.existsSync(path.join(sandbox.workspacePath, ".openclaw", "extensions", "llmwiki-kb-tools", "index.ts")),
+      "Install should materialize the workspace-local llmwiki session runtime shim"
+    );
+    const shimRead = runWorkspaceShimReadPageWithoutAmbientKbEnv({
+      pluginIndexFile: path.join(
+        sandbox.workspacePath,
+        ".openclaw",
+        "extensions",
+        "llmwiki-kb-tools",
+        "index.ts"
+      ),
+      cwd: sandbox.tempRoot,
+    });
+    assert(
+      shimRead.status === 0,
+      `Generated session runtime shim should pin the installed external KB_ROOT without relying on ambient env.\nstdout:\n${shimRead.stdout}\nstderr:\n${shimRead.stderr}`
+    );
+    assert(
+      (stateAfterInstall.config as { plugins?: { load?: { paths?: string[] } } }).plugins?.load?.paths?.includes(
+        path.join(sandbox.workspacePath, ".openclaw", "extensions", "llmwiki-kb-tools")
+      ) === true,
+      "Install should add the session runtime plugin root to plugins.load.paths"
+    );
 
     const check = runInstallerCommand(
       [
@@ -577,6 +988,219 @@ function testSuccessfulInstallAndProbe(): void {
     const parsed = parseCheckJson(check.stdout);
     assert(parsed.ok, "Post-install check JSON should report ok=true");
     assert(parsed.lastProbe?.ok === true, "Post-install check should report active probe success");
+    assert(
+      parsed.lastSessionProbe?.ok === true,
+      "Post-install check should report successful session-runtime probe"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testLlmwikiSessionCanInvokeKbReadPageFromExternalKbRoot(): void {
+  const sandbox = createSandbox("session-smoke-kb-read-page");
+
+  try {
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      sandbox.env
+    );
+    assert(install.status === 0, "Precondition: install should succeed");
+
+    const externalFixturePath = path.join(sandbox.kbRoot, "wiki", "index.md");
+    const externalFixtureBodyMarker = "session-smoke-fixture-marker";
+    const fixtureContent = fs.readFileSync(externalFixturePath, "utf8");
+    fs.writeFileSync(
+      externalFixturePath,
+      `${fixtureContent}\n${externalFixtureBodyMarker}\n`,
+      "utf8"
+    );
+
+    const sessionProbe = runOfficialSessionRuntimeProbeCommand(
+      sandbox.workspacePath,
+      sandbox.kbRoot,
+      sandbox.env
+    );
+
+    assert(
+      sessionProbe.status === 0,
+      `Official-harness session runtime smoke probe should exit 0.\nstdout:\n${sessionProbe.stdout}\nstderr:\n${sessionProbe.stderr}`
+    );
+
+    const parsedProbe = parseSessionRuntimeProbeJson(sessionProbe.stdout);
+    assert(
+      parsedProbe.ok,
+      `Official-harness session runtime probe should report ok=true.\nresult:\n${JSON.stringify(
+        parsedProbe,
+        null,
+        2
+      )}`
+    );
+    assert(
+      parsedProbe.toolNames.includes("kb_read_page"),
+      "Official-harness session runtime probe should expose kb_read_page"
+    );
+    assert(
+      parsedProbe.missingToolNames.length === 0 &&
+        parsedProbe.unexpectedToolNames.length === 0 &&
+        parsedProbe.duplicateToolNames.length === 0,
+      `Official-harness probe should expose exactly the canonical tool set.\nresult:\n${JSON.stringify(
+        parsedProbe,
+        null,
+        2
+      )}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testInstallFailsClosedWithoutLlmwikiBinding(): void {
+  const sandbox = createSandbox("missing-llmwiki-binding");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.config = { agents: { list: [] } };
+    writeState(sandbox.statePath, state);
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      sandbox.env
+    );
+
+    assert(
+      install.status !== 0,
+      "Install should fail closed when explicit workspace is not bound to llmwiki"
+    );
+    assert(
+      /not bound to agent \"llmwiki\"|not bound to llmwiki/i.test(
+        `${install.stdout}\n${install.stderr}`
+      ),
+      `Install failure should mention missing llmwiki binding.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testCheckFailsWhenMcpLooksHealthyButSessionRuntimeIsMissing(): void {
+  const sandbox = createSandbox("missing-session-runtime");
+
+  try {
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      sandbox.env
+    );
+    assert(install.status === 0, "Precondition: install should succeed");
+
+    fs.rmSync(
+      path.join(
+        sandbox.workspacePath,
+        ".openclaw",
+        "extensions",
+        "llmwiki-kb-tools"
+      ),
+      {
+        recursive: true,
+        force: true,
+      }
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb", "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status !== 0,
+      `Check should fail when MCP still probes but session runtime is missing.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+
+    const parsed = parseCheckJson(check.stdout);
+    assert(parsed.ok === false, "Missing session runtime should produce ok=false");
+    assert(
+      parsed.lastProbe?.ok === true,
+      "MCP probe should still be healthy in the regression scenario"
+    );
+    assert(
+      parsed.driftItems.some((item) => item.kind === "missing_session_runtime"),
+      "Check drift should explicitly report missing session-visible runtime state"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testInstallRefusesUnownedSessionRuntimeShimWithoutForce(): void {
+  const sandbox = createSandbox("install-unowned-session-runtime");
+
+  try {
+    const pluginRoot = path.join(
+      sandbox.workspacePath,
+      ".openclaw",
+      "extensions",
+      "llmwiki-kb-tools"
+    );
+    fs.mkdirSync(pluginRoot, { recursive: true });
+    fs.writeFileSync(path.join(pluginRoot, "index.ts"), "module.exports = {};\n", "utf8");
+    fs.writeFileSync(
+      path.join(pluginRoot, "openclaw.plugin.json"),
+      '{ "id": "user-managed-plugin" }\n',
+      "utf8"
+    );
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      sandbox.env
+    );
+
+    assert(
+      install.status !== 0,
+      "Install should fail closed when session runtime shim path is already occupied by unowned content"
+    );
+    assert(
+      /session runtime shim already exists|ownership is uncertain/i.test(
+        `${install.stdout}\n${install.stderr}`
+      ),
+      `Install refusal should mention uncertain session runtime ownership.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    const stateAfterFailure = readState(sandbox.statePath);
+    assert(
+      stateAfterFailure.mcpServers["llm-kb"] === undefined,
+      "Install should not write MCP config when session runtime ownership is uncertain"
+    );
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
   }
@@ -588,6 +1212,7 @@ function testExplicitNonDefaultWorkspaceIsAccepted(): void {
   try {
     const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-other");
     fs.mkdirSync(explicitWorkspace, { recursive: true });
+    bindLlmwikiWorkspace(sandbox.statePath, explicitWorkspace);
 
     const install = runInstallerCommand(
       [
@@ -1467,6 +2092,10 @@ function testAmbiguousDefaultAgentDoesNotBlockExplicitWorkspaceTargeting(): void
             default: true,
             workspace: path.join(sandbox.tempRoot, "workspace-other"),
           },
+          {
+            id: "llmwiki",
+            workspace: explicitWorkspace,
+          },
         ],
       },
     };
@@ -1510,6 +2139,7 @@ function testDefaultAgentSkillRestrictionsDoNotBlockExplicitWorkspaceCheck(): vo
   try {
     const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-explicit");
     fs.mkdirSync(explicitWorkspace, { recursive: true });
+    bindLlmwikiWorkspace(sandbox.statePath, explicitWorkspace);
 
     const install = runInstallerCommand(
       [
@@ -1561,10 +2191,15 @@ function main(): void {
   testConfigFilePathParserExpandsTildeUsingHomeEnv();
   testConfigFilePathParserUsesCliEnvHomeOverride();
   testConfigFilePathParserFallsBackToPlatformHomeDirectory();
+  testConfigFilePathParserAcceptsNoisyUniquePathOutput();
   testConfigFilePathParserFailsClosedWithoutUsableHomeDirectory();
   testConfigFilePathParserRejectsMalformedOutput();
   testInstallAndCheckAcceptTildeConfigFilePath();
   testSuccessfulInstallAndProbe();
+  testLlmwikiSessionCanInvokeKbReadPageFromExternalKbRoot();
+  testInstallFailsClosedWithoutLlmwikiBinding();
+  testCheckFailsWhenMcpLooksHealthyButSessionRuntimeIsMissing();
+  testInstallRefusesUnownedSessionRuntimeShimWithoutForce();
   testExplicitNonDefaultWorkspaceIsAccepted();
   testExistingPartialKbRootFailsClosedWithoutForce();
   testConservativeConflictFailure();

@@ -1,0 +1,10 @@
+{
+  "id": "llmwiki-kb-tools",
+  "name": "LLMWiki KB Tools",
+  "description": "Expose the canonical kb_* knowledge-base tools inside OpenClaw sessions.",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  }
+}

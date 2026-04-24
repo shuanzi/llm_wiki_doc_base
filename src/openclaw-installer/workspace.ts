@@ -31,7 +31,7 @@ export function resolveExplicitWorkspacePath(
       "invalid_workspace_path",
       `Workspace path does not exist: ${normalizedWorkspace}`,
       {
-        requestedWorkspace: normalizedWorkspace,
+        requestedWorkspace,
         resolvedWorkspace: normalizedWorkspace,
       }
     );
@@ -42,13 +42,38 @@ export function resolveExplicitWorkspacePath(
       "invalid_workspace_path",
       `Workspace path is not a directory: ${normalizedWorkspace}`,
       {
-        requestedWorkspace: normalizedWorkspace,
+        requestedWorkspace,
         resolvedWorkspace: normalizedWorkspace,
       }
     );
   }
 
   return normalizedWorkspace;
+}
+
+export function normalizeConfiguredWorkspacePath(
+  value: string,
+  options: { homeDir?: string } = {}
+): string | undefined {
+  const homeDir = options.homeDir ?? os.homedir();
+  const normalizedValue = value.trim();
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  if (normalizedValue === "~") {
+    return path.resolve(homeDir);
+  }
+
+  if (normalizedValue.startsWith("~/")) {
+    return path.resolve(homeDir, normalizedValue.slice(2));
+  }
+
+  if (!path.isAbsolute(normalizedValue)) {
+    return undefined;
+  }
+
+  return path.resolve(normalizedValue);
 }
 
 function normalizeExplicitWorkspacePath(
