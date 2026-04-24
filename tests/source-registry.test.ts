@@ -88,12 +88,13 @@ test("readRegisteredSource supports byte pagination", () => {
   const result = registerSourceFile({ file_path: sourcePath }, { kb_root: kbRoot });
 
   const first = readRegisteredSource(result.source_id, { kb_root: kbRoot }, { max_bytes: 4 });
-  assert.equal(first.content.startsWith("0123"), true);
+  assert.equal(first.content, "0123");
   assert.equal(first.offset_bytes, 0);
   assert.equal(first.returned_bytes, 4);
   assert.equal(first.total_bytes, 10);
   assert.equal(first.truncated, true);
   assert.equal(first.next_offset_bytes, 4);
+  assert.match(first.warning ?? "", /Content truncated/u);
 
   const second = readRegisteredSource(result.source_id, { kb_root: kbRoot }, {
     offset_bytes: first.next_offset_bytes,
@@ -101,6 +102,28 @@ test("readRegisteredSource supports byte pagination", () => {
   });
   assert.equal(second.content, "456789");
   assert.equal(second.truncated, false);
+});
+
+test("readRegisteredSource pagination reconstructs UTF-8 content without warning text", () => {
+  const kbRoot = makeWorkspace();
+  const sourcePath = path.join(kbRoot, "input.md");
+  const original = "你好🙂abc";
+  fs.writeFileSync(sourcePath, original, "utf8");
+  const result = registerSourceFile({ file_path: sourcePath }, { kb_root: kbRoot });
+
+  const chunks: string[] = [];
+  let offset: number | undefined = 0;
+  while (offset !== undefined) {
+    const page = readRegisteredSource(result.source_id, { kb_root: kbRoot }, {
+      offset_bytes: offset,
+      max_bytes: 4,
+    });
+    chunks.push(page.content);
+    assert.doesNotMatch(page.content, /\[WARNING:/u);
+    offset = page.next_offset_bytes;
+  }
+
+  assert.equal(chunks.join(""), original);
 });
 
 test("registerSourceFile can convert HTML with MarkItDown when integration test is enabled", { skip: process.env.RUN_MARKITDOWN_INTEGRATION !== "1" }, () => {

@@ -236,6 +236,36 @@ function assertValidReadWindow(offsetBytes: number, maxBytes: number): void {
   }
 }
 
+function isUtf8Boundary(buffer: Buffer, index: number): boolean {
+  return index <= 0 || index >= buffer.byteLength || (buffer[index] & 0xc0) !== 0x80;
+}
+
+function alignEndToUtf8Boundary(
+  buffer: Buffer,
+  startBytes: number,
+  requestedEndBytes: number
+): number {
+  if (requestedEndBytes >= buffer.byteLength) {
+    return buffer.byteLength;
+  }
+
+  let endBytes = requestedEndBytes;
+  while (endBytes > startBytes && !isUtf8Boundary(buffer, endBytes)) {
+    endBytes--;
+  }
+
+  if (endBytes > startBytes) {
+    return endBytes;
+  }
+
+  endBytes = requestedEndBytes;
+  while (endBytes < buffer.byteLength && !isUtf8Boundary(buffer, endBytes)) {
+    endBytes++;
+  }
+
+  return endBytes;
+}
+
 export function readRegisteredSource(
   sourceId: string,
   workspace: WorkspaceLike,
@@ -254,18 +284,22 @@ export function readRegisteredSource(
   const rawBuffer = fs.readFileSync(sourcePath);
   const totalBytes = rawBuffer.byteLength;
   const offsetBytes = Math.min(options.offset_bytes, totalBytes);
-  const endBytes = Math.min(offsetBytes + options.max_bytes, totalBytes);
+  if (!isUtf8Boundary(rawBuffer, offsetBytes)) {
+    throw new Error("offset_bytes must point to a UTF-8 character boundary.");
+  }
+
+  const requestedEndBytes = Math.min(offsetBytes + options.max_bytes, totalBytes);
+  const endBytes = alignEndToUtf8Boundary(rawBuffer, offsetBytes, requestedEndBytes);
   const returnedBytes = endBytes - offsetBytes;
   const truncated = endBytes < totalBytes;
   const nextOffsetBytes = truncated ? endBytes : undefined;
-  let content = rawBuffer.slice(offsetBytes, endBytes).toString("utf8");
+  const content = rawBuffer.slice(offsetBytes, endBytes).toString("utf8");
   let warning: string | undefined;
 
   if (truncated) {
     warning =
       `Content truncated at ${endBytes} of ${totalBytes} bytes. ` +
       `Call kb_read_source with offset_bytes=${endBytes} to continue.`;
-    content += `\n\n[WARNING: ${warning}]`;
   }
 
   return {
