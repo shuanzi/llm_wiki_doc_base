@@ -1,4 +1,3 @@
-import { LLMWIKI_AGENT_ID } from "./llmwiki-binding";
 import type { OpenClawCli } from "./openclaw-cli";
 import { SESSION_RUNTIME_PLUGIN_ID } from "./session-runtime-artifact";
 import { normalizeConfiguredWorkspacePath } from "./workspace";
@@ -16,10 +15,12 @@ export interface EnsureSessionRuntimeAgentToolPolicyResult {
 
 export async function ensureSessionRuntimeAgentToolPolicy(options: {
   cli: OpenClawCli;
+  agentId: string;
   workspacePath: string;
 }): Promise<EnsureSessionRuntimeAgentToolPolicyResult> {
   const previousAgentsList = await readAgentsList(options.cli);
-  const nextAgentsList = updateTargetLlmwikiAgent(previousAgentsList, {
+  const nextAgentsList = updateTargetAgent(previousAgentsList, {
+    agentId: options.agentId,
     workspacePath: options.workspacePath,
     update: ensurePluginGroupAllowed,
   });
@@ -50,24 +51,53 @@ export async function restoreSessionRuntimeAgentToolPolicy(options: {
 
 export async function removeSessionRuntimeAgentToolPolicy(options: {
   cli: OpenClawCli;
+  agentId: string;
   workspacePath: string;
-}): Promise<void> {
+  allowMissingTarget?: boolean;
+  matchAgentIdOnly?: boolean;
+}): Promise<boolean> {
   const previousAgentsList = await readAgentsList(options.cli);
-  const nextAgentsList = updateTargetLlmwikiAgent(previousAgentsList, {
+  const nextAgentsList = updateTargetAgent(previousAgentsList, {
+    agentId: options.agentId,
     workspacePath: options.workspacePath,
+    allowMissingTarget: options.allowMissingTarget,
+    matchAgentIdOnly: options.matchAgentIdOnly,
     update: removePluginGroupAllowed,
   });
-  if (JSON.stringify(previousAgentsList) !== JSON.stringify(nextAgentsList)) {
+  const changed = JSON.stringify(previousAgentsList) !== JSON.stringify(nextAgentsList);
+  if (changed) {
     await options.cli.setConfigValueStrictJson(AGENTS_LIST_CONFIG_PATH, nextAgentsList);
   }
+  return changed;
+}
+
+export async function assertCanRemoveSessionRuntimeAgentToolPolicy(options: {
+  cli: OpenClawCli;
+  agentId: string;
+  workspacePath: string;
+  allowMissingTarget?: boolean;
+  matchAgentIdOnly?: boolean;
+}): Promise<void> {
+  const agentsList = await readAgentsList(options.cli);
+  updateTargetAgent(agentsList, {
+    agentId: options.agentId,
+    workspacePath: options.workspacePath,
+    allowMissingTarget: options.allowMissingTarget,
+    matchAgentIdOnly: options.matchAgentIdOnly,
+    update: removePluginGroupAllowed,
+  });
 }
 
 export async function hasSessionRuntimeAgentToolPolicy(options: {
   cli: OpenClawCli;
+  agentId: string;
   workspacePath: string;
 }): Promise<boolean> {
   const agentsList = await readAgentsList(options.cli);
-  const target = findTargetLlmwikiAgent(agentsList, options.workspacePath);
+  const target = findTargetAgent(agentsList, {
+    agentId: options.agentId,
+    workspacePath: options.workspacePath,
+  });
   if (!target) {
     return false;
   }
@@ -82,57 +112,93 @@ async function readAgentsList(cli: OpenClawCli): Promise<unknown> {
   return cli.getConfigValue<unknown>(AGENTS_LIST_CONFIG_PATH, { allowMissing: true });
 }
 
-function updateTargetLlmwikiAgent(
+function updateTargetAgent(
   agentsList: unknown,
   options: {
+    agentId: string;
     workspacePath: string;
+    allowMissingTarget?: boolean;
+    matchAgentIdOnly?: boolean;
     update: (agent: Record<string, unknown>) => Record<string, unknown>;
   }
 ): unknown {
   if (!Array.isArray(agentsList)) {
-    throw new Error("OpenClaw agents.list must be an array to update llmwiki tool policy.");
+    throw new Error(
+      `OpenClaw agents.list must be an array to update agent "${options.agentId}" tool policy.`
+    );
+  }
+
+  if (options.matchAgentIdOnly) {
+    const agentIdMatches = agentsList.filter((entry) => {
+      return isRecord(entry) && entry.id === options.agentId;
+    });
+    if (agentIdMatches.length > 1) {
+      throw new Error(
+        `OpenClaw fail-closed: ambiguous tool policy cleanup for agent "${options.agentId}" because agents.list contains ${agentIdMatches.length} matching entries.`
+      );
+    }
+  }
+
+  const targetMatches = agentsList.filter((entry) => isTargetAgent(entry, options));
+  if (targetMatches.length > 1) {
+    throw new Error(
+      `OpenClaw fail-closed: ambiguous tool policy update for agent "${options.agentId}" because agents.list contains ${targetMatches.length} matching entries.`
+    );
   }
 
   let updated = false;
   const nextAgents = agentsList.map((entry) => {
-    if (!isTargetLlmwikiAgent(entry, options.workspacePath)) {
+    if (!isTargetAgent(entry, options)) {
       return entry;
     }
     updated = true;
     return options.update(entry);
   });
 
-  if (!updated) {
+  if (!updated && !options.allowMissingTarget) {
+    if (options.matchAgentIdOnly) {
+      throw new Error(`OpenClaw agents.list does not contain agent "${options.agentId}".`);
+    }
     throw new Error(
-      `OpenClaw agents.list does not contain agent "${LLMWIKI_AGENT_ID}" bound to ${options.workspacePath}.`
+      `OpenClaw agents.list does not contain agent "${options.agentId}" bound to ${options.workspacePath}.`
     );
   }
   return nextAgents;
 }
 
-function findTargetLlmwikiAgent(
+function findTargetAgent(
   agentsList: unknown,
-  workspacePath: string
+  options: {
+    agentId: string;
+    workspacePath: string;
+  }
 ): Record<string, unknown> | undefined {
   if (!Array.isArray(agentsList)) {
     return undefined;
   }
-  return agentsList.find((entry) => isTargetLlmwikiAgent(entry, workspacePath));
+  return agentsList.find((entry) => isTargetAgent(entry, options));
 }
 
-function isTargetLlmwikiAgent(
+function isTargetAgent(
   entry: unknown,
-  workspacePath: string
+  options: {
+    agentId: string;
+    workspacePath: string;
+    matchAgentIdOnly?: boolean;
+  }
 ): entry is Record<string, unknown> {
-  if (!isRecord(entry) || entry.id !== LLMWIKI_AGENT_ID) {
+  if (!isRecord(entry) || entry.id !== options.agentId) {
     return false;
+  }
+  if (options.matchAgentIdOnly) {
+    return true;
   }
   if (typeof entry.workspace !== "string") {
     return false;
   }
   return (
     normalizeConfiguredWorkspacePath(entry.workspace) ===
-    normalizeConfiguredWorkspacePath(workspacePath)
+    normalizeConfiguredWorkspacePath(options.workspacePath)
   );
 }
 
@@ -178,7 +244,7 @@ function readToolsObject(
     return undefined;
   }
   if (!isRecord(agent.tools) || Array.isArray(agent.tools)) {
-    throw new Error(`OpenClaw agent "${LLMWIKI_AGENT_ID}" tools policy must be an object.`);
+    throw new Error("OpenClaw agent tools policy must be an object.");
   }
   return agent.tools;
 }

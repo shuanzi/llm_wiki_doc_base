@@ -36,6 +36,7 @@ export interface RenderedSessionRuntimeArtifact {
 export interface BuildSessionRuntimeMetadataOptions {
   workspacePath: string;
   kbRoot: string;
+  agentId?: string;
   sourcePluginEntrypoint: string;
   sourcePluginManifestPath: string;
   canonicalToolNames?: readonly string[];
@@ -169,7 +170,7 @@ export function buildSessionRuntimeMetadata(
 
   return {
     runtimeKind: "workspace-openclaw-native-plugin-shim-v1",
-    agentId: SESSION_RUNTIME_AGENT_ID,
+    agentId: options.agentId ?? SESSION_RUNTIME_AGENT_ID,
     pluginId: SESSION_RUNTIME_PLUGIN_ID,
     pluginRoot: artifactPaths.pluginRoot,
     pluginIndexFile: artifactPaths.pluginIndexFile,

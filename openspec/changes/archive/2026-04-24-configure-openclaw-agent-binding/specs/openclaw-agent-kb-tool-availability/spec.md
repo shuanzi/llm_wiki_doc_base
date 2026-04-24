@@ -1,8 +1,55 @@
-# openclaw-agent-kb-tool-availability Specification
+## ADDED Requirements
 
-## Purpose
-Define the OpenClaw KB integration contract for the configured OpenClaw agent, including the canonical session-visible KB tool surface, official runtime-harness health validation, and conservative lifecycle ownership rules.
-## Requirements
+### Requirement: Configured OpenClaw agent sessions expose canonical KB tools
+After a healthy OpenClaw KB install, the installer-configured OpenClaw agent session SHALL expose the canonical 11-tool KB surface directly:
+
+- `kb_source_add`
+- `kb_read_source`
+- `kb_write_page`
+- `kb_update_section`
+- `kb_ensure_entry`
+- `kb_search_wiki`
+- `kb_read_page`
+- `kb_commit`
+- `kb_rebuild_index`
+- `kb_run_lint`
+- `kb_repair`
+
+#### Scenario: Healthy install exposes expected KB tools through the official runtime harness
+- **WHEN** an operator installs the OpenClaw KB integration for `--agent-id research` successfully
+- **THEN** the official OpenClaw runtime/internal harness for the targeted `research` workspace can see the canonical 11-tool KB surface
+
+#### Scenario: Install fails when session-visible KB tools cannot be materialized
+- **WHEN** installer setup reaches the point where the configured OpenClaw agent should receive the canonical 11 KB tools
+- **AND** the installer cannot materialize or enable that session-visible surface
+- **THEN** `install` fails with a non-success result
+- **AND** the failure explains that the configured OpenClaw agent does not have the canonical KB tools in-session
+
+#### Scenario: Install registers workspace-local plugin with OpenClaw discovery
+- **WHEN** installer materializes the workspace-local installer-owned KB plugin shim
+- **THEN** OpenClaw config includes the shim root in `plugins.load.paths`
+- **AND** OpenClaw config includes the installer-owned plugin group in `plugins.allow`
+- **AND** OpenClaw config enables the installer-owned plugin entry under `plugins.entries`
+
+#### Scenario: Workspace-local plugin shim pins the external KB root
+- **WHEN** the workspace-local installer-owned KB plugin shim executes a KB tool in a real OpenClaw session
+- **AND** the Gateway or agent process lacks ambient `KB_ROOT`
+- **THEN** the tool uses the installer-configured external `KB_ROOT`
+- **AND** it does not fall back to `cwd/kb`
+
+#### Scenario: Install allows the plugin group in the configured agent tool policy
+- **WHEN** installer configures the target `research` agent for session-visible KB tools
+- **THEN** the bound `research` agent tool policy allows the installer-owned KB plugin group
+- **AND** installer preserves existing `tools.profile` settings
+- **AND** installer avoids creating an OpenClaw-invalid `tools.allow` plus `tools.alsoAllow` conflict
+
+#### Scenario: Read-only KB tool call succeeds through the official runtime harness
+- **WHEN** the healthy session-visible runtime for the configured OpenClaw agent invokes `kb_read_page` against `wiki/index.md` under the configured external `KB_ROOT`
+- **THEN** the tool call succeeds
+- **AND** the returned content comes from the configured external KB rather than the OpenClaw workspace
+
+## MODIFIED Requirements
+
 ### Requirement: Installer health MUST validate session-visible KB tools
 Installer health evaluation SHALL treat session-visible KB tool availability as a required success condition for OpenClaw integration, not merely the presence of saved MCP config or on-disk skills.
 
@@ -140,50 +187,9 @@ Ownership is recognizable when either:
 - **AND** tests 断言 operator-facing docs 描述 external `KB_ROOT` 是安装绑定的 `kb` directory 本身，KB tree 直接位于 `<KB_ROOT>/raw` 和 `<KB_ROOT>/wiki`
 - **AND** tests 允许 docs 说明默认 `--agent-id` 是 `llmwiki`，但不允许 docs 将 `llmwiki` 表述为唯一支持 agent
 
-### Requirement: Configured OpenClaw agent sessions expose canonical KB tools
-After a healthy OpenClaw KB install, the installer-configured OpenClaw agent session SHALL expose the canonical 11-tool KB surface directly:
+## REMOVED Requirements
 
-- `kb_source_add`
-- `kb_read_source`
-- `kb_write_page`
-- `kb_update_section`
-- `kb_ensure_entry`
-- `kb_search_wiki`
-- `kb_read_page`
-- `kb_commit`
-- `kb_rebuild_index`
-- `kb_run_lint`
-- `kb_repair`
+### Requirement: `llmwiki` agent sessions expose canonical KB tools
+**Reason**: The session-visible KB tool contract now applies to the installer-configured OpenClaw agent instead of a fixed `llmwiki` agent.
 
-#### Scenario: Healthy install exposes expected KB tools through the official runtime harness
-- **WHEN** an operator installs the OpenClaw KB integration for `--agent-id research` successfully
-- **THEN** the official OpenClaw runtime/internal harness for the targeted `research` workspace can see the canonical 11-tool KB surface
-
-#### Scenario: Install fails when session-visible KB tools cannot be materialized
-- **WHEN** installer setup reaches the point where the configured OpenClaw agent should receive the canonical 11 KB tools
-- **AND** the installer cannot materialize or enable that session-visible surface
-- **THEN** `install` fails with a non-success result
-- **AND** the failure explains that the configured OpenClaw agent does not have the canonical KB tools in-session
-
-#### Scenario: Install registers workspace-local plugin with OpenClaw discovery
-- **WHEN** installer materializes the workspace-local installer-owned KB plugin shim
-- **THEN** OpenClaw config includes the shim root in `plugins.load.paths`
-- **AND** OpenClaw config includes the installer-owned plugin group in `plugins.allow`
-- **AND** OpenClaw config enables the installer-owned plugin entry under `plugins.entries`
-
-#### Scenario: Workspace-local plugin shim pins the external KB root
-- **WHEN** the workspace-local installer-owned KB plugin shim executes a KB tool in a real OpenClaw session
-- **AND** the Gateway or agent process lacks ambient `KB_ROOT`
-- **THEN** the tool uses the installer-configured external `KB_ROOT`
-- **AND** it does not fall back to `cwd/kb`
-
-#### Scenario: Install allows the plugin group in the configured agent tool policy
-- **WHEN** installer configures the target `research` agent for session-visible KB tools
-- **THEN** the bound `research` agent tool policy allows the installer-owned KB plugin group
-- **AND** installer preserves existing `tools.profile` settings
-- **AND** installer avoids creating an OpenClaw-invalid `tools.allow` plus `tools.alsoAllow` conflict
-
-#### Scenario: Read-only KB tool call succeeds through the official runtime harness
-- **WHEN** the healthy session-visible runtime for the configured OpenClaw agent invokes `kb_read_page` against `wiki/index.md` under the configured external `KB_ROOT`
-- **THEN** the tool call succeeds
-- **AND** the returned content comes from the configured external KB rather than the OpenClaw workspace
+**Migration**: Use `--agent-id <id>` to select the OpenClaw agent whose session receives canonical `kb_*` tools. Existing invocations that omit `--agent-id` keep the compatibility default `llmwiki`.

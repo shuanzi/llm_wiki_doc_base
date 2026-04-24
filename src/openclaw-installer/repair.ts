@@ -10,8 +10,8 @@ import {
   normalizeActualMcpConfig,
 } from "./check";
 import {
-  assertLlmwikiWorkspaceBinding,
-  resolveLlmwikiWorkspaceBinding,
+  assertAgentWorkspaceBinding,
+  resolveAgentWorkspaceBinding,
 } from "./llmwiki-binding";
 import {
   bootstrapExternalKbRoot,
@@ -43,6 +43,7 @@ import {
 } from "./session-runtime-config";
 import {
   ensureSessionRuntimeAgentToolPolicy,
+  removeSessionRuntimeAgentToolPolicy,
   restoreSessionRuntimeAgentToolPolicy,
   type SessionRuntimeAgentToolPolicySnapshot,
 } from "./session-runtime-agent-policy";
@@ -141,9 +142,10 @@ export async function repairOpenClawIntegration(
   await ensureOpenClawCliReady(cli);
 
   const workspacePath = resolveExplicitWorkspacePath(args.workspace);
-  assertLlmwikiWorkspaceBinding(
-    await resolveLlmwikiWorkspaceBinding({
+  assertAgentWorkspaceBinding(
+    await resolveAgentWorkspaceBinding({
       cli,
+      agentId: args.agentId,
       workspacePath,
     })
   );
@@ -157,6 +159,7 @@ export async function repairOpenClawIntegration(
     openclawPluginManifestPath,
     mcpName: args.mcpName,
     workspace: workspacePath,
+    agentId: args.agentId,
   };
 
   const existingManifest = readExistingManifest(workspacePath, args.force);
@@ -195,6 +198,7 @@ export async function repairOpenClawIntegration(
       workspacePath,
       mcpName: args.mcpName,
       kbRoot,
+      agentId: args.agentId,
       force: args.force,
     });
   } else {
@@ -294,6 +298,7 @@ export async function repairOpenClawIntegration(
       workspacePath,
       kbRoot,
       existingManifest,
+      agentId: args.agentId,
       sourcePluginEntrypoint: openclawPluginEntrypoint,
       sourcePluginManifestPath: openclawPluginManifestPath,
       force: args.force,
@@ -302,6 +307,7 @@ export async function repairOpenClawIntegration(
     const sessionRuntime = materializeSessionRuntimeWithRollback({
       workspacePath,
       kbRoot,
+      agentId: args.agentId,
       sourcePluginEntrypoint: openclawPluginEntrypoint,
       sourcePluginManifestPath: openclawPluginManifestPath,
       installedAt,
@@ -327,10 +333,22 @@ export async function repairOpenClawIntegration(
     const sessionRuntimeAgentToolPolicyChanged =
       await enableSessionRuntimeAgentToolPolicyWithRollback({
         cli,
+        agentId: args.agentId,
+        workspacePath,
+        rollback,
+      });
+    const retargetedSessionRuntimeAgentToolPolicyChanged =
+      await removeRetargetedSessionRuntimeAgentToolPolicyWithRollback({
+        cli,
+        previousAgentId: existingManifest?.sessionRuntime?.agentId,
+        nextAgentId: args.agentId,
         workspacePath,
         rollback,
       });
     if (sessionRuntimeAgentToolPolicyChanged) {
+      appliedActions.push("enable_session_runtime");
+    }
+    if (retargetedSessionRuntimeAgentToolPolicyChanged) {
       appliedActions.push("enable_session_runtime");
     }
 
@@ -810,11 +828,20 @@ function assertSessionRuntimeOwnershipForRepair(options: {
   workspacePath: string;
   kbRoot: string;
   existingManifest: ReturnType<typeof readInstallerManifest>;
+  agentId: string;
   sourcePluginEntrypoint: string;
   sourcePluginManifestPath: string;
   force: boolean;
 }): void {
   if (options.existingManifest?.sessionRuntime) {
+    if (
+      options.existingManifest.sessionRuntime.agentId !== options.agentId &&
+      !options.force
+    ) {
+      throw new Error(
+        `Repair refused because manifest is owned by agent "${options.existingManifest.sessionRuntime.agentId}", not requested agent "${options.agentId}". Use --force to override.`
+      );
+    }
     return;
   }
 
@@ -846,7 +873,7 @@ function assertSessionRuntimeOwnershipForRepair(options: {
       [
         "Repair refused because legacy session runtime ownership is uncertain.",
         `expected root: ${expectedPaths.pluginRoot}`,
-        "Re-run with --force only after verifying the workspace-local llmwiki session runtime shim is installer-owned.",
+        "Re-run with --force only after verifying the workspace-local session runtime shim is installer-owned.",
       ].join(" ")
     );
   }
@@ -943,6 +970,7 @@ function validateManifestOwnership(
     workspacePath: string;
     mcpName: string;
     kbRoot: string;
+    agentId: string;
     force: boolean;
   }
 ): void {
@@ -951,6 +979,7 @@ function validateManifestOwnership(
     workspacePath: options.workspacePath,
     kbRoot: options.kbRoot,
     mcpName: options.mcpName,
+    agentId: options.agentId,
   });
 
   if (validation.status === "unknown_ownership" && !options.force) {
@@ -1004,6 +1033,7 @@ function trackManifestRollback(rollback: RollbackState, workspacePath: string): 
 function materializeSessionRuntimeWithRollback(options: {
   workspacePath: string;
   kbRoot: string;
+  agentId: string;
   sourcePluginEntrypoint: string;
   sourcePluginManifestPath: string;
   installedAt: string;
@@ -1022,6 +1052,7 @@ function materializeSessionRuntimeWithRollback(options: {
   const materialization = materializeSessionRuntimeArtifacts({
     workspacePath: options.workspacePath,
     kbRoot: options.kbRoot,
+    agentId: options.agentId,
     sourcePluginEntrypoint: options.sourcePluginEntrypoint,
     sourcePluginManifestPath: options.sourcePluginManifestPath,
     canonicalToolNames: KB_CANONICAL_TOOL_NAMES,
@@ -1080,16 +1111,48 @@ async function enableSessionRuntimePluginWithRollback(options: {
 
 async function enableSessionRuntimeAgentToolPolicyWithRollback(options: {
   cli: OpenClawCli;
+  agentId: string;
   workspacePath: string;
   rollback: RollbackState;
 }): Promise<boolean> {
   const result = await ensureSessionRuntimeAgentToolPolicy({
     cli: options.cli,
+    agentId: options.agentId,
     workspacePath: options.workspacePath,
   });
   options.rollback.previousSessionRuntimeAgentToolPolicy = result.previous;
 
   if (!result.changed) {
+    return false;
+  }
+
+  options.rollback.sessionRuntimeAgentToolPolicyUpdated = true;
+  options.rollback.mutated = true;
+  return true;
+}
+
+async function removeRetargetedSessionRuntimeAgentToolPolicyWithRollback(options: {
+  cli: OpenClawCli;
+  previousAgentId?: string;
+  nextAgentId: string;
+  workspacePath: string;
+  rollback: RollbackState;
+}): Promise<boolean> {
+  if (
+    !options.previousAgentId ||
+    options.previousAgentId === options.nextAgentId
+  ) {
+    return false;
+  }
+
+  const changed = await removeSessionRuntimeAgentToolPolicy({
+    cli: options.cli,
+    agentId: options.previousAgentId,
+    workspacePath: options.workspacePath,
+    allowMissingTarget: true,
+    matchAgentIdOnly: true,
+  });
+  if (!changed) {
     return false;
   }
 
@@ -1200,7 +1263,7 @@ async function rollbackCreatedArtifacts(
       });
     } catch (error) {
       rollbackErrors.push(
-        `failed to restore OpenClaw llmwiki agent tool policy: ${stringifyError(error)}`
+        `failed to restore OpenClaw agent tool policy: ${stringifyError(error)}`
       );
     }
   }

@@ -4,23 +4,40 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { buildExpectedMcpConfig } from "../src/openclaw-installer/check";
-import { resolveLlmwikiWorkspaceBinding } from "../src/openclaw-installer/llmwiki-binding";
+import { formatInstallerUsage, parseInstallerArgs } from "../src/openclaw-installer/args";
+import { buildExpectedMcpConfig, checkOpenClawInstallation } from "../src/openclaw-installer/check";
+import * as workspaceBindingModule from "../src/openclaw-installer/llmwiki-binding";
 import {
   createInstallerManifest,
+  resolveInstallerManifestPath,
   validateInstallerManifest,
+  writeInstallerManifest,
 } from "../src/openclaw-installer/manifest";
 import {
   materializeSessionRuntimeArtifacts,
 } from "../src/openclaw-installer/session-runtime-artifact";
+import {
+  ensureSessionRuntimeAgentToolPolicy,
+  hasSessionRuntimeAgentToolPolicy,
+  removeSessionRuntimeAgentToolPolicy,
+} from "../src/openclaw-installer/session-runtime-agent-policy";
 import { EXPECTED_KB_TOOL_NAMES } from "../src/openclaw-installer/mcp-probe";
 import { installOpenClawSkills } from "../src/openclaw-installer/skills";
+import { uninstallOpenClawIntegration } from "../src/openclaw-installer/uninstall";
 import { renderAllOpenClawWorkspaceDocs } from "../src/openclaw-installer/workspace-docs";
 
 const repoRoot = path.resolve(__dirname, "..");
 
 function assertContains(content: string, needle: string, context: string): void {
   assert.equal(content.includes(needle), true, `${context} should include: ${needle}`);
+}
+
+function assertNotContains(content: string, needle: string, context: string): void {
+  assert.equal(
+    content.includes(needle),
+    false,
+    `${context} should not include: ${needle}`
+  );
 }
 
 function mustGetDoc(
@@ -32,12 +49,244 @@ function mustGetDoc(
   return content;
 }
 
-test("llmwiki binding fails closed on malformed workspace entries", async () => {
+async function resolveAgentWorkspaceBinding(options: {
+  agentId: string;
+  workspacePath: string;
+  cli: {
+    listConfiguredAgents(): Promise<Array<{ id: string; workspace?: string; raw: object }>>;
+  };
+}) {
+  const resolver = (
+    workspaceBindingModule as unknown as {
+      resolveAgentWorkspaceBinding?: (input: typeof options) => Promise<unknown>;
+    }
+  ).resolveAgentWorkspaceBinding;
+
+  assert.equal(
+    typeof resolver,
+    "function",
+    "generic resolver resolveAgentWorkspaceBinding should be exported"
+  );
+
+  if (!resolver) {
+    throw new Error("generic resolver resolveAgentWorkspaceBinding should be exported");
+  }
+
+  return resolver(options) as Promise<Record<string, unknown>>;
+}
+
+function createManifestFixture(options: {
+  agentId?: string;
+  expectedAgentId?: string;
+}) {
+  const workspacePath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-substrate-workspace-")
+  );
+  const kbRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-substrate-kb-"));
+  const installedAt = new Date().toISOString();
+
+  const installedSkills = installOpenClawSkills({
+    workspacePath,
+    repoRoot,
+    installedAt,
+  });
+
+  const installedWorkspaceDocs = renderAllOpenClawWorkspaceDocs().map((doc) => {
+    const docFile = path.resolve(workspacePath, doc.installRelativeFile);
+    fs.writeFileSync(docFile, doc.content, "utf8");
+    return {
+      docName: doc.docName,
+      docFile,
+      contentHash: doc.contentHash,
+      installedAt,
+      preinstallSnapshot: { known: false as const },
+    };
+  });
+
+  const sessionRuntime = materializeSessionRuntimeArtifacts({
+    workspacePath,
+    kbRoot,
+    sourcePluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
+    sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+    installedAt,
+    agentId: options.agentId ?? "research",
+  } as Parameters<typeof materializeSessionRuntimeArtifacts>[0] & {
+    agentId: string;
+  }).metadata;
+
+  const expectedMcpConfig = buildExpectedMcpConfig({
+    mcpName: "llm-kb",
+    serverEntrypoint: path.resolve(repoRoot, "dist", "mcp_server.js"),
+    kbRoot,
+    nodeCommand: process.execPath,
+  });
+
+  const manifest = createInstallerManifest({
+    installerVersion: "0.1.0",
+    repoRoot,
+    workspacePath,
+    kbRoot,
+    mcpName: "llm-kb",
+    installedAt,
+    installedSkills,
+    installedWorkspaceDocs,
+    sessionRuntime,
+    expectedMcpConfig,
+  });
+
+  return {
+    workspacePath,
+    kbRoot,
+    expectedMcpConfig,
+    sessionRuntime,
+    manifest,
+    expectedAgentId: options.expectedAgentId ?? options.agentId ?? "research",
+  };
+}
+
+function createMutableOpenClawCliState(
+  initialAgentsList: Array<Record<string, unknown>>,
+  initialConfig: Record<string, unknown> = {}
+) {
+  let agentsList: unknown = initialAgentsList;
+  const config = new Map<string, unknown>(Object.entries(initialConfig));
+  const ok = {
+    stdout: "",
+    stderr: "",
+    exitCode: 0,
+    signal: null,
+  };
+
+  const cli = {
+    resolveExecutablePath() {
+      return "/tmp/openclaw";
+    },
+    async getConfigFilePath() {
+      return "/tmp/openclaw-config.json";
+    },
+    async listConfiguredAgents() {
+      if (!Array.isArray(agentsList)) {
+        return [];
+      }
+      return agentsList
+        .filter((entry): entry is Record<string, unknown> => {
+          return typeof entry === "object" && entry !== null;
+        })
+        .map((entry) => {
+          return {
+            id: typeof entry.id === "string" ? entry.id : "",
+            workspace:
+              typeof entry.workspace === "string" ? entry.workspace : undefined,
+            raw: entry,
+          };
+        })
+        .filter((entry) => entry.id.length > 0);
+    },
+    async showMcpServer() {
+      return undefined;
+    },
+    async getConfigValue<T>(configPath: string) {
+      if (configPath === "agents.list") {
+        return agentsList as T;
+      }
+      return config.get(configPath) as T;
+    },
+    async setConfigValueStrictJson(configPath: string, value: unknown) {
+      if (configPath === "agents.list") {
+        agentsList = value;
+      } else {
+        config.set(configPath, value);
+      }
+      return ok;
+    },
+    async unsetConfigValue(configPath: string) {
+      if (configPath === "agents.list") {
+        agentsList = undefined;
+      } else {
+        config.delete(configPath);
+      }
+      return ok;
+    },
+  };
+
+  return {
+    cli,
+    readAgentsList(): unknown {
+      return agentsList;
+    },
+  };
+}
+
+function entryHasPluginPolicy(
+  entry: Record<string, unknown>,
+  pluginId: string = "llmwiki-kb-tools"
+): boolean {
+  const tools =
+    typeof entry.tools === "object" && entry.tools !== null
+      ? (entry.tools as Record<string, unknown>)
+      : undefined;
+  const allow = Array.isArray(tools?.allow) ? tools.allow : [];
+  const alsoAllow = Array.isArray(tools?.alsoAllow) ? tools.alsoAllow : [];
+  return allow.includes(pluginId) || alsoAllow.includes(pluginId);
+}
+
+test("generic binding resolves explicit non-llmwiki agent id with matching workspace", async () => {
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
+    workspacePath: "/tmp/research-workspace",
+    cli: {
+      async listConfiguredAgents() {
+        return [
+          {
+            id: "llmwiki",
+            workspace: "/tmp/llmwiki-workspace",
+            raw: {},
+          },
+          {
+            id: "research",
+            workspace: "/tmp/research-workspace",
+            raw: {},
+          },
+        ];
+      },
+    },
+  });
+
+  assert.equal(result.status, "bound");
+  assert.equal(result.agentId, "research");
+  assert.equal(result.boundWorkspace, "/tmp/research-workspace");
+  assert.equal(result.agentCount, 1);
+});
+
+test("generic binding fails closed when configured agent is missing", async () => {
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
+    workspacePath: "/tmp/research-workspace",
+    cli: {
+      async listConfiguredAgents() {
+        return [
+          {
+            id: "llmwiki",
+            workspace: "/tmp/research-workspace",
+            raw: {},
+          },
+        ];
+      },
+    },
+  });
+
+  assert.equal(result.status, "missing_binding");
+  assert.equal(result.agentId, "research");
+  assert.equal(result.agentCount, 0);
+  assert.deepEqual(result.candidateWorkspaces, []);
+});
+
+test("generic binding fails closed on malformed workspace entries", async () => {
   const fakeCli = {
     async listConfiguredAgents() {
       return [
         {
-          id: "llmwiki",
+          id: "research",
           workspace: "relative/path-not-allowed",
           raw: {},
         },
@@ -45,26 +294,28 @@ test("llmwiki binding fails closed on malformed workspace entries", async () => 
     },
   };
 
-  const result = await resolveLlmwikiWorkspaceBinding({
-    workspacePath: "/tmp/llmwiki-workspace",
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
+    workspacePath: "/tmp/research-workspace",
     cli: fakeCli as never,
   });
 
   assert.equal(result.status, "ambiguous_binding");
+  assert.equal(result.agentId, "research");
   assert.equal(result.malformedWorkspaceEntryCount, 1);
 });
 
-test("llmwiki binding fails closed on ambiguous workspace entries", async () => {
+test("generic binding fails closed on same agent bound to multiple workspaces", async () => {
   const fakeCli = {
     async listConfiguredAgents() {
       return [
         {
-          id: "llmwiki",
+          id: "research",
           workspace: "/tmp/workspace-a",
           raw: {},
         },
         {
-          id: "llmwiki",
+          id: "research",
           workspace: "/tmp/workspace-b",
           raw: {},
         },
@@ -72,13 +323,230 @@ test("llmwiki binding fails closed on ambiguous workspace entries", async () => 
     },
   };
 
-  const result = await resolveLlmwikiWorkspaceBinding({
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
     workspacePath: "/tmp/workspace-a",
     cli: fakeCli as never,
   });
 
   assert.equal(result.status, "ambiguous_binding");
+  assert.equal(result.agentId, "research");
+  assert.ok(Array.isArray(result.candidateWorkspaces));
   assert.equal(result.candidateWorkspaces.length, 2);
+});
+
+test("generic binding fails closed on duplicate agent entries with the same workspace", async () => {
+  const fakeCli = {
+    async listConfiguredAgents() {
+      return [
+        {
+          id: "research",
+          workspace: "/tmp/workspace-a",
+          raw: {},
+        },
+        {
+          id: "research",
+          workspace: "/tmp/workspace-a",
+          raw: {},
+        },
+      ];
+    },
+  };
+
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
+    workspacePath: "/tmp/workspace-a",
+    cli: fakeCli as never,
+  });
+
+  assert.equal(result.status, "ambiguous_binding");
+  assert.equal(result.agentId, "research");
+  assert.equal(result.agentCount, 2);
+  assert.deepEqual(result.candidateWorkspaces, ["/tmp/workspace-a"]);
+});
+
+test("generic binding fails closed when a duplicate agent entry lacks workspace", async () => {
+  const fakeCli = {
+    async listConfiguredAgents() {
+      return [
+        {
+          id: "research",
+          workspace: "/tmp/workspace-a",
+          raw: {},
+        },
+        {
+          id: "research",
+          raw: {},
+        },
+      ];
+    },
+  };
+
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
+    workspacePath: "/tmp/workspace-a",
+    cli: fakeCli as never,
+  });
+
+  assert.equal(result.status, "ambiguous_binding");
+  assert.equal(result.agentId, "research");
+  assert.equal(result.agentCount, 2);
+  assert.deepEqual(result.candidateWorkspaces, ["/tmp/workspace-a"]);
+});
+
+test("generic binding fails closed when workspace belongs to another agent", async () => {
+  const result = await resolveAgentWorkspaceBinding({
+    agentId: "research",
+    workspacePath: "/tmp/shared-workspace",
+    cli: {
+      async listConfiguredAgents() {
+        return [
+          {
+            id: "llmwiki",
+            workspace: "/tmp/shared-workspace",
+            raw: {},
+          },
+          {
+            id: "research",
+            workspace: "/tmp/research-workspace",
+            raw: {},
+          },
+        ];
+      },
+    },
+  });
+
+  assert.equal(result.status, "missing_binding");
+  assert.equal(result.agentId, "research");
+  assert.deepEqual(result.candidateWorkspaces, ["/tmp/research-workspace"]);
+  assert.match(String(result.message), /research/u);
+});
+
+test("installer CLI parses --agent-id and defaults to llmwiki", () => {
+  const explicit = parseInstallerArgs([
+    "install",
+    "--workspace",
+    "/tmp/workspace",
+    "--kb-root",
+    "/tmp/kb",
+    "--agent-id",
+    "research",
+  ]) as ReturnType<typeof parseInstallerArgs> & { agentId?: string };
+
+  assert.equal(explicit.command, "install");
+  assert.equal(explicit.agentId, "research");
+
+  const defaulted = parseInstallerArgs([
+    "check",
+    "--workspace",
+    "/tmp/workspace",
+  ]) as ReturnType<typeof parseInstallerArgs> & { agentId?: string };
+
+  assert.equal(defaulted.command, "check");
+  assert.equal(defaulted.agentId, "llmwiki");
+
+  const repair = parseInstallerArgs([
+    "repair",
+    "--workspace",
+    "/tmp/workspace",
+    "--agent-id",
+    "analysis",
+  ]) as ReturnType<typeof parseInstallerArgs> & { agentId?: string };
+  assert.equal(repair.command, "repair");
+  assert.equal(repair.agentId, "analysis");
+
+  const uninstall = parseInstallerArgs([
+    "uninstall",
+    "--workspace",
+    "/tmp/workspace",
+    "--agent-id",
+    "archive",
+  ]) as ReturnType<typeof parseInstallerArgs> & { agentId?: string };
+  assert.equal(uninstall.command, "uninstall");
+  assert.equal(uninstall.agentId, "archive");
+
+  assertContains(
+    formatInstallerUsage(),
+    "install --workspace <path> --kb-root <path> [--agent-id <id>]",
+    "installer usage"
+  );
+});
+
+test("manifest validation reports session runtime metadata drift", () => {
+  const fixture = createManifestFixture({ agentId: "research" });
+  const outsidePluginRoot = path.resolve(os.tmpdir(), "outside-openclaw-plugin-root");
+  const manifest = {
+    ...fixture.manifest,
+    sessionRuntime: fixture.manifest.sessionRuntime
+      ? {
+          ...fixture.manifest.sessionRuntime,
+          pluginRoot: outsidePluginRoot,
+          canonicalToolNames: ["kb_read_page"],
+        }
+      : undefined,
+  };
+
+  const validation = validateInstallerManifest(manifest, {
+    repoRoot,
+    workspacePath: fixture.workspacePath,
+    kbRoot: fixture.kbRoot,
+    mcpName: "llm-kb",
+    expectedMcpConfig: fixture.expectedMcpConfig,
+    agentId: "research",
+  });
+
+  assert.equal(
+    validation.driftItems.some((item) => {
+      return (
+        item.kind === "unknown_ownership" &&
+        item.message.includes("pluginRoot points outside workspace ownership scope")
+      );
+    }),
+    true
+  );
+  assert.equal(
+    validation.driftItems.some((item) => {
+      return (
+        item.kind === "session_runtime_hash_drift" &&
+        item.message.includes("canonical tool names drifted")
+      );
+    }),
+    true
+  );
+});
+
+test("manifest records non-llmwiki session runtime agent id", () => {
+  const fixture = createManifestFixture({ agentId: "research" });
+
+  assert.equal(fixture.sessionRuntime.agentId, "research");
+  assert.equal(fixture.manifest.sessionRuntime?.agentId, "research");
+});
+
+test("manifest validation reports CLI and session runtime agent id mismatch", () => {
+  const fixture = createManifestFixture({
+    agentId: "research",
+    expectedAgentId: "analysis",
+  });
+
+  const validation = validateInstallerManifest(fixture.manifest, {
+    repoRoot,
+    workspacePath: fixture.workspacePath,
+    kbRoot: fixture.kbRoot,
+    mcpName: "llm-kb",
+    expectedMcpConfig: fixture.expectedMcpConfig,
+    agentId: fixture.expectedAgentId,
+  } as Parameters<typeof validateInstallerManifest>[1] & { agentId: string });
+
+  assert.equal(
+    validation.driftItems.some((item) => {
+      return (
+        item.kind === "session_runtime_hash_drift" &&
+        item.expected === "analysis" &&
+        item.actual === "research"
+      );
+    }),
+    true
+  );
 });
 
 test("manifest validation reports session runtime hash drift", () => {
@@ -150,6 +618,403 @@ test("manifest validation reports session runtime hash drift", () => {
   );
 });
 
+test("session runtime tool policy targets configured agent id", async () => {
+  const workspacePath = "/tmp/research-workspace";
+  let agentsList: unknown = [
+    {
+      id: "llmwiki",
+      workspace: "/tmp/llmwiki-workspace",
+      tools: {
+        alsoAllow: [],
+      },
+    },
+    {
+      id: "research",
+      workspace: workspacePath,
+      tools: {
+        alsoAllow: [],
+      },
+    },
+  ];
+  const fakeCli = {
+    async getConfigValue() {
+      return agentsList;
+    },
+    async setConfigValueStrictJson(_configPath: string, value: unknown) {
+      agentsList = value;
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        signal: null,
+      };
+    },
+  };
+
+  await ensureSessionRuntimeAgentToolPolicy({
+    cli: fakeCli as never,
+    agentId: "research",
+    workspacePath,
+  });
+
+  assert.equal(
+    await hasSessionRuntimeAgentToolPolicy({
+      cli: fakeCli as never,
+      agentId: "research",
+      workspacePath,
+    }),
+    true
+  );
+  assert.equal(
+    await hasSessionRuntimeAgentToolPolicy({
+      cli: fakeCli as never,
+      agentId: "llmwiki",
+      workspacePath: "/tmp/llmwiki-workspace",
+    }),
+    false
+  );
+
+  await removeSessionRuntimeAgentToolPolicy({
+    cli: fakeCli as never,
+    agentId: "research",
+    workspacePath,
+  });
+
+  assert.equal(
+    await hasSessionRuntimeAgentToolPolicy({
+      cli: fakeCli as never,
+      agentId: "research",
+      workspacePath,
+    }),
+    false
+  );
+});
+
+test("session runtime tool policy cleanup can remove previous owner only", async () => {
+  const workspacePath = "/tmp/shared-workspace";
+  let agentsList: unknown = [
+    {
+      id: "llmwiki",
+      workspace: workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "research",
+      workspace: workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+  ];
+  const fakeCli = {
+    async getConfigValue() {
+      return agentsList;
+    },
+    async setConfigValueStrictJson(_configPath: string, value: unknown) {
+      agentsList = value;
+      return {
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        signal: null,
+      };
+    },
+  };
+
+  await removeSessionRuntimeAgentToolPolicy({
+    cli: fakeCli as never,
+    agentId: "llmwiki",
+    workspacePath,
+    allowMissingTarget: true,
+  });
+
+  assert.equal(
+    await hasSessionRuntimeAgentToolPolicy({
+      cli: fakeCli as never,
+      agentId: "llmwiki",
+      workspacePath,
+    }),
+    false
+  );
+  assert.equal(
+    await hasSessionRuntimeAgentToolPolicy({
+      cli: fakeCli as never,
+      agentId: "research",
+      workspacePath,
+    }),
+    true
+  );
+});
+
+test("session runtime tool policy retarget cleanup removes specified old agent even when workspace drifted", async () => {
+  const workspacePath = "/tmp/current-workspace";
+  const state = createMutableOpenClawCliState([
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-old-workspace",
+      tools: {
+        allow: ["llmwiki-kb-tools"],
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "research",
+      workspace: workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "analytics",
+      workspace: "/tmp/analytics",
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+  ]);
+
+  await removeSessionRuntimeAgentToolPolicy({
+    cli: state.cli as never,
+    agentId: "legacy",
+    workspacePath,
+    allowMissingTarget: true,
+    matchAgentIdOnly: true,
+  });
+
+  const nextAgents = state.readAgentsList() as Array<Record<string, unknown>>;
+  const legacy = nextAgents.find((entry) => entry.id === "legacy");
+  const research = nextAgents.find((entry) => entry.id === "research");
+  const analytics = nextAgents.find((entry) => entry.id === "analytics");
+
+  assert.ok(legacy);
+  assert.ok(research);
+  assert.ok(analytics);
+  assert.equal(entryHasPluginPolicy(legacy), false);
+  assert.equal(entryHasPluginPolicy(research), true);
+  assert.equal(entryHasPluginPolicy(analytics), true);
+});
+
+test("session runtime tool policy agent-id-only cleanup fails closed on duplicate agent ids", async () => {
+  const workspacePath = "/tmp/current-workspace";
+  const initialAgentsList = [
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-old-workspace",
+      tools: {
+        allow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-other-workspace",
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "research",
+      workspace: workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+  ];
+  const state = createMutableOpenClawCliState(initialAgentsList);
+
+  await assert.rejects(
+    removeSessionRuntimeAgentToolPolicy({
+      cli: state.cli as never,
+      agentId: "legacy",
+      workspacePath,
+      allowMissingTarget: true,
+      matchAgentIdOnly: true,
+    }),
+    /ambiguous.*agent "legacy"/u
+  );
+
+  assert.deepEqual(state.readAgentsList(), initialAgentsList);
+});
+
+test("uninstall force cleanup removes manifest previous agent tool policy despite workspace drift", async () => {
+  const fixture = createManifestFixture({ agentId: "legacy" });
+  writeInstallerManifest(fixture.workspacePath, fixture.manifest);
+
+  const state = createMutableOpenClawCliState([
+    {
+      id: "research",
+      workspace: fixture.workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-not-current-workspace",
+      tools: {
+        allow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "analytics",
+      workspace: "/tmp/analytics",
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+  ]);
+
+  await uninstallOpenClawIntegration(
+    {
+      command: "uninstall",
+      workspace: fixture.workspacePath,
+      mcpName: "llm-kb",
+      agentId: "research",
+      force: true,
+    },
+    {
+      repoRoot,
+      installerEntrypoint: path.resolve(repoRoot, "dist", "openclaw-installer.js"),
+      mcpServerEntrypoint: path.resolve(repoRoot, "dist", "mcp_server.js"),
+      openclawPluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
+      openclawPluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+      command: "uninstall",
+      workspace: fixture.workspacePath,
+      kbRoot: fixture.kbRoot,
+      mcpName: "llm-kb",
+      agentId: "research",
+    },
+    {
+      cli: state.cli as never,
+    }
+  );
+
+  const nextAgents = state.readAgentsList() as Array<Record<string, unknown>>;
+  const research = nextAgents.find((entry) => entry.id === "research");
+  const legacy = nextAgents.find((entry) => entry.id === "legacy");
+  const analytics = nextAgents.find((entry) => entry.id === "analytics");
+  assert.ok(research);
+  assert.ok(legacy);
+  assert.ok(analytics);
+  assert.equal(entryHasPluginPolicy(research), false);
+  assert.equal(entryHasPluginPolicy(legacy), false);
+  assert.equal(entryHasPluginPolicy(analytics), true);
+});
+
+test("uninstall fails closed before mutation when previous agent cleanup is ambiguous", async () => {
+  const fixture = createManifestFixture({ agentId: "legacy" });
+  writeInstallerManifest(fixture.workspacePath, fixture.manifest);
+  const initialAgentsList = [
+    {
+      id: "research",
+      workspace: fixture.workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-one",
+      tools: {
+        allow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-two",
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+  ];
+  const state = createMutableOpenClawCliState(initialAgentsList);
+
+  await assert.rejects(
+    uninstallOpenClawIntegration(
+      {
+        command: "uninstall",
+        workspace: fixture.workspacePath,
+        mcpName: "llm-kb",
+        agentId: "research",
+        force: true,
+      },
+      {
+        repoRoot,
+        installerEntrypoint: path.resolve(repoRoot, "dist", "openclaw-installer.js"),
+        mcpServerEntrypoint: path.resolve(repoRoot, "dist", "mcp_server.js"),
+        openclawPluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
+        openclawPluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+        command: "uninstall",
+        workspace: fixture.workspacePath,
+        kbRoot: fixture.kbRoot,
+        mcpName: "llm-kb",
+        agentId: "research",
+      },
+      {
+        cli: state.cli as never,
+      }
+    ),
+    /ambiguous.*agent "legacy"/u
+  );
+
+  assert.equal(fs.existsSync(fixture.sessionRuntime.pluginRoot), true);
+  assert.equal(fs.existsSync(resolveInstallerManifestPath(fixture.workspacePath)), true);
+  assert.deepEqual(state.readAgentsList(), initialAgentsList);
+});
+
+test("check fail-closed: manifest runtime agent mismatch does not probe old runtime metadata", async () => {
+  const fixture = createManifestFixture({ agentId: "legacy" });
+  writeInstallerManifest(fixture.workspacePath, fixture.manifest);
+
+  const state = createMutableOpenClawCliState([
+    {
+      id: "research",
+      workspace: fixture.workspacePath,
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+    {
+      id: "legacy",
+      workspace: "/tmp/legacy-not-current-workspace",
+      tools: {
+        alsoAllow: ["llmwiki-kb-tools"],
+      },
+    },
+  ]);
+
+  const result = await checkOpenClawInstallation({
+    environment: {
+      repoRoot,
+      installerEntrypoint: path.resolve(repoRoot, "dist", "openclaw-installer.js"),
+      mcpServerEntrypoint: path.resolve(repoRoot, "dist", "mcp_server.js"),
+      openclawPluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
+      openclawPluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+      command: "check",
+      workspace: fixture.workspacePath,
+      kbRoot: fixture.kbRoot,
+      mcpName: "llm-kb",
+      agentId: "research",
+    },
+    requestedWorkspace: fixture.workspacePath,
+    mcpName: "llm-kb",
+    cli: state.cli as never,
+  });
+
+  assert.equal(
+    result.driftItems.some((item) => {
+      return (
+        item.kind === "session_runtime_hash_drift" &&
+        item.expected === "research" &&
+        item.actual === "legacy"
+      );
+    }),
+    true
+  );
+  assert.equal(result.lastSessionProbe, undefined);
+});
+
 test("session runtime materialization rejects symlinked plugin root", () => {
   const workspacePath = fs.mkdtempSync(
     path.join(os.tmpdir(), "openclaw-substrate-symlink-workspace-")
@@ -192,6 +1057,13 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
 
   assertContains(
     agents,
+    "installer-configured OpenClaw agent",
+    "AGENTS.md"
+  );
+  assertNotContains(agents, "绑定 `llmwiki`", "AGENTS.md");
+  assertNotContains(agents, "`llmwiki` 会话可见", "AGENTS.md");
+  assertContains(
+    agents,
     "`KB_ROOT` 是已安装的 `kb` 目录本体，而不是 `<KB_ROOT>/kb/...` 或 workspace-local `kb/`。",
     "AGENTS.md"
   );
@@ -210,12 +1082,16 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
   assertContains(agents, "冲突与开放问题必须显式写出", "AGENTS.md");
   assertContains(agents, "仅保存 MCP 配置不足以代表可用", "AGENTS.md");
 
+  assertContains(soul, "installer-configured OpenClaw agent", "SOUL.md");
+  assertNotContains(soul, "`llmwiki` 会话可见", "SOUL.md");
   assertContains(soul, "使命是长期维护可演化 wiki", "SOUL.md");
   assertContains(soul, "人类负责目标与裁决，Agent 负责检索、编译、交叉链接与一致性维护。", "SOUL.md");
   assertContains(soul, "高价值 query 输出", "SOUL.md");
   assertContains(soul, "仅保存 MCP 配置不能证明可用性；standalone MCP 连通性只是兼容/调试路径。", "SOUL.md");
   assertContains(soul, "ownership 未知、状态歧义、运行时冲突时失败即停并升级人工处理。", "SOUL.md");
 
+  assertContains(tools, "installer-configured OpenClaw agent", "TOOLS.md");
+  assertNotContains(tools, "`llmwiki` 会话可见", "TOOLS.md");
   assertContains(tools, "## KB MCP Tools (11)", "TOOLS.md");
   assertContains(
     tools,
@@ -236,6 +1112,8 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
     "TOOLS.md"
   );
 
+  assertContains(heartbeat, "installer-configured OpenClaw agent", "HEARTBEAT.md");
+  assertNotContains(heartbeat, "`llmwiki` 会话可见", "HEARTBEAT.md");
   assertContains(heartbeat, "## 启动", "HEARTBEAT.md");
   assertContains(heartbeat, "## 执行", "HEARTBEAT.md");
   assertContains(heartbeat, "## 收尾", "HEARTBEAT.md");
@@ -278,9 +1156,11 @@ test("operator-facing docs encode the OpenClaw installer success contract", () =
   );
   assertContains(
     readme,
-    "session-visible `kb_*` availability in `llmwiki` as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability.",
+    "configured OpenClaw agent session-visible `kb_*` availability as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability.",
     "README.md"
   );
+  assertContains(readme, "--agent-id", "README.md");
+  assertNotContains(readme, "in `llmwiki` as the primary health contract", "README.md");
   assertContains(
     readme,
     "The standalone MCP server remains a secondary compatibility/debugging surface, not the OpenClaw success criterion.",
@@ -299,7 +1179,13 @@ test("operator-facing docs encode the OpenClaw installer success contract", () =
   );
   assertContains(
     agentGuide,
-    "Saved MCP config alone is never sufficient proof of OpenClaw usability; `llmwiki` session-visible canonical `kb_*` tools are the success criterion.",
+    "Saved MCP config alone is never sufficient proof of OpenClaw usability; configured OpenClaw agent session-visible canonical `kb_*` tools are the success criterion.",
+    "docs/openclaw-installer-agent-guide.md"
+  );
+  assertContains(agentGuide, "--agent-id", "docs/openclaw-installer-agent-guide.md");
+  assertNotContains(
+    agentGuide,
+    "`llmwiki` session-visible canonical `kb_*` tools are the success criterion",
     "docs/openclaw-installer-agent-guide.md"
   );
   assertContains(
@@ -310,12 +1196,12 @@ test("operator-facing docs encode the OpenClaw installer success contract", () =
 
   assertContains(
     technical,
-    "`check --workspace <path> [--mcp-name <name>] [--json]`",
+    "`check --workspace <path> [--agent-id <id>] [--mcp-name <name>] [--json]`",
     "docs/technical.md"
   );
   assertContains(
     technical,
-    "`install/check/repair/uninstall` 都要求显式 `--workspace`。",
+    "`install/check/repair/uninstall` 都要求显式 `--workspace`，并使用显式或默认的 `--agent-id` 选择 configured OpenClaw agent。",
     "docs/technical.md"
   );
   assertContains(
@@ -325,7 +1211,12 @@ test("operator-facing docs encode the OpenClaw installer success contract", () =
   );
   assertContains(
     technical,
-    "OpenClaw 可用性成功判据是 `llmwiki` 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。",
+    "OpenClaw 可用性成功判据是 configured OpenClaw agent 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。",
+    "docs/technical.md"
+  );
+  assertNotContains(
+    technical,
+    "成功判据是 `llmwiki` 会话可见 canonical `kb_*`",
     "docs/technical.md"
   );
 });

@@ -9,6 +9,7 @@ import {
 } from "./types";
 
 const DEFAULT_MCP_NAME = "llm-kb";
+const DEFAULT_AGENT_ID = "llmwiki";
 
 type ParsedOption = {
   flags: Set<string>;
@@ -73,14 +74,15 @@ export function isParsedCheckJsonInvocation(argv: readonly string[]): boolean {
 export function formatInstallerUsage(command?: InstallerCommandName): string {
   const sections = [
     "Usage:",
-    "  kb-openclaw-installer install --workspace <path> --kb-root <path> [--mcp-name <name>] [--force]",
-    "  kb-openclaw-installer check --workspace <path> [--mcp-name <name>] [--json]",
-    "  kb-openclaw-installer repair --workspace <path> [--kb-root <path>] [--mcp-name <name>] [--force]",
-    "  kb-openclaw-installer uninstall --workspace <path> [--mcp-name <name>] [--force]",
+    "  kb-openclaw-installer install --workspace <path> --kb-root <path> [--agent-id <id>] [--mcp-name <name>] [--force]",
+    "  kb-openclaw-installer check --workspace <path> [--agent-id <id>] [--mcp-name <name>] [--json]",
+    "  kb-openclaw-installer repair --workspace <path> [--kb-root <path>] [--agent-id <id>] [--mcp-name <name>] [--force]",
+    "  kb-openclaw-installer uninstall --workspace <path> [--agent-id <id>] [--mcp-name <name>] [--force]",
     "",
     "Global flags:",
     "  --help                Show this help message",
     "  --mcp-name <name>     MCP registration name (default: llm-kb)",
+    "  --agent-id <id>       OpenClaw agent id bound to --workspace (default: llmwiki)",
   ];
 
   if (!command) {
@@ -92,22 +94,26 @@ export function formatInstallerUsage(command?: InstallerCommandName): string {
       "install flags:",
       "  --workspace <path>   Required explicit workspace target path",
       "  --kb-root <path>     Required KB root path",
+      "  --agent-id <id>      OpenClaw agent id bound to --workspace",
       "  --force              Allow overwriting installer-owned state",
     ],
     check: [
       "check flags:",
       "  --workspace <path>   Required explicit workspace target path",
+      "  --agent-id <id>      OpenClaw agent id bound to --workspace",
       "  --json               Emit machine-readable JSON output",
     ],
     repair: [
       "repair flags:",
       "  --workspace <path>   Required explicit workspace target path",
       "  --kb-root <path>     Optional KB root override",
+      "  --agent-id <id>      OpenClaw agent id bound to --workspace",
       "  --force              Allow overwriting installer-owned state",
     ],
     uninstall: [
       "uninstall flags:",
       "  --workspace <path>   Required explicit workspace target path",
+      "  --agent-id <id>      OpenClaw agent id bound to --workspace",
       "  --force              Allow removing installer-owned state without prompts",
     ],
   };
@@ -116,47 +122,51 @@ export function formatInstallerUsage(command?: InstallerCommandName): string {
 }
 
 function parseInstallArgs(options: ParsedOption): InstallCommandArgs {
-  assertNoUnknownFlags(options, ["workspace", "kb-root", "mcp-name", "force", "help"]);
+  assertNoUnknownFlags(options, ["workspace", "kb-root", "mcp-name", "agent-id", "force", "help"]);
 
   return {
     command: "install",
     workspace: requireValue(options, "workspace", "install"),
     kbRoot: requireValue(options, "kb-root", "install"),
     mcpName: readMcpName(options),
+    agentId: readAgentId(options),
     force: options.flags.has("force"),
   };
 }
 
 function parseCheckArgs(options: ParsedOption): CheckCommandArgs {
-  assertNoUnknownFlags(options, ["workspace", "mcp-name", "json", "help"]);
+  assertNoUnknownFlags(options, ["workspace", "mcp-name", "agent-id", "json", "help"]);
 
   return {
     command: "check",
     workspace: requireValue(options, "workspace", "check"),
     mcpName: readMcpName(options),
+    agentId: readAgentId(options),
     json: options.flags.has("json"),
   };
 }
 
 function parseRepairArgs(options: ParsedOption): RepairCommandArgs {
-  assertNoUnknownFlags(options, ["workspace", "kb-root", "mcp-name", "force", "help"]);
+  assertNoUnknownFlags(options, ["workspace", "kb-root", "mcp-name", "agent-id", "force", "help"]);
 
   return {
     command: "repair",
     workspace: requireValue(options, "workspace", "repair"),
     kbRoot: readOptionalValue(options, "kb-root"),
     mcpName: readMcpName(options),
+    agentId: readAgentId(options),
     force: options.flags.has("force"),
   };
 }
 
 function parseUninstallArgs(options: ParsedOption): UninstallCommandArgs {
-  assertNoUnknownFlags(options, ["workspace", "mcp-name", "force", "help"]);
+  assertNoUnknownFlags(options, ["workspace", "mcp-name", "agent-id", "force", "help"]);
 
   return {
     command: "uninstall",
     workspace: requireValue(options, "workspace", "uninstall"),
     mcpName: readMcpName(options),
+    agentId: readAgentId(options),
     force: options.flags.has("force"),
   };
 }
@@ -261,6 +271,20 @@ function readMcpName(options: ParsedOption): string {
   return value;
 }
 
+function readAgentId(options: ParsedOption): string {
+  const value = readOptionalValue(options, "agent-id");
+
+  if (value === undefined) {
+    return DEFAULT_AGENT_ID;
+  }
+
+  if (value.length === 0) {
+    throw new InstallerCliUsageError("Option --agent-id must not be empty.");
+  }
+
+  return value;
+}
+
 function assertNoUnknownFlags(options: ParsedOption, allowedNames: string[]): void {
   const allowed = new Set(allowedNames);
   const unknownFlags = [...options.flags].filter((flag) => !allowed.has(flag));
@@ -275,7 +299,12 @@ function assertNoUnknownFlags(options: ParsedOption, allowedNames: string[]): vo
 }
 
 function expectsValue(name: string): boolean {
-  return name === "workspace" || name === "kb-root" || name === "mcp-name";
+  return (
+    name === "workspace" ||
+    name === "kb-root" ||
+    name === "mcp-name" ||
+    name === "agent-id"
+  );
 }
 
 function assertNoDuplicateValueOption(values: Map<string, string>, name: string): void {

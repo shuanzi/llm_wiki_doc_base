@@ -47,6 +47,7 @@ export interface InstallerManifestOwnershipExpectation {
   workspacePath?: string;
   kbRoot?: string;
   mcpName?: string;
+  agentId?: string;
   expectedMcpConfig?: InstallerExpectedMcpConfig;
 }
 
@@ -146,7 +147,7 @@ export function validateInstallerManifest(
   validateMcpExpectation(normalizedManifest, expectation, driftItems);
   validateSkillProvenance(normalizedManifest, driftItems);
   validateWorkspaceDocMetadata(normalizedManifest, driftItems);
-  validateSessionRuntimeMetadata(normalizedManifest, driftItems);
+  validateSessionRuntimeMetadata(normalizedManifest, expectation, driftItems);
 
   if (driftItems.some((item) => item.kind === "unknown_ownership")) {
     return { status: "unknown_ownership", driftItems };
@@ -161,6 +162,7 @@ export function validateInstallerManifest(
 
 function validateSessionRuntimeMetadata(
   manifest: InstallerManifest,
+  expectation: InstallerManifestOwnershipExpectation,
   driftItems: InstallerDriftItem[]
 ): void {
   const runtime = manifest.sessionRuntime;
@@ -183,12 +185,22 @@ function validateSessionRuntimeMetadata(
     });
   }
 
-  if (runtime.agentId !== SESSION_RUNTIME_AGENT_ID) {
+  if (runtime.agentId.length === 0) {
     driftItems.push({
       kind: "session_runtime_hash_drift",
-      message: "Session runtime agent id drifted from installer-owned value.",
+      message: "Session runtime agent id must not be empty.",
       repairable: true,
-      expected: SESSION_RUNTIME_AGENT_ID,
+      expected: "non-empty agent id",
+      actual: runtime.agentId,
+    });
+  }
+
+  if (expectation.agentId && runtime.agentId !== expectation.agentId) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime agent id drifted from requested installer target.",
+      repairable: false,
+      expected: expectation.agentId,
       actual: runtime.agentId,
     });
   }
@@ -1169,8 +1181,8 @@ function parseSessionRuntimeMetadata(
     `${label}.agentId`,
     SESSION_RUNTIME_AGENT_ID
   );
-  if (agentId !== SESSION_RUNTIME_AGENT_ID) {
-    throw new Error(`${label}.agentId must be "${SESSION_RUNTIME_AGENT_ID}".`);
+  if (agentId.length === 0) {
+    throw new Error(`${label}.agentId must not be empty.`);
   }
 
   const pluginId = readStringWithDefault(
@@ -1258,7 +1270,7 @@ function parseSessionRuntimeMetadata(
 
   return {
     runtimeKind: "workspace-openclaw-native-plugin-shim-v1",
-    agentId: SESSION_RUNTIME_AGENT_ID,
+    agentId,
     pluginId: SESSION_RUNTIME_PLUGIN_ID,
     pluginRoot,
     pluginIndexFile,
@@ -1424,7 +1436,7 @@ function normalizeSessionRuntimeMetadata(
 ): InstallerSessionRuntimeMetadata {
   return {
     runtimeKind: "workspace-openclaw-native-plugin-shim-v1",
-    agentId: "llmwiki",
+    agentId: metadata.agentId,
     pluginId: "llmwiki-kb-tools",
     pluginRoot: path.resolve(metadata.pluginRoot),
     pluginIndexFile: path.resolve(metadata.pluginIndexFile),

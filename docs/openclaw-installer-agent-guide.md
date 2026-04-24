@@ -17,9 +17,9 @@ This guide applies to the current installer implementation only.
 This is not a plugin install flow. It installs:
 
 - one workspace-local OpenClaw native plugin shim under `<workspace>/.openclaw/extensions/llmwiki-kb-tools`
-- the shim is pinned to the configured external `KB_ROOT`; real `llmwiki` session tool calls must not fall back to `cwd/kb`
+- the shim is pinned to the configured external `KB_ROOT`; real configured OpenClaw agent session tool calls must not fall back to `cwd/kb`
 - OpenClaw plugin config for that shim: `plugins.load.paths`, `plugins.allow`, and `plugins.entries.llmwiki-kb-tools.enabled`
-- bound `llmwiki` agent tool policy allowing the `llmwiki-kb-tools` plugin group, normally via `tools.alsoAllow`
+- bound configured OpenClaw agent tool policy allowing the `llmwiki-kb-tools` plugin group, normally via `tools.alsoAllow`
 - one MCP registration that points to this repository's `dist/mcp_server.js` as a secondary compatibility/debugging surface
 - three OpenClaw-adapted skills under the target workspace
 - one installer manifest under the target workspace
@@ -37,7 +37,7 @@ The agent must enforce these rules:
 4. Conflict handling is conservative by default. Do not add `--force` unless there is a specific reason.
 5. Installed skills are adapted variants, not direct copies of repository-local usage assumptions.
 6. `kb_commit` is not part of the default external-KB workflow contract, even though the MCP server still exposes it.
-7. Saved MCP config alone is never sufficient proof of OpenClaw usability; `llmwiki` session-visible canonical `kb_*` tools are the success criterion.
+7. Saved MCP config alone is never sufficient proof of OpenClaw usability; configured OpenClaw agent session-visible canonical `kb_*` tools are the success criterion.
 
 ## What The Installer Creates
 
@@ -63,7 +63,7 @@ Before running installer commands, the agent should verify:
 3. `openclaw` CLI is available on `PATH`.
 4. The target workspace path is the intended explicit installer target.
 5. The target external `KB_ROOT` path is known.
-6. The explicit workspace is the OpenClaw agent workspace for `llmwiki`; missing or ambiguous binding is fail-closed.
+6. The explicit workspace plus explicit/default `--agent-id` identifies the configured OpenClaw agent (default `--agent-id` is `llmwiki`); missing or ambiguous binding is fail-closed.
 
 ## Standard Install Procedure
 
@@ -82,6 +82,7 @@ npm run build
 node dist/openclaw_installer.js install \
   --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
+  --agent-id llmwiki \
   --mcp-name llm-kb
 ```
 
@@ -91,6 +92,7 @@ Equivalent bin form:
 kb-openclaw-installer install \
   --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
+  --agent-id llmwiki \
   --mcp-name llm-kb
 ```
 
@@ -99,6 +101,7 @@ kb-openclaw-installer install \
 ```bash
 node dist/openclaw_installer.js check \
   --workspace /absolute/path/to/target-workspace \
+  --agent-id llmwiki \
   --mcp-name llm-kb \
   --json
 ```
@@ -106,7 +109,7 @@ node dist/openclaw_installer.js check \
 Success condition:
 
 - JSON output contains `"ok": true`
-- `llmwiki` session-visible canonical `kb_*` tools are healthy for the explicit workspace
+- configured OpenClaw agent session-visible canonical `kb_*` tools are healthy for the explicit workspace
 - saved MCP config alone is insufficient as proof; standalone MCP probe is only a secondary compatibility/debug signal
 
 ## Standard Repair Procedure
@@ -117,13 +120,14 @@ Use `repair` when installer-owned state has drifted but ownership is still valid
 node dist/openclaw_installer.js repair \
   --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
+  --agent-id llmwiki \
   --mcp-name llm-kb
 ```
 
 Use cases:
 
 - missing adapted skills
-- missing or drifted workspace-local `llmwiki` session runtime shim
+- missing or drifted workspace-local configured OpenClaw agent session runtime shim
 - drifted or missing MCP config
 - missing installer manifest with enough surviving installer-owned state
 - legacy manifest that needs session-runtime metadata backfill
@@ -138,12 +142,13 @@ Use `uninstall` only when removing this installer-owned integration.
 ```bash
 node dist/openclaw_installer.js uninstall \
   --workspace /absolute/path/to/target-workspace \
+  --agent-id llmwiki \
   --mcp-name llm-kb
 ```
 
 Expected behavior:
 
-- removes installer-owned workspace-local `llmwiki` session runtime artifacts, clears their OpenClaw plugin config, and removes the `llmwiki-kb-tools` group from the bound `llmwiki` agent tool policy when ownership matches
+- removes installer-owned workspace-local configured OpenClaw agent session runtime artifacts, clears their OpenClaw plugin config, and removes the `llmwiki-kb-tools` group from the bound configured OpenClaw agent tool policy when ownership matches
 - removes installer-owned MCP registration if ownership matches
 - removes installer-owned skill directories if ownership matches
 - removes installer manifest
@@ -227,7 +232,7 @@ Do:
 
 - build before install
 - run `check --json` after install or repair
-- treat `llmwiki` session-visible `kb_*` tools as the primary success condition
+- treat configured OpenClaw agent session-visible `kb_*` tools as the primary success condition
 - preserve the external `KB_ROOT`
 - assume fail-closed behavior is intentional
 - treat manifest + MCP config + skill hashes as ownership signals
@@ -246,10 +251,10 @@ Do not:
 ```bash
 npm run typecheck
 npm run build
-node dist/openclaw_installer.js install --workspace /abs/workspace --kb-root /abs/external-kb --mcp-name llm-kb
-node dist/openclaw_installer.js check --workspace /abs/workspace --mcp-name llm-kb --json
-node dist/openclaw_installer.js repair --workspace /abs/workspace --kb-root /abs/external-kb --mcp-name llm-kb
-node dist/openclaw_installer.js uninstall --workspace /abs/workspace --mcp-name llm-kb
+node dist/openclaw_installer.js install --workspace /abs/workspace --kb-root /abs/external-kb --agent-id llmwiki --mcp-name llm-kb
+node dist/openclaw_installer.js check --workspace /abs/workspace --agent-id llmwiki --mcp-name llm-kb --json
+node dist/openclaw_installer.js repair --workspace /abs/workspace --kb-root /abs/external-kb --agent-id llmwiki --mcp-name llm-kb
+node dist/openclaw_installer.js uninstall --workspace /abs/workspace --agent-id llmwiki --mcp-name llm-kb
 ```
 
 ## Source of Truth

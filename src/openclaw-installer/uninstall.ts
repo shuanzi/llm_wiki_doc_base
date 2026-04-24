@@ -7,7 +7,10 @@ import {
   renderSessionRuntimePluginManifest,
   resolveSessionRuntimeArtifactPaths,
 } from "./session-runtime-artifact";
-import { removeSessionRuntimeAgentToolPolicy } from "./session-runtime-agent-policy";
+import {
+  assertCanRemoveSessionRuntimeAgentToolPolicy,
+  removeSessionRuntimeAgentToolPolicy,
+} from "./session-runtime-agent-policy";
 import { removeSessionRuntimePluginConfig } from "./session-runtime-config";
 import {
   areExpectedMcpConfigsEqual,
@@ -18,6 +21,10 @@ import {
   resolveInstallerManifestPath,
   validateInstallerManifest,
 } from "./manifest";
+import {
+  assertAgentWorkspaceBinding,
+  resolveAgentWorkspaceBinding,
+} from "./llmwiki-binding";
 import { OpenClawCli } from "./openclaw-cli";
 import { OPENCLAW_SKILL_NAMES } from "./skills";
 import { renderOpenClawWorkspaceDoc } from "./workspace-docs";
@@ -66,6 +73,13 @@ export async function uninstallOpenClawIntegration(
   await ensureOpenClawCliReady(cli);
 
   const workspacePath = resolveExplicitWorkspacePath(args.workspace);
+  assertAgentWorkspaceBinding(
+    await resolveAgentWorkspaceBinding({
+      cli,
+      agentId: args.agentId,
+      workspacePath,
+    })
+  );
   const manifestPath = resolveInstallerManifestPath(workspacePath);
 
   const manifest = readManifestForUninstall(workspacePath, args.force);
@@ -73,6 +87,7 @@ export async function uninstallOpenClawIntegration(
     repoRoot: path.resolve(environment.repoRoot),
     workspacePath,
     mcpName: args.mcpName,
+    agentId: args.agentId,
     force: args.force,
   });
 
@@ -109,6 +124,28 @@ export async function uninstallOpenClawIntegration(
     force: args.force,
   });
 
+  const plannedPolicyCleanups = plannedSessionRuntimeRemoval
+    ? dedupeStrings([args.agentId, manifest?.sessionRuntime?.agentId]).map(
+        (agentId) => {
+          const isRequestedAgent = agentId === args.agentId;
+          return {
+            agentId,
+            allowMissingTarget: !isRequestedAgent,
+            matchAgentIdOnly: !isRequestedAgent,
+          };
+        }
+      )
+    : [];
+  for (const cleanup of plannedPolicyCleanups) {
+    await assertCanRemoveSessionRuntimeAgentToolPolicy({
+      cli,
+      agentId: cleanup.agentId,
+      workspacePath,
+      allowMissingTarget: cleanup.allowMissingTarget,
+      matchAgentIdOnly: cleanup.matchAgentIdOnly,
+    });
+  }
+
   applyWorkspaceDocLifecycleActions(plannedWorkspaceDocLifecycleActions);
 
   const removedSkillDirectories: string[] = [];
@@ -132,10 +169,15 @@ export async function uninstallOpenClawIntegration(
   cleanupSessionRuntimeSupportDirectories(workspacePath);
 
   if (plannedSessionRuntimeRemoval) {
-    await removeSessionRuntimeAgentToolPolicy({
-      cli,
-      workspacePath,
-    });
+    for (const cleanup of plannedPolicyCleanups) {
+      await removeSessionRuntimeAgentToolPolicy({
+        cli,
+        agentId: cleanup.agentId,
+        workspacePath,
+        allowMissingTarget: cleanup.allowMissingTarget,
+        matchAgentIdOnly: cleanup.matchAgentIdOnly,
+      });
+    }
     await removeSessionRuntimePluginConfig({
       cli,
       pluginRoot: plannedSessionRuntimeRemoval.pluginRoot,
@@ -174,6 +216,10 @@ export async function uninstallOpenClawIntegration(
       left.localeCompare(right)
     ),
   };
+}
+
+function dedupeStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
 function planSkillDirectoryRemovals(options: {
@@ -577,6 +623,7 @@ function validateManifestForUninstall(
     repoRoot: string;
     workspacePath: string;
     mcpName: string;
+    agentId: string;
     force: boolean;
   }
 ): void {
@@ -593,6 +640,7 @@ function validateManifestForUninstall(
     repoRoot: options.repoRoot,
     workspacePath: options.workspacePath,
     mcpName: options.mcpName,
+    agentId: options.agentId,
   });
 
   if (validation.status === "unknown_ownership" && !options.force) {
@@ -600,6 +648,18 @@ function validateManifestForUninstall(
       `Uninstall refused because manifest ownership is uncertain. ${validation.driftItems
         .map((item) => item.message)
         .join(" | ")}`
+    );
+  }
+
+  const agentMismatch = validation.driftItems.find((item) => {
+    return (
+      item.kind === "session_runtime_hash_drift" &&
+      item.message.includes("agent id")
+    );
+  });
+  if (agentMismatch && !options.force) {
+    throw new Error(
+      `Uninstall refused because manifest agent ownership differs from --agent-id. ${agentMismatch.message}`
     );
   }
 }

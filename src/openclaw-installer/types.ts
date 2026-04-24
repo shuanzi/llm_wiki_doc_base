@@ -47,6 +47,7 @@ export type InstallerRepairAction = (typeof INSTALLER_REPAIR_ACTIONS)[number];
 export interface InstallerCliCommonArgs {
   command: InstallerCommandName;
   mcpName: string;
+  agentId: string;
 }
 
 export interface InstallCommandArgs extends InstallerCliCommonArgs {
@@ -91,6 +92,7 @@ export interface ResolvedInstallerEnvironment {
   workspace?: string;
   kbRoot?: string;
   mcpName: string;
+  agentId: string;
 }
 
 export interface InstallerExpectedMcpConfig {
@@ -138,7 +140,7 @@ export interface InstallerSkillInstallationMetadata {
 
 export interface InstallerSessionRuntimeMetadata {
   runtimeKind: "workspace-openclaw-native-plugin-shim-v1";
-  agentId: "llmwiki";
+  agentId: string;
   pluginId: "llmwiki-kb-tools";
   pluginRoot: string;
   pluginIndexFile: string;

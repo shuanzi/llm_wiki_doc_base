@@ -4,7 +4,7 @@ import * as path from "path";
 import { KB_CANONICAL_TOOL_NAMES } from "../runtime/kb_tool_contract";
 import { sha256 } from "../utils/hash";
 import { validateMinimumKbStructure } from "./kb-bootstrap";
-import { resolveLlmwikiWorkspaceBinding } from "./llmwiki-binding";
+import { resolveAgentWorkspaceBinding } from "./llmwiki-binding";
 import {
   readInstallerManifest,
   validateInstallerManifest,
@@ -44,7 +44,7 @@ export interface CheckOpenClawInstallationOptions {
 
 interface CheckContext {
   cliReady: boolean;
-  llmwikiBindingOk: boolean;
+  agentBindingOk: boolean;
   resolvedWorkspacePath?: string;
   resolvedManifest?: InstallerManifest;
   expectedMcpConfig?: InstallerExpectedMcpConfig;
@@ -69,18 +69,19 @@ export async function checkOpenClawInstallation(
     ...options.environment,
     workspace: resolvedWorkspacePath,
     mcpName,
+    agentId: options.environment.agentId,
     command: "check",
   };
 
   const driftItems: InstallerDriftItem[] = [];
   const context: CheckContext = {
     cliReady: false,
-    llmwikiBindingOk: false,
+    agentBindingOk: false,
     resolvedWorkspacePath,
   };
 
   await checkOpenClawCliAvailability(cli, driftItems, context);
-  await checkLlmwikiWorkspaceBinding(cli, environment, driftItems, context);
+  await checkAgentWorkspaceBinding(cli, environment, driftItems, context);
   await checkManifest(environment, driftItems, context);
   checkWorkspaceDocs(environment, driftItems, context);
   checkBuildArtifact(environment, driftItems, context);
@@ -184,13 +185,14 @@ async function checkManifest(
     workspacePath,
     kbRoot: manifest.kbRoot,
     mcpName: environment.mcpName,
+    agentId: environment.agentId,
     expectedMcpConfig,
   });
 
   driftItems.push(...validationResult.driftItems);
 }
 
-async function checkLlmwikiWorkspaceBinding(
+async function checkAgentWorkspaceBinding(
   cli: OpenClawCli,
   environment: ResolvedInstallerEnvironment,
   driftItems: InstallerDriftItem[],
@@ -205,15 +207,16 @@ async function checkLlmwikiWorkspaceBinding(
     driftItems.push({
       kind: "session_runtime_binding_failure",
       message:
-        "Cannot validate llmwiki workspace binding because explicit workspace is unresolved.",
+        `Cannot validate agent "${environment.agentId}" workspace binding because explicit workspace is unresolved.`,
       repairable: false,
     });
     return;
   }
 
   try {
-    const bindingResult = await resolveLlmwikiWorkspaceBinding({
+    const bindingResult = await resolveAgentWorkspaceBinding({
       cli,
+      agentId: environment.agentId,
       workspacePath,
     });
     if (bindingResult.status !== "bound") {
@@ -224,11 +227,11 @@ async function checkLlmwikiWorkspaceBinding(
       });
       return;
     }
-    context.llmwikiBindingOk = true;
+    context.agentBindingOk = true;
   } catch (error) {
     driftItems.push({
       kind: "session_runtime_binding_failure",
-      message: `Failed to validate llmwiki workspace binding: ${stringifyError(error)}`,
+      message: `Failed to validate agent "${environment.agentId}" workspace binding: ${stringifyError(error)}`,
       repairable: false,
     });
   }
@@ -490,9 +493,12 @@ async function checkSessionRuntime(
     driftItems.push({
       kind: "missing_session_runtime",
       message:
-        "Installer manifest is missing session runtime metadata for llmwiki session-visible tool integration.",
+        `Installer manifest is missing session runtime metadata for agent "${environment.agentId}" session-visible tool integration.`,
       repairable: true,
     });
+    return;
+  }
+  if (sessionRuntime.agentId !== environment.agentId) {
     return;
   }
 
@@ -533,6 +539,7 @@ async function checkSessionRuntime(
   try {
     agentToolPolicyOk = await hasSessionRuntimeAgentToolPolicy({
       cli,
+      agentId: environment.agentId,
       workspacePath:
         context.resolvedWorkspacePath ??
         path.resolve(sessionRuntime.pluginRoot, "..", "..", ".."),
@@ -541,7 +548,7 @@ async function checkSessionRuntime(
     driftItems.push({
       kind: "session_runtime_binding_failure",
       message:
-        `Failed to inspect llmwiki agent tool policy: ${stringifyError(error)}`,
+        `Failed to inspect agent "${environment.agentId}" tool policy: ${stringifyError(error)}`,
       repairable: true,
     });
     return;
@@ -550,7 +557,7 @@ async function checkSessionRuntime(
     driftItems.push({
       kind: "missing_session_runtime",
       message:
-        `Agent "${sessionRuntime.agentId}" does not allow the ` +
+        `Agent "${environment.agentId}" does not allow the ` +
         `"${sessionRuntime.pluginId}" plugin tool group in tools.allow/tools.alsoAllow.`,
       repairable: true,
       expected: sessionRuntime.pluginId,
@@ -558,7 +565,7 @@ async function checkSessionRuntime(
     });
   }
 
-  if (!context.llmwikiBindingOk) {
+  if (!context.agentBindingOk) {
     return;
   }
 

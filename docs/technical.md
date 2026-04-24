@@ -222,25 +222,26 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 - package script：`npm run start:openclaw-installer`
 - bin：`kb-openclaw-installer`
 - 命令面：
-  - `install --workspace <path> --kb-root <path> [--mcp-name <name>] [--force]`
-  - `check --workspace <path> [--mcp-name <name>] [--json]`
-  - `repair --workspace <path> [--kb-root <path>] [--mcp-name <name>] [--force]`
-  - `uninstall --workspace <path> [--mcp-name <name>] [--force]`
+  - `install --workspace <path> --kb-root <path> [--agent-id <id>] [--mcp-name <name>] [--force]`
+  - `check --workspace <path> [--agent-id <id>] [--mcp-name <name>] [--json]`
+  - `repair --workspace <path> [--kb-root <path>] [--agent-id <id>] [--mcp-name <name>] [--force]`
+  - `uninstall --workspace <path> [--agent-id <id>] [--mcp-name <name>] [--force]`
 
 ### 9.2 操作命令（精确示例）
 
 ```bash
-node dist/openclaw_installer.js install --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
-node dist/openclaw_installer.js check --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb --json
-node dist/openclaw_installer.js repair --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
-node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb
+node dist/openclaw_installer.js install --workspace /absolute/path/to/target-workspace --kb-root /absolute/path/to/external-kb --agent-id llmwiki --mcp-name llm-kb
+node dist/openclaw_installer.js check --workspace /absolute/path/to/target-workspace --agent-id llmwiki --mcp-name llm-kb --json
+node dist/openclaw_installer.js repair --workspace /absolute/path/to/target-workspace --kb-root /absolute/path/to/external-kb --agent-id llmwiki --mcp-name llm-kb
+node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/target-workspace --agent-id llmwiki --mcp-name llm-kb
 ```
 
 ### 9.3 当前实现约束（必须知晓）
 
 1. 显式 workspace 绑定与 fail-closed
 - `install/check/repair/uninstall` 都要求显式 `--workspace`。
-- 目标 `--workspace` 必须可解析并绑定到 OpenClaw agent `id=llmwiki`；缺失绑定、歧义绑定或不匹配时 fail-closed。
+- `install/check/repair/uninstall` 都要求显式 `--workspace`，并使用显式或默认的 `--agent-id` 选择 configured OpenClaw agent。
+- 默认 `--agent-id` 是 `llmwiki`，但不是唯一支持对象；缺失绑定、歧义绑定或不匹配时 fail-closed。
 
 2. `KB_ROOT` 是外部且显式的契约
 - `install` 强制 `--kb-root`；`repair` 可从 manifest/MCP 配置恢复，也可显式传入。
@@ -258,7 +259,7 @@ node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-
 5. repo-path coupling 与冲突保守策略
 - manifest 记录 `repoRoot`，且期望 MCP 配置固定指向 `<repoRoot>/dist/mcp_server.js` + `KB_ROOT`；移动 repo 或 build 产物缺失会触发 drift。
 - 冲突（manifest ownership、MCP config、skill 内容/目录）默认拒绝覆盖并 fail-closed，只有显式 `--force` 才允许覆盖。
-- OpenClaw 可用性成功判据是 `llmwiki` 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。
+- OpenClaw 可用性成功判据是 configured OpenClaw agent 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。
 
 ## 10. 与历史文档关系
 

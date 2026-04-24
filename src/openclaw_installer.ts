@@ -48,7 +48,7 @@ async function main(): Promise<void> {
 
 type InstallerEnvironmentSeed = Pick<
   ResolvedInstallerEnvironment,
-  "command" | "workspace" | "kbRoot" | "mcpName"
+  "command" | "workspace" | "kbRoot" | "mcpName" | "agentId"
 >;
 
 function resolveInstallerEnvironment(
@@ -66,6 +66,7 @@ function resolveInstallerEnvironment(
     workspace: args.workspace,
     kbRoot: args.kbRoot,
     mcpName: args.mcpName,
+    agentId: args.agentId,
   };
 }
 
@@ -83,8 +84,9 @@ async function runInstall(
     [
       "OpenClaw installer completed successfully.",
       `workspace: ${result.checkResult.environment.workspace}`,
+      `agent_id: ${result.checkResult.environment.agentId}`,
       `kb_root: ${result.checkResult.environment.kbRoot}`,
-      "llmwiki_session_kb_tools: ready",
+      "configured_agent_session_kb_tools: ready",
       `manifest: ${result.manifestPath}`,
     ].join("\n") + "\n"
   );
@@ -114,8 +116,9 @@ async function runCheck(
       [
         "OpenClaw installer check passed.",
         `workspace: ${result.environment.workspace}`,
+        `agent_id: ${result.environment.agentId}`,
         `kb_root: ${result.environment.kbRoot ?? "(unknown)"}`,
-        "llmwiki_session_kb_tools: ready",
+        "configured_agent_session_kb_tools: ready",
       ].join("\n") + "\n"
     );
     return result;
@@ -146,6 +149,7 @@ async function runRepair(
     [
       result.message,
       `workspace: ${result.environment.workspace}`,
+      `agent_id: ${result.environment.agentId}`,
       `kb_root: ${result.environment.kbRoot ?? "(unknown)"}`,
       `actions: ${result.appliedActions.join(", ")}`,
     ].join("\n") + "\n"
@@ -212,6 +216,7 @@ function buildCheckJsonFailureResult(
       command: "check",
       workspace: readOptionValue(argv, "workspace"),
       mcpName: readOptionValue(argv, "mcp-name") ?? "llm-kb",
+      agentId: readOptionValue(argv, "agent-id") ?? "llmwiki",
     }),
     driftItems: [
       {
