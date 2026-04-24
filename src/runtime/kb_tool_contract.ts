@@ -2,7 +2,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_source_add",
     description:
-      "Register a source file (.md or .txt) into the knowledge base. Returns manifest and source_id.",
+      "Register a supported local source file into the knowledge base. Markdown is preserved; other supported formats are converted to canonical Markdown via MarkItDown. ZIP, OCR/images, audio transcription, Outlook, YouTube URLs, and plugins are disabled.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -17,13 +17,21 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_read_source",
     description:
-      "Read raw source content by source_id. Large files are truncated at 200 KB.",
+      "Read canonical Markdown source content by source_id. Defaults to 200 KB windows and supports byte pagination.",
     inputSchema: {
       type: "object" as const,
       properties: {
         source_id: {
           type: "string",
           description: "The source_id returned by kb_source_add.",
+        },
+        offset_bytes: {
+          type: "number",
+          description: "Byte offset into the canonical Markdown source. Default: 0.",
+        },
+        max_bytes: {
+          type: "number",
+          description: "Maximum canonical Markdown bytes to return. Default: 204800.",
         },
       },
       required: ["source_id"],

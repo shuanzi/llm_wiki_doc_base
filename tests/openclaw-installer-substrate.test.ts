@@ -93,6 +93,7 @@ test("manifest validation reports session runtime hash drift", () => {
 
   const sessionRuntime = materializeSessionRuntimeArtifacts({
     workspacePath,
+    kbRoot,
     sourcePluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
     sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
     installedAt,
@@ -139,6 +140,7 @@ test("session runtime materialization rejects symlinked plugin root", () => {
   const workspacePath = fs.mkdtempSync(
     path.join(os.tmpdir(), "openclaw-substrate-symlink-workspace-")
   );
+  const kbRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-substrate-symlink-kb-"));
   const symlinkTarget = fs.mkdtempSync(
     path.join(os.tmpdir(), "openclaw-substrate-symlink-target-")
   );
@@ -153,6 +155,7 @@ test("session runtime materialization rejects symlinked plugin root", () => {
     () =>
       materializeSessionRuntimeArtifacts({
         workspacePath,
+        kbRoot,
         sourcePluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
         sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
       }),

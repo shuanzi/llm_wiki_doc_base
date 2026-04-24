@@ -1,7 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import type { Manifest, SourceKind, WorkspaceConfig } from "../types";
-import { generateSourceId, resolveKbPath, sha256, validateSafeId } from "../utils";
+import { resolveKbPath, sha256Buffer, validateSafeId } from "../utils";
+import {
+  convertSourceToMarkdown,
+  isMarkdownExtension,
+  validateSourceFile,
+} from "./source-conversion";
 
 export interface RegisterSourceFileInput {
   file_path: string;
@@ -15,16 +20,27 @@ export interface RegisterSourceFileResult {
   manifest: Manifest;
 }
 
+export interface ReadRegisteredSourceOptions {
+  offset_bytes?: number;
+  max_bytes?: number;
+}
+
 export interface ReadRegisteredSourceResult {
   source_id: string;
   source_kind: SourceKind;
   file_name: string;
   content: string;
+  offset_bytes: number;
+  returned_bytes: number;
+  total_bytes: number;
+  truncated: boolean;
+  next_offset_bytes?: number;
+  warning?: string;
 }
 
 export const MAX_SOURCE_CONTENT_BYTES = 200 * 1024;
 
-const ALLOWED_EXTENSIONS = new Set([".md", ".txt"]);
+const CANONICAL_SOURCE_EXTENSION = ".md";
 
 type WorkspaceLike = string | WorkspaceConfig;
 
@@ -38,6 +54,35 @@ function manifestsDir(workspace: WorkspaceLike): string {
 
 function buildSourceLocator(filePath: string): string {
   return path.basename(filePath);
+}
+
+function generateSourceIdFromHash(
+  fullHash: string,
+  existingIds: Set<string>
+): { source_id: string; content_hash: string } {
+  for (const prefixLength of [8, 12, 16, 24, 32, fullHash.length]) {
+    const sourceId = `src_sha256_${fullHash.substring(0, prefixLength)}`;
+    if (!existingIds.has(sourceId)) {
+      return {
+        source_id: sourceId,
+        content_hash: `sha256:${fullHash}`,
+      };
+    }
+  }
+
+  throw new Error("Unable to generate unique source_id for source file hash.");
+}
+
+function toOptionalManifestString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function canonicalFileName(sourceId: string): string {
+  return `${sourceId}${CANONICAL_SOURCE_EXTENSION}`;
+}
+
+function originalFileName(sourceId: string, extension: string): string {
+  return `${sourceId}${extension || ".bin"}`;
 }
 
 export function listRegisteredManifests(workspace: WorkspaceLike): Manifest[] {
@@ -87,59 +132,71 @@ export function registerSourceFile(
   workspace: WorkspaceLike
 ): RegisterSourceFileResult {
   const kbRoot = getKbRoot(workspace);
-  const extension = path.extname(input.file_path).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(extension)) {
-    throw new Error(
-      `Unsupported file type "${extension}". MVP only supports: ${[...ALLOWED_EXTENSIONS].join(", ")}`
-    );
-  }
-
-  const absolutePath = path.resolve(input.file_path);
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Source file not found: ${absolutePath}`);
-  }
-
-  const content = fs.readFileSync(absolutePath, "utf8");
+  const sourceFile = validateSourceFile(input.file_path);
+  const originalContentHashFull = sha256Buffer(sourceFile.originalBuffer);
+  const originalContentHashPrefixed = `sha256:${originalContentHashFull}`;
   const dir = manifestsDir(kbRoot);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
   const existingIds = new Set<string>();
-  const contentHashFull = sha256(content);
-  const contentHashPrefixed = `sha256:${contentHashFull}`;
-
   for (const manifest of listRegisteredManifests(kbRoot)) {
     existingIds.add(manifest.source_id);
-    if (manifest.content_hash === contentHashPrefixed) {
+    const manifestOriginalHash = toOptionalManifestString(manifest.original_content_hash);
+    if (
+      manifest.content_hash === originalContentHashPrefixed ||
+      manifestOriginalHash === originalContentHashPrefixed
+    ) {
       throw new Error(
         `Duplicate content: source already registered as ${manifest.source_id} (${manifest.source_locator})`
       );
     }
   }
 
-  const { source_id, content_hash } = generateSourceId(content, existingIds);
-  const source_kind: SourceKind = extension === ".md" ? "markdown" : "plaintext";
+  const { source_id, content_hash } = generateSourceIdFromHash(
+    originalContentHashFull,
+    existingIds
+  );
+  const conversion = convertSourceToMarkdown(sourceFile);
 
   const inboxDir = resolveKbPath("raw/inbox", kbRoot);
   if (!fs.existsSync(inboxDir)) {
     fs.mkdirSync(inboxDir, { recursive: true });
   }
 
-  const canonical_path = `raw/inbox/${source_id}${extension}`;
+  const canonical_path = `raw/inbox/${canonicalFileName(source_id)}`;
   const destinationPath = resolveKbPath(canonical_path, kbRoot);
-  fs.copyFileSync(absolutePath, destinationPath);
+  fs.writeFileSync(destinationPath, conversion.canonical_markdown, "utf8");
+
+  let original_path: string | undefined;
+  if (!isMarkdownExtension(sourceFile.extension)) {
+    const originalsDir = resolveKbPath("raw/originals", kbRoot);
+    if (!fs.existsSync(originalsDir)) {
+      fs.mkdirSync(originalsDir, { recursive: true });
+    }
+
+    original_path = `raw/originals/${originalFileName(source_id, sourceFile.extension)}`;
+    fs.writeFileSync(resolveKbPath(original_path, kbRoot), sourceFile.originalBuffer);
+  }
 
   const file_name = path.basename(input.file_path);
   const manifest: Manifest = {
     source_id,
     source_locator: buildSourceLocator(input.file_path),
-    source_kind,
+    source_kind: conversion.source_kind,
     content_hash,
     canonical_path,
     file_name,
     ingest_status: "registered",
     created_at: new Date().toISOString(),
+    original_path,
+    original_file_name: file_name,
+    original_extension: sourceFile.extension,
+    original_content_hash: content_hash,
+    converted_path: canonical_path,
+    converted_content_hash: conversion.converted_content_hash,
+    conversion: conversion.conversion,
   };
 
   fs.writeFileSync(path.join(dir, `${source_id}.json`), JSON.stringify(manifest, null, 2), "utf8");
@@ -153,10 +210,66 @@ export function registerSourceFile(
   };
 }
 
+function normalizeReadOptions(
+  optionsOrMaxBytes?: ReadRegisteredSourceOptions | number
+): Required<ReadRegisteredSourceOptions> {
+  if (typeof optionsOrMaxBytes === "number") {
+    return {
+      offset_bytes: 0,
+      max_bytes: optionsOrMaxBytes,
+    };
+  }
+
+  return {
+    offset_bytes: optionsOrMaxBytes?.offset_bytes ?? 0,
+    max_bytes: optionsOrMaxBytes?.max_bytes ?? MAX_SOURCE_CONTENT_BYTES,
+  };
+}
+
+function assertValidReadWindow(offsetBytes: number, maxBytes: number): void {
+  if (!Number.isInteger(offsetBytes) || offsetBytes < 0) {
+    throw new Error("offset_bytes must be a non-negative integer.");
+  }
+
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error("max_bytes must be a positive integer.");
+  }
+}
+
+function isUtf8Boundary(buffer: Buffer, index: number): boolean {
+  return index <= 0 || index >= buffer.byteLength || (buffer[index] & 0xc0) !== 0x80;
+}
+
+function alignEndToUtf8Boundary(
+  buffer: Buffer,
+  startBytes: number,
+  requestedEndBytes: number
+): number {
+  if (requestedEndBytes >= buffer.byteLength) {
+    return buffer.byteLength;
+  }
+
+  let endBytes = requestedEndBytes;
+  while (endBytes > startBytes && !isUtf8Boundary(buffer, endBytes)) {
+    endBytes--;
+  }
+
+  if (endBytes > startBytes) {
+    return endBytes;
+  }
+
+  endBytes = requestedEndBytes;
+  while (endBytes < buffer.byteLength && !isUtf8Boundary(buffer, endBytes)) {
+    endBytes++;
+  }
+
+  return endBytes;
+}
+
 export function readRegisteredSource(
   sourceId: string,
   workspace: WorkspaceLike,
-  maxContentBytes: number = MAX_SOURCE_CONTENT_BYTES
+  optionsOrMaxBytes?: ReadRegisteredSourceOptions | number
 ): ReadRegisteredSourceResult {
   const manifest = loadSourceManifest(sourceId, workspace);
   const sourcePath = resolveKbPath(manifest.canonical_path, getKbRoot(workspace));
@@ -165,14 +278,28 @@ export function readRegisteredSource(
     throw new Error(`Source file not found at canonical path: ${manifest.canonical_path}`);
   }
 
-  const rawBuffer = fs.readFileSync(sourcePath);
-  let content = rawBuffer.toString("utf8");
+  const options = normalizeReadOptions(optionsOrMaxBytes);
+  assertValidReadWindow(options.offset_bytes, options.max_bytes);
 
-  if (rawBuffer.byteLength > maxContentBytes) {
-    content = rawBuffer.slice(0, maxContentBytes).toString("utf8");
-    content +=
-      "\n\n[WARNING: Content truncated. File exceeds 200KB limit. " +
-      `Original size: ${rawBuffer.byteLength} bytes.]`;
+  const rawBuffer = fs.readFileSync(sourcePath);
+  const totalBytes = rawBuffer.byteLength;
+  const offsetBytes = Math.min(options.offset_bytes, totalBytes);
+  if (!isUtf8Boundary(rawBuffer, offsetBytes)) {
+    throw new Error("offset_bytes must point to a UTF-8 character boundary.");
+  }
+
+  const requestedEndBytes = Math.min(offsetBytes + options.max_bytes, totalBytes);
+  const endBytes = alignEndToUtf8Boundary(rawBuffer, offsetBytes, requestedEndBytes);
+  const returnedBytes = endBytes - offsetBytes;
+  const truncated = endBytes < totalBytes;
+  const nextOffsetBytes = truncated ? endBytes : undefined;
+  const content = rawBuffer.slice(offsetBytes, endBytes).toString("utf8");
+  let warning: string | undefined;
+
+  if (truncated) {
+    warning =
+      `Content truncated at ${endBytes} of ${totalBytes} bytes. ` +
+      `Call kb_read_source with offset_bytes=${endBytes} to continue.`;
   }
 
   return {
@@ -180,5 +307,11 @@ export function readRegisteredSource(
     source_kind: manifest.source_kind,
     file_name: manifest.file_name,
     content,
+    offset_bytes: offsetBytes,
+    returned_bytes: returnedBytes,
+    total_bytes: totalBytes,
+    truncated,
+    next_offset_bytes: nextOffsetBytes,
+    warning,
   };
 }

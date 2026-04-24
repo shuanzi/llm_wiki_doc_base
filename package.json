@@ -32,6 +32,7 @@
     "typescript": "^6.0.2"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0"
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "yaml": "^2.8.3"
   }
 }
