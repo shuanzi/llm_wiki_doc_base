@@ -23,13 +23,13 @@ const KB_TOOL_SUMMARIES: Record<(typeof EXPECTED_KB_TOOL_NAMES)[number], string>
 
 const INSTALLER_COMMAND_SUMMARIES: Record<InstallerCommandName, string> = {
   install:
-    "Materialize installer-owned workspace artifacts, register MCP config, and write manifest state.",
+    "Materialize installer-owned workspace artifacts, enable llmwiki session-visible kb_* tools, register MCP config, and write manifest state.",
   check:
-    "Validate installer ownership, runtime consistency, and drift for managed artifacts.",
+    "Validate llmwiki session-visible kb_* availability, installer ownership, runtime consistency, and drift for managed artifacts.",
   repair:
-    "Conservatively reconstruct installer-owned artifacts when ownership is recognizable.",
+    "Conservatively reconstruct installer-owned llmwiki session runtime, docs, skills, and MCP state when ownership is recognizable.",
   uninstall:
-    "Remove installer-owned artifacts and MCP registration when ownership can be verified.",
+    "Remove installer-owned llmwiki session runtime artifacts and MCP registration when ownership can be verified.",
 };
 
 export interface RenderedOpenClawWorkspaceDoc {
@@ -83,13 +83,13 @@ function buildAgentsDocContent(): string {
     "6. Keep all write targets inside `kb/`.",
     "",
     "## Workspace Constraints",
-    "1. This installer integration supports only the current OpenClaw default-agent workspace.",
-    "2. If requested workspace and resolved default-agent workspace diverge, fail closed.",
+    "1. Installer commands target only the explicit path provided by `--workspace`.",
+    "2. The explicit workspace must resolve to the OpenClaw agent whose `id` is `llmwiki`; missing or ambiguous binding is fail-closed.",
     "3. Respect installer ownership tracked by `.llm-kb/openclaw-install.json`.",
     "",
     "## Fail-Closed Discipline",
     "1. Stop on ownership ambiguity, malformed state, or conflicting runtime config.",
-    "2. Prefer `check` before mutation when runtime state is uncertain.",
+    "2. Prefer `check` before mutation when llmwiki session-visible `kb_*` tools are uncertain.",
     "3. Use `--force` only when intentional overwrite risk is understood.",
   ]);
 }
@@ -100,12 +100,14 @@ function buildHeartbeatDocContent(): string {
     "",
     "## Startup",
     "- [ ] Confirm OpenClaw CLI is available and config is readable.",
-    "- [ ] Confirm target workspace is the current default-agent workspace.",
+    "- [ ] Confirm every installer command includes explicit `--workspace` targeting bound to `llmwiki`.",
     "- [ ] Confirm MCP server `KB_ROOT` resolves to the intended external knowledge base.",
+    "- [ ] Confirm llmwiki session-visible canonical `kb_*` tools are the primary success condition.",
     "",
     "## Execution",
     "- [ ] Query wiki pages first before reading raw sources.",
     "- [ ] Keep edits constrained to installer-owned paths and `kb/` write scope.",
+    "- [ ] Treat standalone MCP reachability as secondary compatibility/debugging evidence, not the success contract.",
     "- [ ] Keep index/log linkage and uncertainty annotations explicit.",
     "",
     "## Wrap-Up",
@@ -143,15 +145,15 @@ function buildSoulDocContent(): string {
     "",
     "## Core Principles",
     "1. Wiki-first operation: read and reason from `kb/wiki` before touching raw source files.",
-    "2. External `KB_ROOT` is the runtime knowledge location; workspace docs/skills are agent guidance.",
+    "2. External `KB_ROOT` is the runtime knowledge location; healthy install means `llmwiki` sessions can directly use canonical `kb_*` tools.",
     "3. Preserve conservative ownership boundaries for installer-managed artifacts.",
     "",
     "## Overwrite Principles",
     "1. `install` deterministically overwrites workspace-root docs (`AGENTS.md`, `HEARTBEAT.md`, `TOOLS.md`, `SOUL.md`).",
-    "2. Skill and MCP ownership conflicts remain fail-closed by default unless `--force` is explicit.",
+    "2. Skill, session-runtime, and MCP ownership conflicts remain fail-closed by default unless `--force` is explicit.",
     "",
     "## Repair Principles",
-    "1. `repair` should rebuild only installer-owned state and avoid speculative migration.",
+    "1. `repair` should rebuild only installer-owned state, including llmwiki session-visible runtime artifacts, and avoid speculative migration.",
     "2. Unknown ownership or ambiguous state should result in manual follow-up, not silent mutation.",
     "3. Re-homing to a new `KB_ROOT` is conservative and should require explicit operator intent.",
   ]);

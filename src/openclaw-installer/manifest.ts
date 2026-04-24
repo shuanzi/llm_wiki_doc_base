@@ -1,7 +1,16 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import { KB_CANONICAL_TOOL_NAMES } from "../runtime/kb_tool_contract";
 import { sha256 } from "../utils/hash";
+import {
+  SESSION_RUNTIME_AGENT_ID,
+  SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH,
+  SESSION_RUNTIME_PLUGIN_ID,
+  resolveSessionRuntimeArtifactPaths,
+  renderSessionRuntimePluginIndex,
+  renderSessionRuntimePluginManifest,
+} from "./session-runtime-artifact";
 import {
   OPENCLAW_SKILL_NAMES,
   type OpenClawSkillName,
@@ -12,6 +21,7 @@ import type {
   InstallerExpectedMcpConfig,
   InstallerManifest,
   InstallerProbeSnapshot,
+  InstallerSessionRuntimeMetadata,
   InstallerSkillInstallationMetadata,
   InstallerWorkspaceDocInstallationMetadata,
   InstallerWorkspaceDocName,
@@ -53,9 +63,11 @@ export interface CreateInstallerManifestOptions {
   mcpName: string;
   installedSkills: InstallerSkillInstallationMetadata[];
   installedWorkspaceDocs?: InstallerWorkspaceDocInstallationMetadata[];
+  sessionRuntime?: InstallerSessionRuntimeMetadata;
   expectedMcpConfig: InstallerExpectedMcpConfig;
   installedAt?: string;
   lastSuccessfulProbe?: InstallerProbeSnapshot;
+  lastSuccessfulSessionProbe?: InstallerProbeSnapshot;
 }
 
 const EXPECTED_SOURCE_TEMPLATE_PATHS: Record<string, string> = {
@@ -82,8 +94,10 @@ export function createInstallerManifest(
     skillVariantSet: "openclaw-adapted-v1",
     installedSkills: options.installedSkills,
     installedWorkspaceDocs: options.installedWorkspaceDocs ?? [],
+    sessionRuntime: options.sessionRuntime,
     expectedMcpConfig: options.expectedMcpConfig,
     lastSuccessfulProbe: options.lastSuccessfulProbe,
+    lastSuccessfulSessionProbe: options.lastSuccessfulSessionProbe,
   });
 }
 
@@ -132,6 +146,7 @@ export function validateInstallerManifest(
   validateMcpExpectation(normalizedManifest, expectation, driftItems);
   validateSkillProvenance(normalizedManifest, driftItems);
   validateWorkspaceDocMetadata(normalizedManifest, driftItems);
+  validateSessionRuntimeMetadata(normalizedManifest, driftItems);
 
   if (driftItems.some((item) => item.kind === "unknown_ownership")) {
     return { status: "unknown_ownership", driftItems };
@@ -142,6 +157,283 @@ export function validateInstallerManifest(
   }
 
   return { status: "healthy", driftItems: [] };
+}
+
+function validateSessionRuntimeMetadata(
+  manifest: InstallerManifest,
+  driftItems: InstallerDriftItem[]
+): void {
+  const runtime = manifest.sessionRuntime;
+  if (!runtime) {
+    return;
+  }
+
+  const expectedPaths = resolveSessionRuntimeArtifactPaths(manifest.workspacePath);
+  const expectedCanonicalTools = [...KB_CANONICAL_TOOL_NAMES].sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  if (runtime.runtimeKind !== "workspace-openclaw-native-plugin-shim-v1") {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime kind drifted from installer-owned value.",
+      repairable: true,
+      expected: "workspace-openclaw-native-plugin-shim-v1",
+      actual: runtime.runtimeKind,
+    });
+  }
+
+  if (runtime.agentId !== SESSION_RUNTIME_AGENT_ID) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime agent id drifted from installer-owned value.",
+      repairable: true,
+      expected: SESSION_RUNTIME_AGENT_ID,
+      actual: runtime.agentId,
+    });
+  }
+
+  if (runtime.pluginId !== SESSION_RUNTIME_PLUGIN_ID) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime plugin id drifted from installer-owned value.",
+      repairable: true,
+      expected: SESSION_RUNTIME_PLUGIN_ID,
+      actual: runtime.pluginId,
+    });
+  }
+
+  if (
+    runtime.pluginEnabledConfigPath !== SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH
+  ) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message:
+        "Session runtime plugin enablement config path drifted from installer-owned value.",
+      repairable: true,
+      expected: SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH,
+      actual: runtime.pluginEnabledConfigPath,
+    });
+  }
+
+  if (!runtime.pluginEnabled) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime pluginEnabled must remain true in manifest ownership metadata.",
+      repairable: true,
+      expected: "true",
+      actual: String(runtime.pluginEnabled),
+    });
+  }
+
+  if (!areStringArraysEqual(runtime.canonicalToolNames, expectedCanonicalTools)) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime canonical tool names drifted from installer contract.",
+      repairable: true,
+      expected: JSON.stringify(expectedCanonicalTools),
+      actual: JSON.stringify(runtime.canonicalToolNames),
+    });
+  }
+
+  const pathExpectations: Array<{
+    label: string;
+    expected: string;
+    actual: string;
+    scopeRoot: string;
+  }> = [
+    {
+      label: "pluginRoot",
+      expected: expectedPaths.pluginRoot,
+      actual: runtime.pluginRoot,
+      scopeRoot: manifest.workspacePath,
+    },
+    {
+      label: "pluginIndexFile",
+      expected: expectedPaths.pluginIndexFile,
+      actual: runtime.pluginIndexFile,
+      scopeRoot: manifest.workspacePath,
+    },
+    {
+      label: "pluginManifestFile",
+      expected: expectedPaths.pluginManifestFile,
+      actual: runtime.pluginManifestFile,
+      scopeRoot: manifest.workspacePath,
+    },
+  ];
+
+  for (const expectation of pathExpectations) {
+    if (!arePathsEquivalent(expectation.expected, expectation.actual)) {
+      driftItems.push({
+        kind: "session_runtime_hash_drift",
+        message: `Session runtime ${expectation.label} drifted from deterministic installer path.`,
+        repairable: true,
+        expected: expectation.expected,
+        actual: expectation.actual,
+      });
+    }
+
+    if (!isPathInside(expectation.scopeRoot, expectation.actual)) {
+      driftItems.push({
+        kind: "unknown_ownership",
+        message:
+          `Session runtime ${expectation.label} points outside workspace ownership scope: ${expectation.actual}`,
+        repairable: false,
+      });
+    }
+  }
+
+  if (
+    !isPathInside(manifest.repoRoot, runtime.sourcePluginEntrypoint) ||
+    !isPathInside(manifest.repoRoot, runtime.sourcePluginManifestPath)
+  ) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message: "Session runtime source plugin paths point outside repo ownership scope.",
+      repairable: false,
+    });
+  }
+
+  validateSessionRuntimeRootPath(runtime, driftItems);
+  validateSessionRuntimeFile(
+    runtime.pluginIndexFile,
+    runtime.pluginIndexContentHash,
+    "plugin index",
+    driftItems
+  );
+  validateSessionRuntimeFile(
+    runtime.pluginManifestFile,
+    runtime.pluginManifestContentHash,
+    "plugin manifest",
+    driftItems
+  );
+  validateSessionRuntimeFile(
+    runtime.sourcePluginEntrypoint,
+    runtime.sourcePluginEntrypointHash,
+    "source plugin entrypoint",
+    driftItems
+  );
+  validateSessionRuntimeFile(
+    runtime.sourcePluginManifestPath,
+    runtime.sourcePluginManifestHash,
+    "source plugin manifest",
+    driftItems
+  );
+
+  const expectedRenderedIndexHash = renderSessionRuntimePluginIndex({
+    sourcePluginEntrypoint: runtime.sourcePluginEntrypoint,
+    kbRoot: runtime.kbRoot,
+  }).contentHash;
+  if (runtime.pluginIndexContentHash !== expectedRenderedIndexHash) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime plugin index hash drifted from deterministic renderer output.",
+      repairable: true,
+      expected: expectedRenderedIndexHash,
+      actual: runtime.pluginIndexContentHash,
+    });
+  }
+
+  const expectedRenderedManifestHash = renderSessionRuntimePluginManifest({
+    sourcePluginManifestPath: runtime.sourcePluginManifestPath,
+    canonicalToolNames: runtime.canonicalToolNames,
+  }).contentHash;
+  if (runtime.pluginManifestContentHash !== expectedRenderedManifestHash) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: "Session runtime plugin manifest hash drifted from deterministic renderer output.",
+      repairable: true,
+      expected: expectedRenderedManifestHash,
+      actual: runtime.pluginManifestContentHash,
+    });
+  }
+}
+
+function validateSessionRuntimeRootPath(
+  runtime: InstallerSessionRuntimeMetadata,
+  driftItems: InstallerDriftItem[]
+): void {
+  if (!fs.existsSync(runtime.pluginRoot)) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message: `Session runtime plugin root is missing: ${runtime.pluginRoot}`,
+      repairable: true,
+    });
+    return;
+  }
+
+  const pluginRootLstat = fs.lstatSync(runtime.pluginRoot);
+  if (pluginRootLstat.isSymbolicLink()) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message: `Session runtime plugin root must not be symlinked: ${runtime.pluginRoot}`,
+      repairable: false,
+    });
+    return;
+  }
+
+  if (!pluginRootLstat.isDirectory()) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message: `Session runtime plugin root is not a directory: ${runtime.pluginRoot}`,
+      repairable: true,
+    });
+  }
+}
+
+function validateSessionRuntimeFile(
+  filePath: string,
+  expectedHash: string,
+  label: string,
+  driftItems: InstallerDriftItem[]
+): void {
+  if (!isHexSha256(expectedHash)) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: `Session runtime ${label} hash metadata is not a valid sha256 digest.`,
+      repairable: true,
+      actual: expectedHash,
+    });
+  }
+
+  if (!fs.existsSync(filePath)) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message: `Session runtime ${label} file is missing: ${filePath}`,
+      repairable: true,
+    });
+    return;
+  }
+
+  const fileLstat = fs.lstatSync(filePath);
+  if (fileLstat.isSymbolicLink()) {
+    driftItems.push({
+      kind: "unknown_ownership",
+      message: `Session runtime ${label} file must not be symlinked: ${filePath}`,
+      repairable: false,
+    });
+    return;
+  }
+
+  if (!fileLstat.isFile()) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message: `Session runtime ${label} path is not a regular file: ${filePath}`,
+      repairable: true,
+    });
+    return;
+  }
+
+  const diskHash = sha256(fs.readFileSync(filePath, "utf8"));
+  if (diskHash !== expectedHash) {
+    driftItems.push({
+      kind: "session_runtime_hash_drift",
+      message: `Session runtime ${label} hash drift detected on disk.`,
+      repairable: true,
+      expected: expectedHash,
+      actual: diskHash,
+    });
+  }
 }
 
 function validateOwnershipRoots(
@@ -669,23 +961,43 @@ function parseInstallerManifest(value: unknown): InstallerManifest {
   const installedWorkspaceDocs = parseWorkspaceDocsArray(
     value.installedWorkspaceDocs
   );
+  const repoRoot = readString(value.repoRoot, "repoRoot");
+  const workspacePath = readString(value.workspacePath, "workspacePath");
+  const installedAt = readString(value.installedAt, "installedAt");
+  const kbRoot = readString(value.kbRoot, "kbRoot");
 
   const parsed: InstallerManifest = {
     schemaVersion: 1,
     installerVersion: readString(value.installerVersion, "installerVersion"),
-    repoRoot: readString(value.repoRoot, "repoRoot"),
-    workspacePath: readString(value.workspacePath, "workspacePath"),
-    kbRoot: readString(value.kbRoot, "kbRoot"),
+    repoRoot,
+    workspacePath,
+    kbRoot,
     mcpName: readString(value.mcpName, "mcpName"),
-    installedAt: readString(value.installedAt, "installedAt"),
+    installedAt,
     skillVariantSet: "openclaw-adapted-v1",
     installedSkills,
     installedWorkspaceDocs,
+    sessionRuntime:
+      value.sessionRuntime === undefined
+        ? undefined
+        : parseSessionRuntimeMetadata(value.sessionRuntime, "sessionRuntime", {
+            repoRoot,
+            workspacePath,
+            kbRoot,
+            installedAt,
+          }),
     expectedMcpConfig: parseExpectedMcpConfig(value.expectedMcpConfig, "expectedMcpConfig"),
     lastSuccessfulProbe:
       value.lastSuccessfulProbe === undefined
         ? undefined
         : parseProbeSnapshot(value.lastSuccessfulProbe, "lastSuccessfulProbe"),
+    lastSuccessfulSessionProbe:
+      value.lastSuccessfulSessionProbe === undefined
+        ? undefined
+        : parseProbeSnapshot(
+            value.lastSuccessfulSessionProbe,
+            "lastSuccessfulSessionProbe"
+          ),
   };
 
   if (value.skillVariantSet !== undefined && value.skillVariantSet !== "openclaw-adapted-v1") {
@@ -818,6 +1130,153 @@ function readWorkspaceDocName(value: unknown, label: string): InstallerWorkspace
   return docName;
 }
 
+function parseSessionRuntimeMetadata(
+  value: unknown,
+  label: string,
+  context: {
+    repoRoot: string;
+    workspacePath: string;
+    kbRoot: string;
+    installedAt: string;
+  }
+): InstallerSessionRuntimeMetadata {
+  if (!isRecord(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+
+  const fallbackPaths = resolveSessionRuntimeArtifactPaths(context.workspacePath);
+  const fallbackSourcePluginEntrypoint = path.resolve(
+    context.repoRoot,
+    "dist",
+    "openclaw_plugin.js"
+  );
+  const fallbackSourcePluginManifestPath = path.resolve(
+    context.repoRoot,
+    "openclaw.plugin.json"
+  );
+
+  const runtimeKind = readStringWithDefault(
+    value.runtimeKind,
+    `${label}.runtimeKind`,
+    "workspace-openclaw-native-plugin-shim-v1"
+  );
+  if (runtimeKind !== "workspace-openclaw-native-plugin-shim-v1") {
+    throw new Error(`${label}.runtimeKind must be "workspace-openclaw-native-plugin-shim-v1".`);
+  }
+
+  const agentId = readStringWithDefault(
+    value.agentId,
+    `${label}.agentId`,
+    SESSION_RUNTIME_AGENT_ID
+  );
+  if (agentId !== SESSION_RUNTIME_AGENT_ID) {
+    throw new Error(`${label}.agentId must be "${SESSION_RUNTIME_AGENT_ID}".`);
+  }
+
+  const pluginId = readStringWithDefault(
+    value.pluginId,
+    `${label}.pluginId`,
+    SESSION_RUNTIME_PLUGIN_ID
+  );
+  if (pluginId !== SESSION_RUNTIME_PLUGIN_ID) {
+    throw new Error(`${label}.pluginId must be "${SESSION_RUNTIME_PLUGIN_ID}".`);
+  }
+
+  const pluginEnabledConfigPath = readStringWithDefault(
+    value.pluginEnabledConfigPath,
+    `${label}.pluginEnabledConfigPath`,
+    SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH
+  );
+  if (pluginEnabledConfigPath !== SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH) {
+    throw new Error(
+      `${label}.pluginEnabledConfigPath must be "${SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH}".`
+    );
+  }
+
+  const pluginEnabled = readBooleanWithDefault(
+    value.pluginEnabled,
+    `${label}.pluginEnabled`,
+    true
+  );
+  if (!pluginEnabled) {
+    throw new Error(`${label}.pluginEnabled must be true.`);
+  }
+
+  const pluginRoot = readStringWithDefault(
+    value.pluginRoot,
+    `${label}.pluginRoot`,
+    fallbackPaths.pluginRoot
+  );
+  const pluginIndexFile = readStringWithDefault(
+    value.pluginIndexFile,
+    `${label}.pluginIndexFile`,
+    fallbackPaths.pluginIndexFile
+  );
+  const pluginManifestFile = readStringWithDefault(
+    value.pluginManifestFile,
+    `${label}.pluginManifestFile`,
+    fallbackPaths.pluginManifestFile
+  );
+  const sourcePluginEntrypoint = readStringWithDefault(
+    value.sourcePluginEntrypoint,
+    `${label}.sourcePluginEntrypoint`,
+    fallbackSourcePluginEntrypoint
+  );
+  const sourcePluginManifestPath = readStringWithDefault(
+    value.sourcePluginManifestPath,
+    `${label}.sourcePluginManifestPath`,
+    fallbackSourcePluginManifestPath
+  );
+  const kbRoot = path.resolve(
+    readStringWithDefault(value.kbRoot, `${label}.kbRoot`, context.kbRoot)
+  );
+
+  const canonicalToolNames =
+    value.canonicalToolNames === undefined
+      ? [...KB_CANONICAL_TOOL_NAMES]
+      : readStringArray(value.canonicalToolNames, `${label}.canonicalToolNames`);
+  const normalizedToolNames = [...new Set(canonicalToolNames)].sort((a, b) =>
+    a.localeCompare(b)
+  );
+
+  const pluginIndexContentHash = readOptionalSha256String(
+    value.pluginIndexContentHash,
+    `${label}.pluginIndexContentHash`
+  ) ?? deriveFallbackPluginIndexHash(sourcePluginEntrypoint, kbRoot);
+  const pluginManifestContentHash = readOptionalSha256String(
+    value.pluginManifestContentHash,
+    `${label}.pluginManifestContentHash`
+  ) ?? deriveFallbackPluginManifestHash(sourcePluginManifestPath, normalizedToolNames);
+  const sourcePluginEntrypointHash = readOptionalSha256String(
+    value.sourcePluginEntrypointHash,
+    `${label}.sourcePluginEntrypointHash`
+  ) ?? hashFileIfPossible(sourcePluginEntrypoint);
+  const sourcePluginManifestHash = readOptionalSha256String(
+    value.sourcePluginManifestHash,
+    `${label}.sourcePluginManifestHash`
+  ) ?? hashFileIfPossible(sourcePluginManifestPath);
+
+  return {
+    runtimeKind: "workspace-openclaw-native-plugin-shim-v1",
+    agentId: SESSION_RUNTIME_AGENT_ID,
+    pluginId: SESSION_RUNTIME_PLUGIN_ID,
+    pluginRoot,
+    pluginIndexFile,
+    pluginIndexContentHash,
+    pluginManifestFile,
+    pluginManifestContentHash,
+    pluginEnabledConfigPath: SESSION_RUNTIME_PLUGIN_ENABLED_CONFIG_PATH,
+    pluginEnabled: true,
+    kbRoot,
+    sourcePluginEntrypoint,
+    sourcePluginEntrypointHash,
+    sourcePluginManifestPath,
+    sourcePluginManifestHash,
+    canonicalToolNames: normalizedToolNames,
+    installedAt: readStringWithDefault(value.installedAt, `${label}.installedAt`, context.installedAt),
+  };
+}
+
 function parseSourceProvenance(
   value: unknown,
   label: string
@@ -920,6 +1379,10 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
     }))
     .sort((left, right) => left.docName.localeCompare(right.docName));
 
+  const sessionRuntime = manifest.sessionRuntime
+    ? normalizeSessionRuntimeMetadata(manifest.sessionRuntime)
+    : undefined;
+
   return {
     schemaVersion: 1,
     installerVersion: manifest.installerVersion,
@@ -931,6 +1394,7 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
     skillVariantSet: "openclaw-adapted-v1",
     installedSkills,
     installedWorkspaceDocs,
+    sessionRuntime,
     expectedMcpConfig: normalizeExpectedMcpConfig(manifest.expectedMcpConfig),
     lastSuccessfulProbe: manifest.lastSuccessfulProbe
       ? {
@@ -942,6 +1406,42 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
           failureReason: manifest.lastSuccessfulProbe.failureReason,
         }
       : undefined,
+    lastSuccessfulSessionProbe: manifest.lastSuccessfulSessionProbe
+      ? {
+          checkedAt: manifest.lastSuccessfulSessionProbe.checkedAt,
+          ok: manifest.lastSuccessfulSessionProbe.ok,
+          toolNames: [...manifest.lastSuccessfulSessionProbe.toolNames].sort((a, b) =>
+            a.localeCompare(b)
+          ),
+          failureReason: manifest.lastSuccessfulSessionProbe.failureReason,
+        }
+      : undefined,
+  };
+}
+
+function normalizeSessionRuntimeMetadata(
+  metadata: InstallerSessionRuntimeMetadata
+): InstallerSessionRuntimeMetadata {
+  return {
+    runtimeKind: "workspace-openclaw-native-plugin-shim-v1",
+    agentId: "llmwiki",
+    pluginId: "llmwiki-kb-tools",
+    pluginRoot: path.resolve(metadata.pluginRoot),
+    pluginIndexFile: path.resolve(metadata.pluginIndexFile),
+    pluginIndexContentHash: metadata.pluginIndexContentHash,
+    pluginManifestFile: path.resolve(metadata.pluginManifestFile),
+    pluginManifestContentHash: metadata.pluginManifestContentHash,
+    pluginEnabledConfigPath: "plugins.entries.llmwiki-kb-tools.enabled",
+    pluginEnabled: true,
+    kbRoot: path.resolve(metadata.kbRoot),
+    sourcePluginEntrypoint: path.resolve(metadata.sourcePluginEntrypoint),
+    sourcePluginEntrypointHash: metadata.sourcePluginEntrypointHash,
+    sourcePluginManifestPath: path.resolve(metadata.sourcePluginManifestPath),
+    sourcePluginManifestHash: metadata.sourcePluginManifestHash,
+    canonicalToolNames: [...metadata.canonicalToolNames].sort((a, b) =>
+      a.localeCompare(b)
+    ),
+    installedAt: metadata.installedAt,
   };
 }
 
@@ -1038,6 +1538,17 @@ function readStringArray(value: unknown, label: string): string[] {
   return result;
 }
 
+function readStringWithDefault(
+  value: unknown,
+  label: string,
+  fallbackValue: string
+): string {
+  if (value === undefined) {
+    return fallbackValue;
+  }
+  return readString(value, label);
+}
+
 function readString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
@@ -1065,6 +1576,57 @@ function readBoolean(value: unknown, label: string): boolean {
     throw new Error(`${label} must be a boolean.`);
   }
   return value;
+}
+
+function readBooleanWithDefault(
+  value: unknown,
+  label: string,
+  fallbackValue: boolean
+): boolean {
+  if (value === undefined) {
+    return fallbackValue;
+  }
+  return readBoolean(value, label);
+}
+
+function readOptionalSha256String(
+  value: unknown,
+  label: string
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const digest = readString(value, label);
+  if (!isHexSha256(digest)) {
+    throw new Error(`${label} must be a sha256 hex digest.`);
+  }
+  return digest;
+}
+
+function deriveFallbackPluginIndexHash(sourcePluginEntrypoint: string, kbRoot?: string): string {
+  return renderSessionRuntimePluginIndex({
+    sourcePluginEntrypoint,
+    kbRoot,
+  }).contentHash;
+}
+
+function deriveFallbackPluginManifestHash(
+  sourcePluginManifestPath: string,
+  canonicalToolNames: readonly string[]
+): string {
+  return renderSessionRuntimePluginManifest({
+    sourcePluginManifestPath,
+    canonicalToolNames,
+  }).contentHash;
+}
+
+function hashFileIfPossible(filePath: string): string {
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    return sha256(fs.readFileSync(filePath, "utf8"));
+  }
+
+  return "0".repeat(64);
 }
 
 function parsePlainStringMap(value: unknown, label: string): Record<string, string> {

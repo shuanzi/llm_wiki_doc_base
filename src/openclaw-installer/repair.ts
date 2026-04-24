@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import { KB_CANONICAL_TOOL_NAMES } from "../runtime/kb_tool_contract";
 import { sha256 } from "../utils/hash";
 import {
   areExpectedMcpConfigsEqual,
@@ -8,6 +9,10 @@ import {
   checkOpenClawInstallation,
   normalizeActualMcpConfig,
 } from "./check";
+import {
+  assertLlmwikiWorkspaceBinding,
+  resolveLlmwikiWorkspaceBinding,
+} from "./llmwiki-binding";
 import {
   bootstrapExternalKbRoot,
   type BootstrapExternalKbRootResult,
@@ -25,11 +30,28 @@ import {
   OpenClawCli,
   type OpenClawMcpServerDefinition,
 } from "./openclaw-cli";
-import { renderAllOpenClawSkills } from "./skills";
 import {
-  OpenClawWorkspaceResolutionError,
-  resolveOpenClawWorkspace,
-} from "./workspace";
+  materializeSessionRuntimeArtifacts,
+  renderSessionRuntimePluginIndex,
+  renderSessionRuntimePluginManifest,
+  resolveSessionRuntimeArtifactPaths,
+} from "./session-runtime-artifact";
+import {
+  ensureSessionRuntimePluginConfig,
+  restoreSessionRuntimePluginConfig,
+  type SessionRuntimeConfigSnapshot,
+} from "./session-runtime-config";
+import {
+  ensureSessionRuntimeAgentToolPolicy,
+  restoreSessionRuntimeAgentToolPolicy,
+  type SessionRuntimeAgentToolPolicySnapshot,
+} from "./session-runtime-agent-policy";
+import {
+  probeSessionRuntimeSurface,
+  toSessionRuntimeProbeSnapshot,
+} from "./session-runtime-probe";
+import { renderAllOpenClawSkills } from "./skills";
+import { resolveExplicitWorkspacePath } from "./workspace";
 import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import type {
   InstallerCheckResult,
@@ -42,7 +64,9 @@ import type {
 
 const REQUIRED_REPO_FILES = [
   "package.json",
+  "openclaw.plugin.json",
   "src/mcp_server.ts",
+  "src/openclaw_plugin.ts",
   "skills/kb_ingest/SKILL.md",
   "skills/kb_query/SKILL.md",
   "skills/kb_lint/SKILL.md",
@@ -68,6 +92,9 @@ interface RepairWorkspaceDocState {
 interface RepairOpenClawIntegrationOptions {
   cli?: OpenClawCli;
   nodeCommand?: string;
+  openclawPackageRoot?: string;
+  resolvePluginToolsEntrypoint?: string;
+  openclawCliExecutablePath?: string;
 }
 
 interface RollbackState {
@@ -83,6 +110,13 @@ interface RollbackState {
   overwrittenSkillFiles: Array<{ filePath: string; content: string }>;
   createdWorkspaceDocFiles: string[];
   overwrittenWorkspaceDocFiles: Array<{ filePath: string; content: string }>;
+  createdSessionRuntimeFiles: string[];
+  overwrittenSessionRuntimeFiles: Array<{ filePath: string; content: string }>;
+  createdSessionRuntimeDirectories: string[];
+  sessionRuntimePluginEnabledUpdated: boolean;
+  previousSessionRuntimePluginConfig?: SessionRuntimeConfigSnapshot;
+  sessionRuntimeAgentToolPolicyUpdated: boolean;
+  previousSessionRuntimeAgentToolPolicy?: SessionRuntimeAgentToolPolicySnapshot;
   createdManifestPath?: string;
   overwrittenManifest?: { manifestPath: string; content: string };
 }
@@ -94,21 +128,33 @@ export async function repairOpenClawIntegration(
 ): Promise<InstallerRepairOutcome> {
   const cli = options.cli ?? new OpenClawCli();
   const nodeCommand = options.nodeCommand ?? process.execPath;
+  const openclawCliExecutablePath =
+    options.openclawCliExecutablePath ?? cli.resolveExecutablePath();
   const repoRoot = path.resolve(environment.repoRoot);
   const mcpServerEntrypoint = path.resolve(environment.mcpServerEntrypoint);
+  const openclawPluginEntrypoint = path.resolve(environment.openclawPluginEntrypoint);
+  const openclawPluginManifestPath = path.resolve(environment.openclawPluginManifestPath);
 
   validateRepositoryState(repoRoot);
-  ensureBuildArtifactExists(mcpServerEntrypoint);
+  ensureBuildArtifactsExist([mcpServerEntrypoint, openclawPluginEntrypoint]);
+  ensurePluginManifestExists(openclawPluginManifestPath);
   await ensureOpenClawCliReady(cli);
 
-  const workspacePath = await resolveAndValidateWorkspace(cli, args.workspace);
-  ensureWorkspaceDirectory(workspacePath);
+  const workspacePath = resolveExplicitWorkspacePath(args.workspace);
+  assertLlmwikiWorkspaceBinding(
+    await resolveLlmwikiWorkspaceBinding({
+      cli,
+      workspacePath,
+    })
+  );
 
   const resolvedEnvironment: ResolvedInstallerEnvironment = {
     ...environment,
     command: "repair",
     repoRoot,
     mcpServerEntrypoint,
+    openclawPluginEntrypoint,
+    openclawPluginManifestPath,
     mcpName: args.mcpName,
     workspace: workspacePath,
   };
@@ -118,11 +164,20 @@ export async function repairOpenClawIntegration(
   const normalizedExistingMcp = existingMcpDefinition
     ? normalizeActualMcpConfig(args.mcpName, existingMcpDefinition)
     : undefined;
+  const recognizedExistingMcp =
+    normalizedExistingMcp &&
+    isRecognizerOwnedMcpRepairSignal({
+      mcpName: args.mcpName,
+      normalizedExistingMcp,
+      mcpServerEntrypoint,
+    })
+      ? normalizedExistingMcp
+      : undefined;
 
   const kbRoot = resolveKbRootForRepair({
     argsKbRoot: args.kbRoot,
     manifestKbRoot: existingManifest?.kbRoot,
-    mcpKbRoot: normalizedExistingMcp?.env.KB_ROOT,
+    mcpKbRoot: recognizedExistingMcp?.env.KB_ROOT,
     force: args.force,
   });
 
@@ -144,7 +199,7 @@ export async function repairOpenClawIntegration(
     });
   } else {
     validateManifestReconstructionPreconditions({
-      normalizedExistingMcp,
+      recognizedExistingMcp,
       kbRootFromArgs: args.kbRoot,
       force: args.force,
     });
@@ -173,7 +228,7 @@ export async function repairOpenClawIntegration(
   }
 
   const hasInstallerSignals =
-    normalizedExistingMcp !== undefined ||
+    recognizedExistingMcp !== undefined ||
     skillStates.some((state) => state.matchesExpected) ||
     workspaceDocStates.some((state) => state.matchesExpected);
   if (!existingManifest && !hasInstallerSignals && !args.force) {
@@ -195,6 +250,11 @@ export async function repairOpenClawIntegration(
     overwrittenSkillFiles: [],
     createdWorkspaceDocFiles: [],
     overwrittenWorkspaceDocFiles: [],
+    createdSessionRuntimeFiles: [],
+    overwrittenSessionRuntimeFiles: [],
+    createdSessionRuntimeDirectories: [],
+    sessionRuntimePluginEnabledUpdated: false,
+    sessionRuntimeAgentToolPolicyUpdated: false,
   };
 
   const appliedActions: InstallerRepairAction[] = [];
@@ -228,6 +288,70 @@ export async function repairOpenClawIntegration(
 
     if (skillMaterialization.wroteAnySkill) {
       appliedActions.push("rewrite_skill");
+    }
+
+    assertSessionRuntimeOwnershipForRepair({
+      workspacePath,
+      kbRoot,
+      existingManifest,
+      sourcePluginEntrypoint: openclawPluginEntrypoint,
+      sourcePluginManifestPath: openclawPluginManifestPath,
+      force: args.force,
+    });
+
+    const sessionRuntime = materializeSessionRuntimeWithRollback({
+      workspacePath,
+      kbRoot,
+      sourcePluginEntrypoint: openclawPluginEntrypoint,
+      sourcePluginManifestPath: openclawPluginManifestPath,
+      installedAt,
+      rollback,
+    });
+    if (
+      rollback.createdSessionRuntimeFiles.length > 0 ||
+      rollback.overwrittenSessionRuntimeFiles.length > 0 ||
+      rollback.createdSessionRuntimeDirectories.length > 0
+    ) {
+      appliedActions.push("materialize_session_runtime");
+    }
+
+    const sessionRuntimePluginEnabledChanged =
+      await enableSessionRuntimePluginWithRollback({
+        cli,
+        pluginRoot: sessionRuntime.metadata.pluginRoot,
+        rollback,
+      });
+    if (sessionRuntimePluginEnabledChanged) {
+      appliedActions.push("enable_session_runtime");
+    }
+    const sessionRuntimeAgentToolPolicyChanged =
+      await enableSessionRuntimeAgentToolPolicyWithRollback({
+        cli,
+        workspacePath,
+        rollback,
+      });
+    if (sessionRuntimeAgentToolPolicyChanged) {
+      appliedActions.push("enable_session_runtime");
+    }
+
+    const sessionProbeResult = await probeSessionRuntimeSurface({
+      sessionRuntime: sessionRuntime.metadata,
+      invocationKbRoot: kbRoot,
+      expectedToolNames: KB_CANONICAL_TOOL_NAMES,
+      openclawPackageRoot: options.openclawPackageRoot,
+      resolvePluginToolsEntrypoint: options.resolvePluginToolsEntrypoint,
+      openclawCliExecutablePath,
+    });
+    if (!sessionProbeResult.ok) {
+      throw new Error(
+        `Repair session runtime probe failed: ${
+          sessionProbeResult.failureReason ?? "unknown session runtime probe failure"
+        }`
+      );
+    }
+
+    if (!existingManifest?.sessionRuntime) {
+      appliedActions.push("backfill_session_runtime_metadata");
     }
 
     const expectedMcpConfig = buildExpectedMcpConfig({
@@ -273,12 +397,14 @@ export async function repairOpenClawIntegration(
       installedAt,
       installedSkills: skillMaterialization.installedSkills,
       installedWorkspaceDocs: workspaceDocMaterialization.installedWorkspaceDocs,
+      sessionRuntime: sessionRuntime.metadata,
       expectedMcpConfig,
       lastSuccessfulProbe: {
         checkedAt: probeResult.checkedAt,
         ok: true,
         toolNames: probeResult.toolNames,
       },
+      lastSuccessfulSessionProbe: toSessionRuntimeProbeSnapshot(sessionProbeResult),
     });
 
     trackManifestRollback(rollback, workspacePath);
@@ -295,6 +421,9 @@ export async function repairOpenClawIntegration(
       mcpName: args.mcpName,
       cli,
       nodeCommand,
+      openclawPackageRoot: options.openclawPackageRoot,
+      resolvePluginToolsEntrypoint: options.resolvePluginToolsEntrypoint,
+      openclawCliExecutablePath,
     });
 
     if (!postCheck.ok) {
@@ -677,6 +806,52 @@ function materializeWorkspaceDocs(options: {
   };
 }
 
+function assertSessionRuntimeOwnershipForRepair(options: {
+  workspacePath: string;
+  kbRoot: string;
+  existingManifest: ReturnType<typeof readInstallerManifest>;
+  sourcePluginEntrypoint: string;
+  sourcePluginManifestPath: string;
+  force: boolean;
+}): void {
+  if (options.existingManifest?.sessionRuntime) {
+    return;
+  }
+
+  const expectedPaths = resolveSessionRuntimeArtifactPaths(options.workspacePath);
+  const pluginRootExists = fs.existsSync(expectedPaths.pluginRoot);
+  const pluginIndexExists = fs.existsSync(expectedPaths.pluginIndexFile);
+  const pluginManifestExists = fs.existsSync(expectedPaths.pluginManifestFile);
+
+  if (!pluginRootExists && !pluginIndexExists && !pluginManifestExists) {
+    return;
+  }
+
+  const expectedIndexHash = renderSessionRuntimePluginIndex({
+    sourcePluginEntrypoint: options.sourcePluginEntrypoint,
+    kbRoot: options.kbRoot,
+  }).contentHash;
+  const expectedManifestHash = renderSessionRuntimePluginManifest({
+    sourcePluginManifestPath: options.sourcePluginManifestPath,
+    canonicalToolNames: KB_CANONICAL_TOOL_NAMES,
+  }).contentHash;
+
+  const exactMatch =
+    isRegularFileWithHash(expectedPaths.pluginIndexFile, expectedIndexHash) &&
+    isRegularFileWithHash(expectedPaths.pluginManifestFile, expectedManifestHash) &&
+    isInstallerOwnedSessionRuntimeDirectory(expectedPaths.pluginRoot);
+
+  if (!exactMatch && !options.force) {
+    throw new Error(
+      [
+        "Repair refused because legacy session runtime ownership is uncertain.",
+        `expected root: ${expectedPaths.pluginRoot}`,
+        "Re-run with --force only after verifying the workspace-local llmwiki session runtime shim is installer-owned.",
+      ].join(" ")
+    );
+  }
+}
+
 function resolveKbRootForRepair(options: {
   argsKbRoot?: string;
   manifestKbRoot?: string;
@@ -725,11 +900,11 @@ function resolveKbRootForRepair(options: {
 }
 
 function validateManifestReconstructionPreconditions(options: {
-  normalizedExistingMcp: ReturnType<typeof normalizeActualMcpConfig>;
+  recognizedExistingMcp: ReturnType<typeof normalizeActualMcpConfig>;
   kbRootFromArgs?: string;
   force: boolean;
 }): void {
-  if (options.normalizedExistingMcp) {
+  if (options.recognizedExistingMcp) {
     return;
   }
 
@@ -744,6 +919,21 @@ function validateManifestReconstructionPreconditions(options: {
       "Repair refused because ownership is uncertain with missing manifest and missing MCP registration. Re-run with --force after verifying --kb-root."
     );
   }
+}
+
+function isRecognizerOwnedMcpRepairSignal(options: {
+  mcpName: string;
+  normalizedExistingMcp: NonNullable<ReturnType<typeof normalizeActualMcpConfig>>;
+  mcpServerEntrypoint: string;
+}): boolean {
+  const expected = buildExpectedMcpConfig({
+    mcpName: options.mcpName,
+    serverEntrypoint: options.mcpServerEntrypoint,
+    kbRoot: options.normalizedExistingMcp.env.KB_ROOT,
+    nodeCommand: options.normalizedExistingMcp.command,
+  });
+
+  return areExpectedMcpConfigsEqual(expected, options.normalizedExistingMcp);
 }
 
 function validateManifestOwnership(
@@ -811,6 +1001,103 @@ function trackManifestRollback(rollback: RollbackState, workspacePath: string): 
   }
 }
 
+function materializeSessionRuntimeWithRollback(options: {
+  workspacePath: string;
+  kbRoot: string;
+  sourcePluginEntrypoint: string;
+  sourcePluginManifestPath: string;
+  installedAt: string;
+  rollback: RollbackState;
+}): ReturnType<typeof materializeSessionRuntimeArtifacts> {
+  const expectedPaths = resolveSessionRuntimeArtifactPaths(options.workspacePath);
+  const previousContentByPath = new Map<string, string>();
+
+  for (const candidatePath of [expectedPaths.pluginIndexFile, expectedPaths.pluginManifestFile]) {
+    if (!fs.existsSync(candidatePath) || !fs.statSync(candidatePath).isFile()) {
+      continue;
+    }
+    previousContentByPath.set(candidatePath, fs.readFileSync(candidatePath, "utf8"));
+  }
+
+  const materialization = materializeSessionRuntimeArtifacts({
+    workspacePath: options.workspacePath,
+    kbRoot: options.kbRoot,
+    sourcePluginEntrypoint: options.sourcePluginEntrypoint,
+    sourcePluginManifestPath: options.sourcePluginManifestPath,
+    canonicalToolNames: KB_CANONICAL_TOOL_NAMES,
+    installedAt: options.installedAt,
+  });
+
+  for (const createdFile of materialization.createdFiles) {
+    options.rollback.createdSessionRuntimeFiles.push(path.resolve(createdFile));
+  }
+
+  for (const overwrittenFile of materialization.overwrittenFiles) {
+    const previousContent = previousContentByPath.get(path.resolve(overwrittenFile));
+    if (previousContent === undefined) {
+      continue;
+    }
+    options.rollback.overwrittenSessionRuntimeFiles.push({
+      filePath: path.resolve(overwrittenFile),
+      content: previousContent,
+    });
+  }
+
+  for (const createdDirectory of materialization.createdDirectories) {
+    options.rollback.createdSessionRuntimeDirectories.push(path.resolve(createdDirectory));
+  }
+
+  if (
+    materialization.createdFiles.length > 0 ||
+    materialization.overwrittenFiles.length > 0 ||
+    materialization.createdDirectories.length > 0
+  ) {
+    options.rollback.mutated = true;
+  }
+
+  return materialization;
+}
+
+async function enableSessionRuntimePluginWithRollback(options: {
+  cli: OpenClawCli;
+  pluginRoot: string;
+  rollback: RollbackState;
+}): Promise<boolean> {
+  const result = await ensureSessionRuntimePluginConfig({
+    cli: options.cli,
+    pluginRoot: options.pluginRoot,
+  });
+  options.rollback.previousSessionRuntimePluginConfig = result.previous;
+
+  if (!result.changed) {
+    return false;
+  }
+
+  options.rollback.sessionRuntimePluginEnabledUpdated = true;
+  options.rollback.mutated = true;
+  return true;
+}
+
+async function enableSessionRuntimeAgentToolPolicyWithRollback(options: {
+  cli: OpenClawCli;
+  workspacePath: string;
+  rollback: RollbackState;
+}): Promise<boolean> {
+  const result = await ensureSessionRuntimeAgentToolPolicy({
+    cli: options.cli,
+    workspacePath: options.workspacePath,
+  });
+  options.rollback.previousSessionRuntimeAgentToolPolicy = result.previous;
+
+  if (!result.changed) {
+    return false;
+  }
+
+  options.rollback.sessionRuntimeAgentToolPolicyUpdated = true;
+  options.rollback.mutated = true;
+  return true;
+}
+
 async function rollbackCreatedArtifacts(
   cli: OpenClawCli,
   kbRoot: string,
@@ -826,11 +1113,24 @@ async function rollbackCreatedArtifacts(
     fs.mkdirSync(path.dirname(overwrittenWorkspaceDocFile.filePath), { recursive: true });
     fs.writeFileSync(overwrittenWorkspaceDocFile.filePath, overwrittenWorkspaceDocFile.content, "utf8");
   }
+  for (const overwrittenSessionRuntimeFile of rollback.overwrittenSessionRuntimeFiles) {
+    fs.mkdirSync(path.dirname(overwrittenSessionRuntimeFile.filePath), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      overwrittenSessionRuntimeFile.filePath,
+      overwrittenSessionRuntimeFile.content,
+      "utf8"
+    );
+  }
 
   for (const filePath of rollback.createdSkillFiles) {
     removeFileIfExists(filePath);
   }
   for (const filePath of rollback.createdWorkspaceDocFiles) {
+    removeFileIfExists(filePath);
+  }
+  for (const filePath of rollback.createdSessionRuntimeFiles) {
     removeFileIfExists(filePath);
   }
 
@@ -873,7 +1173,42 @@ async function rollbackCreatedArtifacts(
     }
   }
 
+  if (rollback.sessionRuntimePluginEnabledUpdated) {
+    try {
+      await restoreSessionRuntimePluginConfig({
+        cli,
+        previous: rollback.previousSessionRuntimePluginConfig ?? {
+          enabled: undefined,
+          allow: undefined,
+          loadPaths: undefined,
+        },
+      });
+    } catch (error) {
+      rollbackErrors.push(
+        `failed to restore OpenClaw session runtime plugin config: ${stringifyError(error)}`
+      );
+    }
+  }
+
+  if (rollback.sessionRuntimeAgentToolPolicyUpdated) {
+    try {
+      await restoreSessionRuntimeAgentToolPolicy({
+        cli,
+        previous: rollback.previousSessionRuntimeAgentToolPolicy ?? {
+          agentsList: undefined,
+        },
+      });
+    } catch (error) {
+      rollbackErrors.push(
+        `failed to restore OpenClaw llmwiki agent tool policy: ${stringifyError(error)}`
+      );
+    }
+  }
+
   for (const directoryPath of dedupePathsDescending(rollback.createdSkillDirectories)) {
+    removeDirectoryIfEmpty(directoryPath);
+  }
+  for (const directoryPath of dedupePathsDescending(rollback.createdSessionRuntimeDirectories)) {
     removeDirectoryIfEmpty(directoryPath);
   }
 
@@ -922,11 +1257,19 @@ function validateRepositoryState(repoRoot: string): void {
   }
 }
 
-function ensureBuildArtifactExists(mcpServerEntrypoint: string): void {
-  if (!fs.existsSync(mcpServerEntrypoint) || !fs.statSync(mcpServerEntrypoint).isFile()) {
-    throw new Error(
-      `Missing build artifact: ${mcpServerEntrypoint}. Run npm run build before repair.`
-    );
+function ensureBuildArtifactsExist(artifactPaths: readonly string[]): void {
+  for (const artifactPath of artifactPaths) {
+    if (!fs.existsSync(artifactPath) || !fs.statSync(artifactPath).isFile()) {
+      throw new Error(
+        `Missing build artifact: ${artifactPath}. Run npm run build before repair.`
+      );
+    }
+  }
+}
+
+function ensurePluginManifestExists(pluginManifestPath: string): void {
+  if (!fs.existsSync(pluginManifestPath) || !fs.statSync(pluginManifestPath).isFile()) {
+    throw new Error(`Missing OpenClaw plugin manifest: ${pluginManifestPath}.`);
   }
 }
 
@@ -936,37 +1279,6 @@ async function ensureOpenClawCliReady(cli: OpenClawCli): Promise<void> {
   } catch (error) {
     throw new Error(`OpenClaw CLI is missing or invalid: ${stringifyError(error)}`);
   }
-}
-
-async function resolveAndValidateWorkspace(
-  cli: OpenClawCli,
-  requestedWorkspace: string
-): Promise<string> {
-  try {
-    const resolved = await resolveOpenClawWorkspace({
-      cli,
-      requestedWorkspace,
-      requireExistingDirectory: false,
-    });
-
-    return resolved.resolvedWorkspace;
-  } catch (error) {
-    if (error instanceof OpenClawWorkspaceResolutionError) {
-      throw new Error(error.message);
-    }
-    throw error;
-  }
-}
-
-function ensureWorkspaceDirectory(workspacePath: string): void {
-  if (fs.existsSync(workspacePath)) {
-    if (!fs.statSync(workspacePath).isDirectory()) {
-      throw new Error(`Workspace path is not a directory: ${workspacePath}`);
-    }
-    return;
-  }
-
-  fs.mkdirSync(workspacePath, { recursive: true });
 }
 
 function assertWorkspaceRootSafeForDocs(workspacePath: string): void {
@@ -980,6 +1292,39 @@ function assertWorkspaceRootSafeForDocs(workspacePath: string): void {
       `Workspace root must not be a symlink for installer-managed workspace docs: ${workspacePath}`
     );
   }
+}
+
+function isRegularFileWithHash(filePath: string, expectedHash: string): boolean {
+  if (!fs.existsSync(filePath)) {
+    return false;
+  }
+
+  const fileLstat = fs.lstatSync(filePath);
+  if (fileLstat.isSymbolicLink() || !fileLstat.isFile()) {
+    return false;
+  }
+
+  return sha256(fs.readFileSync(filePath, "utf8")) === expectedHash;
+}
+
+function isInstallerOwnedSessionRuntimeDirectory(pluginRoot: string): boolean {
+  if (!fs.existsSync(pluginRoot)) {
+    return false;
+  }
+
+  const pluginRootLstat = fs.lstatSync(pluginRoot);
+  if (pluginRootLstat.isSymbolicLink() || !pluginRootLstat.isDirectory()) {
+    return false;
+  }
+
+  const entries = fs.readdirSync(pluginRoot).sort((left, right) =>
+    left.localeCompare(right)
+  );
+  return (
+    entries.length === 2 &&
+    entries[0] === "index.ts" &&
+    entries[1] === "openclaw.plugin.json"
+  );
 }
 
 function readInstallerVersion(repoRoot: string): string {

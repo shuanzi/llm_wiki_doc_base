@@ -15,6 +15,10 @@ export const INSTALLER_DRIFT_ITEM_KINDS = [
   "skill_hash_drift",
   "missing_workspace_doc",
   "workspace_doc_hash_drift",
+  "missing_session_runtime",
+  "session_runtime_hash_drift",
+  "session_runtime_binding_failure",
+  "session_runtime_probe_failure",
   "mcp_config_drift",
   "mcp_probe_failure",
   "unknown_ownership",
@@ -28,6 +32,9 @@ export type InstallerDriftItemKind = (typeof INSTALLER_DRIFT_ITEM_KINDS)[number]
 export const INSTALLER_REPAIR_ACTIONS = [
   "create_manifest",
   "rewrite_skill",
+  "materialize_session_runtime",
+  "enable_session_runtime",
+  "backfill_session_runtime_metadata",
   "update_mcp_config",
   "rebuild_artifact",
   "reprobe_mcp",
@@ -51,7 +58,7 @@ export interface InstallCommandArgs extends InstallerCliCommonArgs {
 
 export interface CheckCommandArgs extends InstallerCliCommonArgs {
   command: "check";
-  workspace?: string;
+  workspace: string;
   json: boolean;
 }
 
@@ -78,6 +85,8 @@ export interface ResolvedInstallerEnvironment {
   repoRoot: string;
   installerEntrypoint: string;
   mcpServerEntrypoint: string;
+  openclawPluginEntrypoint: string;
+  openclawPluginManifestPath: string;
   command: InstallerCommandName;
   workspace?: string;
   kbRoot?: string;
@@ -127,6 +136,26 @@ export interface InstallerSkillInstallationMetadata {
   sourceProvenance: InstallerSkillSourceProvenance;
 }
 
+export interface InstallerSessionRuntimeMetadata {
+  runtimeKind: "workspace-openclaw-native-plugin-shim-v1";
+  agentId: "llmwiki";
+  pluginId: "llmwiki-kb-tools";
+  pluginRoot: string;
+  pluginIndexFile: string;
+  pluginIndexContentHash: string;
+  pluginManifestFile: string;
+  pluginManifestContentHash: string;
+  pluginEnabledConfigPath: string;
+  pluginEnabled: true;
+  kbRoot: string;
+  sourcePluginEntrypoint: string;
+  sourcePluginEntrypointHash: string;
+  sourcePluginManifestPath: string;
+  sourcePluginManifestHash: string;
+  canonicalToolNames: string[];
+  installedAt: string;
+}
+
 export type InstallerWorkspaceDocPreinstallSnapshot =
   | {
       known: false;
@@ -161,8 +190,10 @@ export interface InstallerManifest {
   skillVariantSet: InstallerSkillVariantSet;
   installedSkills: InstallerSkillInstallationMetadata[];
   installedWorkspaceDocs: InstallerWorkspaceDocInstallationMetadata[];
+  sessionRuntime?: InstallerSessionRuntimeMetadata;
   expectedMcpConfig: InstallerExpectedMcpConfig;
   lastSuccessfulProbe?: InstallerProbeSnapshot;
+  lastSuccessfulSessionProbe?: InstallerProbeSnapshot;
 }
 
 export interface InstallerDriftItem {
@@ -179,6 +210,7 @@ export interface InstallerCheckResult {
   driftItems: InstallerDriftItem[];
   manifest?: InstallerManifest;
   lastProbe?: InstallerProbeSnapshot;
+  lastSessionProbe?: InstallerProbeSnapshot;
 }
 
 export interface InstallerRepairOutcome {

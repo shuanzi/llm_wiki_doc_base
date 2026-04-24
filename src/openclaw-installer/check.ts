@@ -1,8 +1,10 @@
 import * as fs from "fs";
 import * as path from "path";
 
+import { KB_CANONICAL_TOOL_NAMES } from "../runtime/kb_tool_contract";
 import { sha256 } from "../utils/hash";
 import { validateMinimumKbStructure } from "./kb-bootstrap";
+import { resolveLlmwikiWorkspaceBinding } from "./llmwiki-binding";
 import {
   readInstallerManifest,
   validateInstallerManifest,
@@ -10,14 +12,15 @@ import {
 import { probeKbMcpServer } from "./mcp-probe";
 import {
   OpenClawCli,
-  OpenClawCliError,
   type OpenClawMcpServerDefinition,
 } from "./openclaw-cli";
-import { OPENCLAW_SKILL_NAMES } from "./skills";
+import { hasSessionRuntimeAgentToolPolicy } from "./session-runtime-agent-policy";
 import {
-  OpenClawWorkspaceResolutionError,
-  resolveOpenClawWorkspace,
-} from "./workspace";
+  readSessionRuntimePluginConfig,
+  sessionRuntimePluginConfigDrift,
+} from "./session-runtime-config";
+import { probeSessionRuntimeSurface, toSessionRuntimeProbeSnapshot } from "./session-runtime-probe";
+import { resolveExplicitWorkspacePath } from "./workspace";
 import { renderAllOpenClawWorkspaceDocs } from "./workspace-docs";
 import type {
   InstallerCheckResult,
@@ -28,25 +31,27 @@ import type {
   ResolvedInstallerEnvironment,
 } from "./types";
 
-const CHECK_REQUIRED_SKILLS = [...OPENCLAW_SKILL_NAMES];
-
 export interface CheckOpenClawInstallationOptions {
   environment: ResolvedInstallerEnvironment;
   requestedWorkspace?: string;
   mcpName?: string;
   cli?: OpenClawCli;
   nodeCommand?: string;
+  openclawPackageRoot?: string;
+  resolvePluginToolsEntrypoint?: string;
+  openclawCliExecutablePath?: string;
 }
 
 interface CheckContext {
   cliReady: boolean;
-  defaultAgentWorkspaceConfirmed: boolean;
+  llmwikiBindingOk: boolean;
   resolvedWorkspacePath?: string;
   resolvedManifest?: InstallerManifest;
   expectedMcpConfig?: InstallerExpectedMcpConfig;
   actualMcpConfig?: InstallerExpectedMcpConfig;
   effectiveKbRoot?: string;
   lastProbe?: InstallerProbeSnapshot;
+  lastSessionProbe?: InstallerProbeSnapshot;
 }
 
 export async function checkOpenClawInstallation(
@@ -54,10 +59,15 @@ export async function checkOpenClawInstallation(
 ): Promise<InstallerCheckResult> {
   const cli = options.cli ?? new OpenClawCli();
   const requestedWorkspace = options.requestedWorkspace ?? options.environment.workspace;
+  if (!requestedWorkspace) {
+    throw new Error("Workspace is required. Provide --workspace.");
+  }
+
+  const resolvedWorkspacePath = resolveExplicitWorkspacePath(requestedWorkspace);
   const mcpName = options.mcpName ?? options.environment.mcpName;
   const environment: ResolvedInstallerEnvironment = {
     ...options.environment,
-    workspace: requestedWorkspace,
+    workspace: resolvedWorkspacePath,
     mcpName,
     command: "check",
   };
@@ -65,21 +75,24 @@ export async function checkOpenClawInstallation(
   const driftItems: InstallerDriftItem[] = [];
   const context: CheckContext = {
     cliReady: false,
-    defaultAgentWorkspaceConfirmed: false,
+    llmwikiBindingOk: false,
+    resolvedWorkspacePath,
   };
 
   await checkOpenClawCliAvailability(cli, driftItems, context);
-  await resolveWorkspace(cli, requestedWorkspace, environment, driftItems, context);
+  await checkLlmwikiWorkspaceBinding(cli, environment, driftItems, context);
   await checkManifest(environment, driftItems, context);
   checkWorkspaceDocs(environment, driftItems, context);
   checkBuildArtifact(environment, driftItems, context);
   await checkSavedMcpConfig(cli, environment, driftItems, context);
   checkKbStructure(driftItems, context, environment);
+  await checkSessionRuntime(driftItems, context, cli, environment, {
+    openclawPackageRoot: options.openclawPackageRoot,
+    resolvePluginToolsEntrypoint: options.resolvePluginToolsEntrypoint,
+    openclawCliExecutablePath:
+      options.openclawCliExecutablePath ?? cli.resolveExecutablePath(),
+  });
   await checkActiveProbe(driftItems, context, environment, options.nodeCommand);
-
-  if (context.defaultAgentWorkspaceConfirmed) {
-    await checkDefaultAgentSkillEligibility(cli, driftItems, context);
-  }
 
   return {
     ok: driftItems.length === 0,
@@ -87,6 +100,7 @@ export async function checkOpenClawInstallation(
     driftItems,
     manifest: context.resolvedManifest,
     lastProbe: context.lastProbe,
+    lastSessionProbe: context.lastSessionProbe,
   };
 }
 
@@ -103,84 +117,6 @@ async function checkOpenClawCliAvailability(
     driftItems.push({
       kind: "invalid_openclaw_cli",
       message: `OpenClaw CLI is missing or unusable: ${stringifyError(error)}`,
-      repairable: false,
-    });
-  }
-}
-
-async function resolveWorkspace(
-  cli: OpenClawCli,
-  requestedWorkspace: string | undefined,
-  environment: ResolvedInstallerEnvironment,
-  driftItems: InstallerDriftItem[],
-  context: CheckContext
-): Promise<void> {
-  if (!context.cliReady) {
-    if (requestedWorkspace) {
-      const normalizedRequestedWorkspace = path.resolve(requestedWorkspace);
-      context.resolvedWorkspacePath = normalizedRequestedWorkspace;
-      environment.workspace = normalizedRequestedWorkspace;
-    }
-    return;
-  }
-
-  try {
-    const resolved = await resolveOpenClawWorkspace({
-      cli,
-      requestedWorkspace,
-      requireExistingDirectory: false,
-    });
-    context.resolvedWorkspacePath = resolved.resolvedWorkspace;
-    context.defaultAgentWorkspaceConfirmed = true;
-    environment.workspace = resolved.resolvedWorkspace;
-
-    if (!fs.existsSync(resolved.resolvedWorkspace)) {
-      driftItems.push({
-        kind: "workspace_mismatch",
-        message: `Resolved OpenClaw workspace does not exist: ${resolved.resolvedWorkspace}`,
-        repairable: true,
-      });
-      return;
-    }
-
-    if (!fs.statSync(resolved.resolvedWorkspace).isDirectory()) {
-      driftItems.push({
-        kind: "workspace_mismatch",
-        message: `Resolved OpenClaw workspace is not a directory: ${resolved.resolvedWorkspace}`,
-        repairable: false,
-      });
-    }
-  } catch (error) {
-    if (error instanceof OpenClawWorkspaceResolutionError) {
-      if (error.resolvedWorkspace) {
-        context.resolvedWorkspacePath = error.resolvedWorkspace;
-        environment.workspace = error.resolvedWorkspace;
-      } else if (error.requestedWorkspace) {
-        context.resolvedWorkspacePath = error.requestedWorkspace;
-        environment.workspace = error.requestedWorkspace;
-      }
-
-      const isWorkspaceMismatch =
-        error.kind === "manual_config_required" &&
-        Boolean(error.requestedWorkspace && error.resolvedWorkspace);
-      const driftKind =
-        isWorkspaceMismatch || error.kind === "invalid_workspace_path"
-          ? "workspace_mismatch"
-          : "manual_config_required";
-
-      driftItems.push({
-        kind: driftKind,
-        message: error.message,
-        repairable: false,
-        expected: error.resolvedWorkspace,
-        actual: error.requestedWorkspace,
-      });
-      return;
-    }
-
-    driftItems.push({
-      kind: "other",
-      message: `Failed to resolve OpenClaw workspace: ${stringifyError(error)}`,
       repairable: false,
     });
   }
@@ -232,6 +168,7 @@ async function checkManifest(
   }
 
   context.resolvedManifest = manifest;
+  context.lastSessionProbe = manifest.lastSuccessfulSessionProbe;
   environment.kbRoot = manifest.kbRoot;
 
   const expectedMcpConfig = buildExpectedMcpConfig({
@@ -251,6 +188,50 @@ async function checkManifest(
   });
 
   driftItems.push(...validationResult.driftItems);
+}
+
+async function checkLlmwikiWorkspaceBinding(
+  cli: OpenClawCli,
+  environment: ResolvedInstallerEnvironment,
+  driftItems: InstallerDriftItem[],
+  context: CheckContext
+): Promise<void> {
+  if (!context.cliReady) {
+    return;
+  }
+
+  const workspacePath = context.resolvedWorkspacePath ?? environment.workspace;
+  if (!workspacePath) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message:
+        "Cannot validate llmwiki workspace binding because explicit workspace is unresolved.",
+      repairable: false,
+    });
+    return;
+  }
+
+  try {
+    const bindingResult = await resolveLlmwikiWorkspaceBinding({
+      cli,
+      workspacePath,
+    });
+    if (bindingResult.status !== "bound") {
+      driftItems.push({
+        kind: "session_runtime_binding_failure",
+        message: bindingResult.message,
+        repairable: false,
+      });
+      return;
+    }
+    context.llmwikiBindingOk = true;
+  } catch (error) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message: `Failed to validate llmwiki workspace binding: ${stringifyError(error)}`,
+      repairable: false,
+    });
+  }
 }
 
 function checkWorkspaceDocs(
@@ -338,16 +319,38 @@ function checkBuildArtifact(
   driftItems: InstallerDriftItem[],
   context: CheckContext
 ): void {
-  const buildArtifactPath = context.resolvedManifest
-    ? expectedServerEntrypointForRepoRoot(context.resolvedManifest.repoRoot)
-    : environment.mcpServerEntrypoint;
+  const runtimeArtifacts = context.resolvedManifest
+    ? {
+        mcpEntrypoint: expectedServerEntrypointForRepoRoot(context.resolvedManifest.repoRoot),
+        pluginEntrypoint: expectedOpenClawPluginEntrypointForRepoRoot(
+          context.resolvedManifest.repoRoot
+        ),
+        pluginManifest: expectedOpenClawPluginManifestPathForRepoRoot(
+          context.resolvedManifest.repoRoot
+        ),
+      }
+    : {
+        mcpEntrypoint: environment.mcpServerEntrypoint,
+        pluginEntrypoint: environment.openclawPluginEntrypoint,
+        pluginManifest: environment.openclawPluginManifestPath,
+      };
 
-  if (!fs.existsSync(buildArtifactPath) || !fs.statSync(buildArtifactPath).isFile()) {
+  const artifactChecks = [
+    { label: "MCP build artifact", path: runtimeArtifacts.mcpEntrypoint },
+    { label: "OpenClaw plugin runtime artifact", path: runtimeArtifacts.pluginEntrypoint },
+    { label: "OpenClaw plugin manifest", path: runtimeArtifacts.pluginManifest },
+  ] as const;
+
+  for (const artifact of artifactChecks) {
+    if (fs.existsSync(artifact.path) && fs.statSync(artifact.path).isFile()) {
+      continue;
+    }
+
     driftItems.push({
       kind: "missing_build_artifact",
-      message: `MCP build artifact is missing: ${buildArtifactPath}`,
+      message: `${artifact.label} is missing: ${artifact.path}`,
       repairable: true,
-      expected: buildArtifactPath,
+      expected: artifact.path,
     });
   }
 }
@@ -467,6 +470,137 @@ function checkKbStructure(
   environment.kbRoot = validation.kbRoot;
 }
 
+async function checkSessionRuntime(
+  driftItems: InstallerDriftItem[],
+  context: CheckContext,
+  cli: OpenClawCli,
+  environment: ResolvedInstallerEnvironment,
+  options: {
+    openclawPackageRoot?: string;
+    resolvePluginToolsEntrypoint?: string;
+    openclawCliExecutablePath?: string;
+  }
+): Promise<void> {
+  if (!context.resolvedManifest) {
+    return;
+  }
+
+  const sessionRuntime = context.resolvedManifest.sessionRuntime;
+  if (!sessionRuntime) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message:
+        "Installer manifest is missing session runtime metadata for llmwiki session-visible tool integration.",
+      repairable: true,
+    });
+    return;
+  }
+
+  if (!context.cliReady) {
+    return;
+  }
+
+  let configuredPluginConfig: Awaited<ReturnType<typeof readSessionRuntimePluginConfig>>;
+  try {
+    configuredPluginConfig = await readSessionRuntimePluginConfig(cli);
+  } catch (error) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message:
+        `Failed to inspect session runtime plugin config: ${stringifyError(error)}`,
+      repairable: true,
+    });
+    return;
+  }
+  const pluginConfigDrift = sessionRuntimePluginConfigDrift({
+    snapshot: configuredPluginConfig,
+    pluginRoot: sessionRuntime.pluginRoot,
+  });
+  if (pluginConfigDrift.length > 0) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message:
+        `Session runtime plugin is not fully registered in OpenClaw config: ` +
+        pluginConfigDrift.join(", ") +
+        ".",
+      repairable: true,
+      expected: "enabled plugin entry, plugin allowlist entry, and plugin load path",
+      actual: JSON.stringify(configuredPluginConfig),
+    });
+  }
+
+  let agentToolPolicyOk = false;
+  try {
+    agentToolPolicyOk = await hasSessionRuntimeAgentToolPolicy({
+      cli,
+      workspacePath:
+        context.resolvedWorkspacePath ??
+        path.resolve(sessionRuntime.pluginRoot, "..", "..", ".."),
+    });
+  } catch (error) {
+    driftItems.push({
+      kind: "session_runtime_binding_failure",
+      message:
+        `Failed to inspect llmwiki agent tool policy: ${stringifyError(error)}`,
+      repairable: true,
+    });
+    return;
+  }
+  if (!agentToolPolicyOk) {
+    driftItems.push({
+      kind: "missing_session_runtime",
+      message:
+        `Agent "${sessionRuntime.agentId}" does not allow the ` +
+        `"${sessionRuntime.pluginId}" plugin tool group in tools.allow/tools.alsoAllow.`,
+      repairable: true,
+      expected: sessionRuntime.pluginId,
+      actual: "missing from tools.allow/tools.alsoAllow",
+    });
+  }
+
+  if (!context.llmwikiBindingOk) {
+    return;
+  }
+
+  if (hasSessionRuntimeUnknownOwnershipDrift(driftItems)) {
+    return;
+  }
+
+  const invocationKbRoot =
+    context.effectiveKbRoot ??
+    context.resolvedManifest.kbRoot ??
+    context.actualMcpConfig?.env.KB_ROOT ??
+    environment.kbRoot;
+  if (!invocationKbRoot) {
+    driftItems.push({
+      kind: "session_runtime_probe_failure",
+      message:
+        "Session runtime probe cannot invoke kb_read_page because KB_ROOT is unresolved.",
+      repairable: true,
+    });
+    return;
+  }
+
+  const probeResult = await probeSessionRuntimeSurface({
+    sessionRuntime,
+    invocationKbRoot,
+    expectedToolNames: KB_CANONICAL_TOOL_NAMES,
+    openclawPackageRoot: options.openclawPackageRoot,
+    resolvePluginToolsEntrypoint: options.resolvePluginToolsEntrypoint,
+    openclawCliExecutablePath: options.openclawCliExecutablePath,
+  });
+  context.lastSessionProbe = toSessionRuntimeProbeSnapshot(probeResult);
+  if (!probeResult.ok) {
+    driftItems.push({
+      kind: "session_runtime_probe_failure",
+      message:
+        probeResult.failureReason ??
+        "Session runtime probe failed without a detailed error.",
+      repairable: true,
+    });
+  }
+}
+
 async function checkActiveProbe(
   driftItems: InstallerDriftItem[],
   context: CheckContext,
@@ -525,239 +659,15 @@ async function checkActiveProbe(
   }
 }
 
-async function checkDefaultAgentSkillEligibility(
-  cli: OpenClawCli,
-  driftItems: InstallerDriftItem[],
-  context: CheckContext
-): Promise<void> {
-  if (!context.cliReady || !context.resolvedWorkspacePath) {
-    return;
-  }
-
-  let agentsPayload: unknown;
-  try {
-    agentsPayload = await cli.getConfigValue<unknown>("agents", { allowMissing: true });
-  } catch (error) {
-    driftItems.push({
-      kind: "manual_config_required",
-      message: `Failed to inspect OpenClaw agent config for skill eligibility: ${stringifyError(error)}`,
-      repairable: false,
-    });
-    return;
-  }
-
-  const defaultSkillConfig = evaluateDefaultSkillRestrictions(agentsPayload);
-  driftItems.push(...defaultSkillConfig);
-
-  let eligibleSkills: string[];
-  try {
-    const listed = await cli.listEligibleSkills();
-    eligibleSkills = listed.map((entry) => entry.name);
-  } catch (error) {
-    const kind =
-      error instanceof OpenClawCliError && error.exitCode < 0
-        ? "invalid_openclaw_cli"
-        : "manual_config_required";
-    driftItems.push({
-      kind,
-      message: `Failed to list OpenClaw eligible skills: ${stringifyError(error)}`,
-      repairable: false,
-    });
-    return;
-  }
-
-  const eligibleSet = new Set(eligibleSkills);
-  const missingSkills = CHECK_REQUIRED_SKILLS.filter((skill) => !eligibleSet.has(skill));
-
-  if (missingSkills.length > 0) {
-    driftItems.push({
-      kind: "manual_config_required",
-      message: `Installed skills are not eligible for the current default agent: missing ${missingSkills.join(", ")}`,
-      repairable: false,
-      expected: CHECK_REQUIRED_SKILLS.join(", "),
-      actual: eligibleSkills.sort((left, right) => left.localeCompare(right)).join(", "),
-    });
-  }
-}
-
-function evaluateDefaultSkillRestrictions(agentsPayload: unknown): InstallerDriftItem[] {
-  if (agentsPayload === undefined) {
-    return [];
-  }
-
-  if (!isRecord(agentsPayload)) {
-    return [
-      {
-        kind: "manual_config_required",
-        message: "OpenClaw agents config payload is malformed.",
-        repairable: false,
-      },
-    ];
-  }
-
-  const restrictions: InstallerDriftItem[] = [];
-
-  const defaultsSkills = readOptionalSkillList(
-    isRecord(agentsPayload.defaults) ? agentsPayload.defaults.skills : undefined,
-    "agents.defaults.skills"
-  );
-
-  if (defaultsSkills.error) {
-    restrictions.push(defaultsSkills.error);
-  } else if (defaultsSkills.value) {
-    const defaultsSkillList = defaultsSkills.value;
-    const missing = CHECK_REQUIRED_SKILLS.filter(
-      (skill) => !defaultsSkillList.includes(skill)
-    );
-    if (missing.length > 0) {
-      restrictions.push({
-        kind: "manual_config_required",
-        message: `agents.defaults.skills excludes required installer skills: ${missing.join(", ")}`,
-        repairable: false,
-      });
+function hasSessionRuntimeUnknownOwnershipDrift(
+  driftItems: readonly InstallerDriftItem[]
+): boolean {
+  return driftItems.some((item) => {
+    if (item.kind !== "unknown_ownership") {
+      return false;
     }
-  }
-
-  const defaultAgent = pickConfiguredDefaultAgent(agentsPayload.list);
-  if (defaultAgent.error) {
-    restrictions.push(defaultAgent.error);
-    return restrictions;
-  }
-
-  if (defaultAgent.value && Object.prototype.hasOwnProperty.call(defaultAgent.value, "skills")) {
-    const agentSkills = readOptionalSkillList(
-      defaultAgent.value.skills,
-      `agents.list[${defaultAgent.valueIndex}].skills`
-    );
-
-    if (agentSkills.error) {
-      restrictions.push(agentSkills.error);
-    } else if (agentSkills.value) {
-      const agentSkillList = agentSkills.value;
-      const missing = CHECK_REQUIRED_SKILLS.filter(
-        (skill) => !agentSkillList.includes(skill)
-      );
-      if (missing.length > 0) {
-        restrictions.push({
-          kind: "manual_config_required",
-          message: `Default agent skills list excludes required installer skills: ${missing.join(", ")}`,
-          repairable: false,
-        });
-      }
-    }
-  }
-
-  return restrictions;
-}
-
-function pickConfiguredDefaultAgent(value: unknown): {
-  value?: Record<string, unknown>;
-  valueIndex: number;
-  error?: InstallerDriftItem;
-} {
-  if (value === undefined) {
-    return { valueIndex: -1 };
-  }
-
-  if (!Array.isArray(value)) {
-    return {
-      valueIndex: -1,
-      error: {
-        kind: "manual_config_required",
-        message: "OpenClaw agents.list is malformed.",
-        repairable: false,
-      },
-    };
-  }
-
-  const normalized: Array<{ index: number; value: Record<string, unknown> }> = [];
-  for (const [index, item] of value.entries()) {
-    if (!isRecord(item)) {
-      return {
-        valueIndex: -1,
-        error: {
-          kind: "manual_config_required",
-          message: `OpenClaw agents.list entry at index ${index} is malformed.`,
-          repairable: false,
-        },
-      };
-    }
-    normalized.push({ index, value: item });
-  }
-
-  const explicitDefaults = normalized.filter((entry) => entry.value.default === true);
-  if (explicitDefaults.length > 1) {
-    return {
-      valueIndex: -1,
-      error: {
-        kind: "manual_config_required",
-        message: "Multiple agents are marked as default; manual config required.",
-        repairable: false,
-      },
-    };
-  }
-
-  if (explicitDefaults.length === 1) {
-    return {
-      value: explicitDefaults[0].value,
-      valueIndex: explicitDefaults[0].index,
-    };
-  }
-
-  if (normalized.length === 1) {
-    return {
-      value: normalized[0].value,
-      valueIndex: normalized[0].index,
-    };
-  }
-
-  if (normalized.length > 1) {
-    return {
-      valueIndex: -1,
-      error: {
-        kind: "manual_config_required",
-        message: "No single default agent could be identified from agents.list.",
-        repairable: false,
-      },
-    };
-  }
-
-  return { valueIndex: -1 };
-}
-
-function readOptionalSkillList(
-  value: unknown,
-  label: string
-): { value?: string[]; error?: InstallerDriftItem } {
-  if (value === undefined) {
-    return {};
-  }
-
-  if (!Array.isArray(value)) {
-    return {
-      error: {
-        kind: "manual_config_required",
-        message: `${label} must be an array of skill names.`,
-        repairable: false,
-      },
-    };
-  }
-
-  const normalized: string[] = [];
-  for (const [index, item] of value.entries()) {
-    if (typeof item !== "string" || !item.trim()) {
-      return {
-        error: {
-          kind: "manual_config_required",
-          message: `${label}[${index}] must be a non-empty skill name.`,
-          repairable: false,
-        },
-      };
-    }
-    normalized.push(item);
-  }
-
-  return { value: normalized };
+    return item.message.toLowerCase().includes("session runtime");
+  });
 }
 
 function normalizeActualMcpConfig(
@@ -836,6 +746,14 @@ function expectedServerEntrypointForRepoRoot(repoRoot: string): string {
   return path.resolve(repoRoot, "dist", "mcp_server.js");
 }
 
+function expectedOpenClawPluginEntrypointForRepoRoot(repoRoot: string): string {
+  return path.resolve(repoRoot, "dist", "openclaw_plugin.js");
+}
+
+function expectedOpenClawPluginManifestPathForRepoRoot(repoRoot: string): string {
+  return path.resolve(repoRoot, "openclaw.plugin.json");
+}
+
 function buildExpectedMcpConfig(options: {
   mcpName: string;
   serverEntrypoint: string;
@@ -863,6 +781,8 @@ function stringifyError(error: unknown): string {
 export {
   areExpectedMcpConfigsEqual,
   buildExpectedMcpConfig,
+  expectedOpenClawPluginEntrypointForRepoRoot,
+  expectedOpenClawPluginManifestPathForRepoRoot,
   expectedServerEntrypointForRepoRoot,
   normalizeActualMcpConfig,
 };

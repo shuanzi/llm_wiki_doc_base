@@ -43,7 +43,9 @@ kb/
     cache/page-index.json
 src/
   mcp_server.ts        # MCP stdio server exposing 8 workflow tools + 3 maintenance tools
+  openclaw_plugin.ts   # OpenClaw native runtime adapter exposing canonical kb_* tools
   tools/kb_*.ts        # tool implementations
+openclaw.plugin.json   # OpenClaw native plugin manifest
 skills/
   kb_ingest/SKILL.md
   kb_query/SKILL.md
@@ -112,6 +114,31 @@ WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
 
 `start:mcp` runs `node dist/mcp_server.js`, so build first.
 
+## OpenClaw Native Plugin Runtime Surface
+
+The repository now includes a native OpenClaw plugin runtime surface in addition to the MCP server:
+
+- manifest: `openclaw.plugin.json`
+- runtime entry artifact: `dist/openclaw_plugin.js`
+- package metadata: `package.json` -> `openclaw.extensions = [\"./dist/openclaw_plugin.js\"]`
+
+Build first:
+
+```bash
+npm run typecheck
+npm run build
+```
+
+Install into OpenClaw from local path:
+
+```bash
+openclaw plugins install /absolute/path/to/this/repo
+```
+
+When running `openclaw agent --local`, OpenClaw preloads installed local plugins so the canonical 11 `kb_*` tools from this plugin surface are available in-session.
+
+For the installer-managed `llmwiki` flow, healthy status now means the targeted `llmwiki` session can directly see the canonical `kb_*` tool surface. Saved outbound MCP config is only a secondary compatibility/debugging signal.
+
 ## OpenClaw Installer (External KB)
 
 Build artifacts first:
@@ -121,37 +148,40 @@ npm run typecheck
 npm run build
 ```
 
-Install (requires explicit default-agent workspace and explicit external `KB_ROOT`):
+Install (requires explicit workspace target and explicit external `KB_ROOT`):
 
 ```bash
-node dist/openclaw_installer.js install --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+node dist/openclaw_installer.js install --workspace /absolute/path/to/target-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
 ```
 
 Check:
 
 ```bash
-node dist/openclaw_installer.js check --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb --json
+node dist/openclaw_installer.js check --workspace /absolute/path/to/target-workspace --mcp-name llm-kb --json
 ```
 
 Repair:
 
 ```bash
-node dist/openclaw_installer.js repair --workspace /absolute/path/to/current-default-agent-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
+node dist/openclaw_installer.js repair --workspace /absolute/path/to/target-workspace --kb-root /absolute/path/to/external-kb --mcp-name llm-kb
 ```
 
 Uninstall:
 
 ```bash
-node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-default-agent-workspace --mcp-name llm-kb
+node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/target-workspace --mcp-name llm-kb
 ```
 
 Operator notes for current implementation:
 
-- Current implementation only supports the OpenClaw current default-agent workspace. If `--workspace` does not match the resolved default-agent workspace, installer commands fail closed with manual-config guidance.
+- Installer commands target only the explicit path provided by `--workspace` (required for `install`, `check`, `repair`, and `uninstall`).
+- The explicit `--workspace` must resolve to the OpenClaw agent whose `id` is `llmwiki`; missing or ambiguous binding fails closed.
 - `KB_ROOT` is an explicit external root in the installer contract (`install` requires `--kb-root`; `repair` can infer from manifest/MCP config but accepts explicit override).
 - Installed skills are OpenClaw-adapted variants (`openclaw-adapted-v1`) written under `<workspace>/skills/{kb_ingest|kb_query|kb_lint}`.
+- Installer also materializes a workspace-local OpenClaw native plugin shim under `<workspace>/.openclaw/extensions/llmwiki-kb-tools`, pins that shim to the configured external `KB_ROOT`, registers it in `plugins.load.paths`, adds `llmwiki-kb-tools` to `plugins.allow`, enables `plugins.entries.llmwiki-kb-tools.enabled`, and allows the plugin group in the bound `llmwiki` agent tool policy (`tools.alsoAllow` by default) so real `llmwiki` sessions receive the canonical 11 `kb_*` tools.
 - `kb_commit` remains available in the MCP server surface, but it is not part of the default external-KB installer contract; adapted skills intentionally avoid automatic `kb_commit`.
 - Installer ownership is repo-coupled: expected MCP config points to this repo build artifact (`<repo>/dist/mcp_server.js`) plus the configured `KB_ROOT`.
+- `check` and `repair` treat session-visible `kb_*` availability in `llmwiki` as the primary health contract; the standalone MCP server remains a secondary compatibility/debugging surface.
 - Conflict handling is conservative by default and fails closed on ownership/config/content conflicts unless `--force` is explicitly provided.
 
 Agent-oriented execution guide:

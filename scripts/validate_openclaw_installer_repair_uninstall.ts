@@ -11,6 +11,7 @@ interface FakeOpenClawState {
   };
   mcpServers: Record<string, unknown>;
   eligibleSkills: string[];
+  failMcpSetFor?: string[];
   failMcpUnsetFor?: string[];
 }
 
@@ -69,7 +70,124 @@ function ensureInstallerBuildExists(): void {
   }
 }
 
+let cachedOpenClawPackageRootForValidation: string | undefined;
+
+function isUsableOpenClawPackageRoot(packageRoot: string): boolean {
+  const packageJsonPath = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packageJsonPath) || !fs.statSync(packageJsonPath).isFile()) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
+      name?: unknown;
+    };
+    return parsed.name === "openclaw";
+  } catch {
+    return false;
+  }
+}
+
+function assertUsableOpenClawPackageRoot(packageRoot: string, sourceDescription: string): string {
+  const resolved = path.resolve(packageRoot);
+  if (!isUsableOpenClawPackageRoot(resolved)) {
+    throw new Error(
+      `${sourceDescription} does not point to the OpenClaw package root with package.json{name:\"openclaw\"}: ${resolved}`
+    );
+  }
+  return resolved;
+}
+
+function findOpenClawPackageRootByAscending(startPath: string): string | undefined {
+  let cursor = startPath;
+  if (!fs.existsSync(cursor)) {
+    return undefined;
+  }
+  if (!fs.statSync(cursor).isDirectory()) {
+    cursor = path.dirname(cursor);
+  }
+
+  while (true) {
+    if (isUsableOpenClawPackageRoot(cursor)) {
+      return cursor;
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      return undefined;
+    }
+    cursor = parent;
+  }
+}
+
+function tryResolveOpenClawPackageRootFromNpxBinaryPath(): string | undefined {
+  const command =
+    process.platform === "win32"
+      ? ["-y", "-p", "openclaw", "cmd", "/d", "/s", "/c", "where openclaw"]
+      : ["-y", "-p", "openclaw", "sh", "-lc", "command -v openclaw"];
+  const result = spawnSync("npx", command, {
+    cwd: repoRoot(),
+    env: process.env,
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    return undefined;
+  }
+
+  const binaryPath = (result.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (typeof binaryPath !== "string") {
+    return undefined;
+  }
+
+  const realBinaryPath = fs.realpathSync(binaryPath);
+  return (
+    findOpenClawPackageRootByAscending(realBinaryPath) ??
+    findOpenClawPackageRootByAscending(binaryPath)
+  );
+}
+
+function resolveOpenClawPackageRootForValidation(): string {
+  if (typeof cachedOpenClawPackageRootForValidation === "string") {
+    return cachedOpenClawPackageRootForValidation;
+  }
+
+  const explicitFromEnv = process.env.OPENCLAW_PACKAGE_ROOT;
+  if (typeof explicitFromEnv === "string" && explicitFromEnv.trim().length > 0) {
+    cachedOpenClawPackageRootForValidation = assertUsableOpenClawPackageRoot(
+      explicitFromEnv,
+      "OPENCLAW_PACKAGE_ROOT"
+    );
+    return cachedOpenClawPackageRootForValidation;
+  }
+
+  try {
+    cachedOpenClawPackageRootForValidation = assertUsableOpenClawPackageRoot(
+      path.dirname(require.resolve("openclaw/package.json")),
+      "require.resolve('openclaw/package.json')"
+    );
+    return cachedOpenClawPackageRootForValidation;
+  } catch {
+    const npxResolvedRoot = tryResolveOpenClawPackageRootFromNpxBinaryPath();
+    if (typeof npxResolvedRoot === "string") {
+      cachedOpenClawPackageRootForValidation = npxResolvedRoot;
+      return cachedOpenClawPackageRootForValidation;
+    }
+
+    throw new Error(
+      [
+        "Validation requires the real OpenClaw package internals for official session-runtime probing.",
+        "Set OPENCLAW_PACKAGE_ROOT, install OpenClaw as a resolvable local package,",
+        "or make `npx -y -p openclaw sh -lc 'command -v openclaw'` available.",
+      ].join(" ")
+    );
+  }
+}
+
 function createSandbox(name: string): ValidationSandbox {
+  const openclawPackageRoot = resolveOpenClawPackageRootForValidation();
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `openclaw-repair-uninstall-${name}-`));
   const workspacePath = path.join(tempRoot, "workspace-default");
   const kbRoot = path.join(tempRoot, "external-kb");
@@ -78,6 +196,7 @@ function createSandbox(name: string): ValidationSandbox {
   const binDir = path.join(tempRoot, "bin");
 
   fs.mkdirSync(binDir, { recursive: true });
+  fs.mkdirSync(workspacePath, { recursive: true });
 
   const initialState: FakeOpenClawState = {
     configFile,
@@ -85,7 +204,7 @@ function createSandbox(name: string): ValidationSandbox {
       agents: {
         list: [
           {
-            id: "default-agent",
+            id: "llmwiki",
             default: true,
             workspace: workspacePath,
           },
@@ -94,6 +213,7 @@ function createSandbox(name: string): ValidationSandbox {
     },
     mcpServers: {},
     eligibleSkills: ["kb_ingest", "kb_query", "kb_lint"],
+    failMcpSetFor: [],
     failMcpUnsetFor: [],
   };
 
@@ -110,6 +230,7 @@ function createSandbox(name: string): ValidationSandbox {
     ...process.env,
     PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}`,
     FAKE_OPENCLAW_STATE: statePath,
+    OPENCLAW_PACKAGE_ROOT: openclawPackageRoot,
   };
 
   return {
@@ -170,6 +291,36 @@ function buildNodeCliSource(): string {
     "  return cursor;",
     "}",
     "",
+    "function setPathValue(root, dottedPath, value) {",
+    "  const segments = dottedPath.split('.');",
+    "  let cursor = root;",
+    "  for (let index = 0; index < segments.length - 1; index += 1) {",
+    "    const segment = segments[index];",
+    "    const next = cursor[segment];",
+    "    if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) {",
+    "      cursor[segment] = {};",
+    "    }",
+    "    cursor = cursor[segment];",
+    "  }",
+    "  cursor[segments[segments.length - 1]] = value;",
+    "}",
+    "",
+    "function deletePathValue(root, dottedPath) {",
+    "  const segments = dottedPath.split('.');",
+    "  let cursor = root;",
+    "  for (let index = 0; index < segments.length - 1; index += 1) {",
+    "    const segment = segments[index];",
+    "    if (!cursor || typeof cursor !== 'object') {",
+    "      return;",
+    "    }",
+    "    cursor = cursor[segment];",
+    "  }",
+    "  if (!cursor || typeof cursor !== 'object') {",
+    "    return;",
+    "  }",
+    "  delete cursor[segments[segments.length - 1]];",
+    "}",
+    "",
     "const statePath = process.env.FAKE_OPENCLAW_STATE;",
     "if (!statePath) {",
     "  fail('FAKE_OPENCLAW_STATE is required');",
@@ -193,6 +344,28 @@ function buildNodeCliSource(): string {
     "  process.exit(0);",
     "}",
     "",
+    "if (args[0] === 'config' && args[1] === 'set' && args[4] === '--strict-json') {",
+    "  const configPath = args[2];",
+    "  let parsed;",
+    "  try {",
+    "    parsed = JSON.parse(args[3]);",
+    "  } catch (error) {",
+    "    fail(`Invalid config JSON payload: ${error instanceof Error ? error.message : String(error)}`);",
+    "  }",
+    "  setPathValue(state.config, configPath, parsed);",
+    "  saveState(statePath, state);",
+    "  process.stdout.write('ok\\n');",
+    "  process.exit(0);",
+    "}",
+    "",
+    "if (args[0] === 'config' && args[1] === 'unset' && args.length === 3) {",
+    "  const configPath = args[2];",
+    "  deletePathValue(state.config, configPath);",
+    "  saveState(statePath, state);",
+    "  process.stdout.write('ok\\n');",
+    "  process.exit(0);",
+    "}",
+    "",
     "if (args[0] === 'mcp' && args[1] === 'show' && args[3] === '--json') {",
     "  const name = args[2];",
     "  const definition = state.mcpServers[name];",
@@ -205,6 +378,10 @@ function buildNodeCliSource(): string {
     "",
     "if (args[0] === 'mcp' && args[1] === 'set' && args.length === 4) {",
     "  const name = args[2];",
+    "  const failSetList = Array.isArray(state.failMcpSetFor) ? state.failMcpSetFor : [];",
+    "  if (failSetList.includes(name)) {",
+    "    fail(`Injected mcp set failure for ${JSON.stringify(name)}`);",
+    "  }",
     "  let parsed;",
     "  try {",
     "    parsed = JSON.parse(args[3]);",
@@ -261,14 +438,33 @@ function readState(statePath: string): FakeOpenClawState {
   return JSON.parse(fs.readFileSync(statePath, "utf8")) as FakeOpenClawState;
 }
 
+function bindLlmwikiWorkspace(statePath: string, workspacePath: string): void {
+  const state = readState(statePath);
+  state.config = {
+    ...state.config,
+    agents: {
+      list: [
+        {
+          id: "llmwiki",
+          default: true,
+          workspace: workspacePath,
+        },
+      ],
+    },
+  };
+  writeState(statePath, state);
+}
+
 function parseCheckJson(stdout: string): {
   ok: boolean;
   driftItems: Array<{ kind: string; message: string }>;
+  lastSessionProbe?: { ok: boolean };
 } {
   try {
     return JSON.parse(stdout) as {
       ok: boolean;
       driftItems: Array<{ kind: string; message: string }>;
+      lastSessionProbe?: { ok: boolean };
     };
   } catch (error) {
     throw new Error(`Failed to parse check JSON output: ${String(error)}\nstdout:\n${stdout}`);
@@ -293,6 +489,378 @@ function runBaselineInstall(sandbox: ValidationSandbox): void {
     install.status === 0,
     `Baseline install should succeed.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
   );
+}
+
+function testRepairBackfillsMissingSessionRuntimeMetadata(): void {
+  const sandbox = createSandbox("repair-backfills-session-runtime");
+
+  try {
+    runBaselineInstall(sandbox);
+
+    const manifestPath = path.join(
+      sandbox.workspacePath,
+      ".llm-kb",
+      "openclaw-install.json"
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Record<string, unknown>;
+    delete manifest.sessionRuntime;
+    delete manifest.lastSuccessfulSessionProbe;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+    const pluginRoot = path.join(
+      sandbox.workspacePath,
+      ".openclaw",
+      "extensions",
+      "llmwiki-kb-tools"
+    );
+    fs.rmSync(pluginRoot, { recursive: true, force: true });
+
+    const state = readState(sandbox.statePath);
+    if (state.config && typeof state.config === "object") {
+      (state.config as Record<string, unknown>).plugins = {
+        entries: {
+          "llmwiki-kb-tools": {
+            enabled: false,
+          },
+        },
+      };
+    }
+    writeState(sandbox.statePath, state);
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should backfill missing session runtime metadata.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+    assert(
+      /backfill_session_runtime_metadata/.test(repair.stdout),
+      `Repair output should report session runtime metadata backfill.\nstdout:\n${repair.stdout}`
+    );
+
+    const repairedManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+      sessionRuntime?: { pluginRoot?: string };
+      lastSuccessfulSessionProbe?: { ok?: boolean };
+    };
+    assert(
+      typeof repairedManifest.sessionRuntime?.pluginRoot === "string",
+      "Repair should persist backfilled session runtime metadata"
+    );
+    assert(
+      repairedManifest.lastSuccessfulSessionProbe?.ok === true,
+      "Repair should record a successful session runtime probe snapshot"
+    );
+    assert(
+      fs.existsSync(pluginRoot),
+      "Repair should recreate the installer-owned llmwiki session runtime directory"
+    );
+
+    const stateAfterRepair = readState(sandbox.statePath);
+    assert(
+      (stateAfterRepair.config as { plugins?: { entries?: { ["llmwiki-kb-tools"]?: { enabled?: boolean } } } }).plugins?.entries?.["llmwiki-kb-tools"]?.enabled ===
+        true,
+      "Repair should re-enable the llmwiki session runtime plugin"
+    );
+    assert(
+      (stateAfterRepair.config as { plugins?: { allow?: string[] } }).plugins?.allow?.includes(
+        "llmwiki-kb-tools"
+      ) === true,
+      "Repair should add the llmwiki session runtime plugin to plugins.allow"
+    );
+    assert(
+      (
+        stateAfterRepair.config as {
+          agents?: { list?: Array<{ id?: string; tools?: { alsoAllow?: string[] } }> };
+        }
+      ).agents?.list
+        ?.find((agent) => agent.id === "llmwiki")
+        ?.tools?.alsoAllow?.includes("llmwiki-kb-tools") === true,
+      "Repair should allow the llmwiki-kb-tools plugin group in the llmwiki agent tool policy"
+    );
+    assert(
+      (stateAfterRepair.config as { plugins?: { load?: { paths?: string[] } } }).plugins?.load?.paths?.includes(
+        pluginRoot
+      ) === true,
+      "Repair should add the session runtime plugin root to plugins.load.paths"
+    );
+
+    const check = runInstallerCommand(
+      ["check", "--workspace", sandbox.workspacePath, "--json"],
+      sandbox.env
+    );
+    assert(
+      check.status === 0,
+      `Post-repair check should succeed after session runtime backfill.\nstdout:\n${check.stdout}\nstderr:\n${check.stderr}`
+    );
+    assert(parseCheckJson(check.stdout).ok, "Backfilled session runtime should pass check");
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testUninstallRemovesInstallerOwnedSessionRuntime(): void {
+  const sandbox = createSandbox("uninstall-removes-session-runtime");
+
+  try {
+    runBaselineInstall(sandbox);
+
+    const pluginRoot = path.join(
+      sandbox.workspacePath,
+      ".openclaw",
+      "extensions",
+      "llmwiki-kb-tools"
+    );
+    assert(fs.existsSync(pluginRoot), "Precondition: install should create session runtime root");
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should remove installer-owned session runtime artifacts.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+    assert(
+      !fs.existsSync(pluginRoot),
+      "Uninstall should remove the installer-owned llmwiki session runtime directory"
+    );
+
+    const stateAfterUninstall = readState(sandbox.statePath);
+    assert(
+      (stateAfterUninstall.config as { plugins?: { entries?: { ["llmwiki-kb-tools"]?: unknown } } }).plugins?.entries?.["llmwiki-kb-tools"] ===
+        undefined,
+      "Uninstall should remove the llmwiki session runtime plugin entry"
+    );
+    assert(
+      (stateAfterUninstall.config as { plugins?: { allow?: string[] } }).plugins?.allow?.includes(
+        "llmwiki-kb-tools"
+      ) !== true,
+      "Uninstall should remove the llmwiki session runtime plugin from plugins.allow"
+    );
+    assert(
+      (stateAfterUninstall.config as { plugins?: { load?: { paths?: string[] } } }).plugins?.load?.paths?.includes(
+        pluginRoot
+      ) !== true,
+      "Uninstall should remove the session runtime plugin root from plugins.load.paths"
+    );
+    assert(
+      (
+        stateAfterUninstall.config as {
+          agents?: { list?: Array<{ id?: string; tools?: { alsoAllow?: string[] } }> };
+        }
+      ).agents?.list
+        ?.find((agent) => agent.id === "llmwiki")
+        ?.tools?.alsoAllow?.includes("llmwiki-kb-tools") !== true,
+      "Uninstall should remove the llmwiki-kb-tools plugin group from the llmwiki agent tool policy"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallAcceptTildeConfigFilePath(): void {
+  const sandbox = createSandbox("repair-uninstall-tilde-config-file");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.configFile = "~/.openclaw/openclaw.json";
+    writeState(sandbox.statePath, state);
+
+    const env = { ...sandbox.env, HOME: path.join(sandbox.tempRoot, "home-from-env") };
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        sandbox.workspacePath,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      env
+    );
+    assert(
+      install.status === 0,
+      `Install should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    fs.rmSync(path.join(sandbox.workspacePath, "skills", "kb_query"), {
+      recursive: true,
+      force: true,
+    });
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should accept ~/.openclaw/openclaw.json from openclaw config file.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallFailForMissingWorkspacePath(): void {
+  const sandbox = createSandbox("missing-workspace-repair-uninstall");
+
+  try {
+    const missingWorkspace = path.join(sandbox.tempRoot, "workspace-missing");
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", missingWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status !== 0,
+      "Repair should fail when --workspace points to a missing path"
+    );
+    assert(
+      /Workspace path does not exist/i.test(`${repair.stdout}\n${repair.stderr}`),
+      "Repair missing-workspace failure should mention non-existent workspace path"
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", missingWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail when --workspace points to a missing path"
+    );
+    assert(
+      /Workspace path does not exist/i.test(`${uninstall.stdout}\n${uninstall.stderr}`),
+      "Uninstall missing-workspace failure should mention non-existent workspace path"
+    );
+    assert(
+      !fs.existsSync(missingWorkspace),
+      "Repair/uninstall should not create missing workspace directories"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallFailForNonDirectoryWorkspacePath(): void {
+  const sandbox = createSandbox("workspace-file-repair-uninstall");
+
+  try {
+    const workspaceFile = path.join(sandbox.tempRoot, "workspace.txt");
+    fs.writeFileSync(workspaceFile, "not a directory\n", "utf8");
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", workspaceFile, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status !== 0,
+      "Repair should fail when --workspace points to a non-directory path"
+    );
+    assert(
+      /Workspace path is not a directory/i.test(`${repair.stdout}\n${repair.stderr}`),
+      "Repair non-directory failure should mention directory requirement"
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", workspaceFile, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status !== 0,
+      "Uninstall should fail when --workspace points to a non-directory path"
+    );
+    assert(
+      /Workspace path is not a directory/i.test(`${uninstall.stdout}\n${uninstall.stderr}`),
+      "Uninstall non-directory failure should mention directory requirement"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairAndUninstallAllowExplicitWorkspaceWithAmbiguousDefaultAgent(): void {
+  const sandbox = createSandbox("explicit-workspace-ambiguous-default-agent");
+
+  try {
+    const explicitWorkspace = path.join(sandbox.tempRoot, "workspace-explicit");
+    fs.mkdirSync(explicitWorkspace, { recursive: true });
+
+    const state = readState(sandbox.statePath);
+    state.config = {
+      agents: {
+        list: [
+          {
+            id: "agent-a",
+            default: true,
+            workspace: sandbox.workspacePath,
+          },
+          {
+            id: "agent-b",
+            default: true,
+            workspace: path.join(sandbox.tempRoot, "workspace-other"),
+          },
+          {
+            id: "llmwiki",
+            workspace: explicitWorkspace,
+          },
+        ],
+      },
+    };
+    writeState(sandbox.statePath, state);
+
+    const install = runInstallerCommand(
+      [
+        "install",
+        "--workspace",
+        explicitWorkspace,
+        "--kb-root",
+        sandbox.kbRoot,
+        "--mcp-name",
+        "llm-kb",
+      ],
+      sandbox.env
+    );
+    assert(
+      install.status === 0,
+      `Install should succeed for explicit workspace even with ambiguous default-agent config.\nstdout:\n${install.stdout}\nstderr:\n${install.stderr}`
+    );
+
+    fs.rmSync(path.join(explicitWorkspace, "skills", "kb_query"), {
+      recursive: true,
+      force: true,
+    });
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", explicitWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status === 0,
+      `Repair should succeed for explicit workspace even with ambiguous default-agent config.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    const uninstall = runInstallerCommand(
+      ["uninstall", "--workspace", explicitWorkspace, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      uninstall.status === 0,
+      `Uninstall should succeed for explicit workspace even with ambiguous default-agent config.\nstdout:\n${uninstall.stdout}\nstderr:\n${uninstall.stderr}`
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
 }
 
 function testRepairFromMissingSkills(): void {
@@ -422,6 +990,46 @@ function testRepairFromMissingManifestWithSufficientState(): void {
     assert(
       parsedManifest.mcpName === "llm-kb",
       "Repaired manifest should use requested MCP name"
+    );
+  } finally {
+    fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
+  }
+}
+
+function testRepairRefusesThirdPartyMcpSignalWithoutForce(): void {
+  const sandbox = createSandbox("repair-third-party-mcp");
+
+  try {
+    const state = readState(sandbox.statePath);
+    state.mcpServers["llm-kb"] = {
+      command: process.execPath,
+      args: [path.join(sandbox.tempRoot, "third-party-server.js")],
+      env: {
+        KB_ROOT: sandbox.kbRoot,
+      },
+    };
+    writeState(sandbox.statePath, state);
+
+    const repair = runInstallerCommand(
+      ["repair", "--workspace", sandbox.workspacePath, "--mcp-name", "llm-kb"],
+      sandbox.env
+    );
+    assert(
+      repair.status !== 0,
+      "Repair should fail closed when only a third-party MCP registration survives"
+    );
+    assert(
+      /ownership is uncertain|too ambiguous|cannot reconstruct state|cannot determine kb_root/i.test(
+        `${repair.stdout}\n${repair.stderr}`
+      ),
+      `Repair refusal should mention uncertain ownership for third-party MCP signal.\nstdout:\n${repair.stdout}\nstderr:\n${repair.stderr}`
+    );
+
+    const stateAfterRepair = readState(sandbox.statePath);
+    assertDeepEqual(
+      stateAfterRepair.mcpServers["llm-kb"],
+      state.mcpServers["llm-kb"],
+      "Repair should not overwrite a third-party MCP registration when ownership is uncertain"
     );
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
@@ -604,7 +1212,7 @@ function testRepairLateFailureRollsBackMutations(): void {
         KB_ROOT: sandbox.kbRoot,
       },
     };
-    stateBefore.eligibleSkills = ["kb_ingest", "kb_query"];
+    stateBefore.failMcpSetFor = ["llm-kb"];
     writeState(sandbox.statePath, stateBefore);
 
     const removedSkillFile = path.join(
@@ -622,11 +1230,11 @@ function testRepairLateFailureRollsBackMutations(): void {
     );
     assert(
       repair.status !== 0,
-      "Repair should fail when post-repair check detects non-repairable drift"
+      "Repair should fail in rollback scenario when MCP set is injected to fail"
     );
     assert(
-      /Post-repair check detected drift/i.test(`${repair.stdout}\n${repair.stderr}`),
-      "Repair rollback scenario should fail at post-repair check stage"
+      /Injected mcp set failure/i.test(`${repair.stdout}\n${repair.stderr}`),
+      "Repair rollback scenario should fail due to injected MCP set failure"
     );
 
     const stateAfter = readState(sandbox.statePath);
@@ -1103,8 +1711,8 @@ function testUninstallMcpUnsetFailureDoesNotDeleteLocalArtifacts(): void {
       "Unset failure should leave installer manifest intact"
     );
     assert(
-      fs.existsSync(skillPath),
-      "Unset failure should leave installer skill artifacts intact"
+      !fs.existsSync(skillPath),
+      "Unset failure should occur after local artifact cleanup, leaving MCP ownership state intact for follow-up recovery"
     );
   } finally {
     fs.rmSync(sandbox.tempRoot, { recursive: true, force: true });
@@ -1114,13 +1722,20 @@ function testUninstallMcpUnsetFailureDoesNotDeleteLocalArtifacts(): void {
 function main(): void {
   ensureInstallerBuildExists();
 
+  testRepairAndUninstallAcceptTildeConfigFilePath();
+  testRepairAndUninstallFailForMissingWorkspacePath();
+  testRepairAndUninstallFailForNonDirectoryWorkspacePath();
+  testRepairBackfillsMissingSessionRuntimeMetadata();
+  testRepairAndUninstallAllowExplicitWorkspaceWithAmbiguousDefaultAgent();
   testRepairFromMissingSkills();
   testRepairRestoresWorkspaceDocs();
   testRepairFromMissingManifestWithSufficientState();
+  testRepairRefusesThirdPartyMcpSignalWithoutForce();
   testRepairReconstructionMarksWorkspaceDocSnapshotsUnknownAndUninstallKeepsDocs();
   testRepairRefusalWhenStateAmbiguous();
   testRepairRejectsConflictingKbRootWithoutForce();
   testRepairLateFailureRollsBackMutations();
+  testUninstallRemovesInstallerOwnedSessionRuntime();
   testUninstallRemovesOnlyInstallerOwnedArtifacts();
   testUninstallRestoresPreinstallWorkspaceDocContent();
   testUninstallRefusesToClobberUserModifiedWorkspaceDocByDefault();

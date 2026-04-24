@@ -1,20 +1,9 @@
 import * as path from "path";
 
+import { KB_CANONICAL_TOOL_NAMES } from "../runtime/kb_tool_contract";
 import type { InstallerProbeSnapshot } from "./types";
 
-export const EXPECTED_KB_TOOL_NAMES = [
-  "kb_source_add",
-  "kb_read_source",
-  "kb_write_page",
-  "kb_update_section",
-  "kb_ensure_entry",
-  "kb_search_wiki",
-  "kb_read_page",
-  "kb_commit",
-  "kb_rebuild_index",
-  "kb_run_lint",
-  "kb_repair",
-] as const;
+export const EXPECTED_KB_TOOL_NAMES = [...KB_CANONICAL_TOOL_NAMES];
 
 export interface ProbeKbMcpServerOptions {
   serverEntrypoint: string;

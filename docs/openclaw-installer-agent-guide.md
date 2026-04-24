@@ -16,7 +16,11 @@ This guide applies to the current installer implementation only.
 
 This is not a plugin install flow. It installs:
 
-- one MCP registration that points to this repository's `dist/mcp_server.js`
+- one workspace-local OpenClaw native plugin shim under `<workspace>/.openclaw/extensions/llmwiki-kb-tools`
+- the shim is pinned to the configured external `KB_ROOT`; real `llmwiki` session tool calls must not fall back to `cwd/kb`
+- OpenClaw plugin config for that shim: `plugins.load.paths`, `plugins.allow`, and `plugins.entries.llmwiki-kb-tools.enabled`
+- bound `llmwiki` agent tool policy allowing the `llmwiki-kb-tools` plugin group, normally via `tools.alsoAllow`
+- one MCP registration that points to this repository's `dist/mcp_server.js` as a secondary compatibility/debugging surface
 - three OpenClaw-adapted skills under the target workspace
 - one installer manifest under the target workspace
 
@@ -26,7 +30,7 @@ It does not move the KB into the OpenClaw workspace. The KB stays external.
 
 The agent must enforce these rules:
 
-1. `--workspace` must match the current OpenClaw default-agent workspace.
+1. `--workspace` is required for every installer command and explicitly targets that workspace path.
 2. `install` requires an explicit external `--kb-root`.
 3. `uninstall` must not delete the external `KB_ROOT`.
 4. Conflict handling is conservative by default. Do not add `--force` unless there is a specific reason.
@@ -54,8 +58,9 @@ Before running installer commands, the agent should verify:
 1. It is operating from the correct repository checkout.
 2. `npm run typecheck` and `npm run build` have completed successfully.
 3. `openclaw` CLI is available on `PATH`.
-4. The target workspace path is the current default-agent workspace.
+4. The target workspace path is the intended explicit installer target.
 5. The target external `KB_ROOT` path is known.
+6. The explicit workspace is the OpenClaw agent workspace for `llmwiki`; missing or ambiguous binding is fail-closed.
 
 ## Standard Install Procedure
 
@@ -72,7 +77,7 @@ npm run build
 
 ```bash
 node dist/openclaw_installer.js install \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
   --mcp-name llm-kb
 ```
@@ -81,7 +86,7 @@ Equivalent bin form:
 
 ```bash
 kb-openclaw-installer install \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
   --mcp-name llm-kb
 ```
@@ -90,7 +95,7 @@ kb-openclaw-installer install \
 
 ```bash
 node dist/openclaw_installer.js check \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --mcp-name llm-kb \
   --json
 ```
@@ -98,6 +103,8 @@ node dist/openclaw_installer.js check \
 Success condition:
 
 - JSON output contains `"ok": true`
+- `llmwiki` session-visible canonical `kb_*` tools are healthy for the explicit workspace
+- standalone MCP probe remains healthy as a secondary signal
 
 ## Standard Repair Procedure
 
@@ -105,7 +112,7 @@ Use `repair` when installer-owned state has drifted but ownership is still valid
 
 ```bash
 node dist/openclaw_installer.js repair \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --kb-root /absolute/path/to/external-kb \
   --mcp-name llm-kb
 ```
@@ -113,8 +120,10 @@ node dist/openclaw_installer.js repair \
 Use cases:
 
 - missing adapted skills
+- missing or drifted workspace-local `llmwiki` session runtime shim
 - drifted or missing MCP config
 - missing installer manifest with enough surviving installer-owned state
+- legacy manifest that needs session-runtime metadata backfill
 - missing minimum KB structure under the external `KB_ROOT`
 
 Do not use `repair` to migrate a healthy install to a different `KB_ROOT`. That is intentionally fail-closed unless explicitly forced and justified.
@@ -125,12 +134,13 @@ Use `uninstall` only when removing this installer-owned integration.
 
 ```bash
 node dist/openclaw_installer.js uninstall \
-  --workspace /absolute/path/to/current-default-agent-workspace \
+  --workspace /absolute/path/to/target-workspace \
   --mcp-name llm-kb
 ```
 
 Expected behavior:
 
+- removes installer-owned workspace-local `llmwiki` session runtime artifacts, clears their OpenClaw plugin config, and removes the `llmwiki-kb-tools` group from the bound `llmwiki` agent tool policy when ownership matches
 - removes installer-owned MCP registration if ownership matches
 - removes installer-owned skill directories if ownership matches
 - removes installer manifest
@@ -148,24 +158,25 @@ Use `--force` only when:
 
 Do not use `--force` by default for:
 
-- unknown workspace mismatch
+- invalid workspace path or unknown workspace ownership
 - unknown or third-party MCP ownership
 - unexplained skill-directory drift
 - unexplained `KB_ROOT` retargeting
 
 ## Common Failure Cases
 
-### Workspace mismatch
+### Missing or invalid workspace target
 
 Symptom:
 
-- installer reports manual-config-required or workspace mismatch
+- usage error because `--workspace` is missing
+- installer reports that the explicit workspace path cannot be used
 
 Action:
 
 - stop
-- resolve the actual current default-agent workspace
-- rerun with the matching `--workspace`
+- provide the intended explicit `--workspace` path
+- rerun with the corrected explicit workspace
 
 ### Missing build artifact
 
@@ -213,6 +224,7 @@ Do:
 
 - build before install
 - run `check --json` after install or repair
+- treat `llmwiki` session-visible `kb_*` tools as the primary success condition
 - preserve the external `KB_ROOT`
 - assume fail-closed behavior is intentional
 - treat manifest + MCP config + skill hashes as ownership signals
@@ -220,6 +232,7 @@ Do:
 Do not:
 
 - assume any workspace is valid
+- assume saved MCP config alone means OpenClaw agent usability
 - rewrite raw KB source materials as part of installer operations
 - treat `repair` as a normal migration tool
 - auto-add `--force` because a command failed once
