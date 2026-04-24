@@ -223,7 +223,7 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 - bin：`kb-openclaw-installer`
 - 命令面：
   - `install --workspace <path> --kb-root <path> [--mcp-name <name>] [--force]`
-  - `check [--workspace <path>] [--mcp-name <name>] [--json]`
+  - `check --workspace <path> [--mcp-name <name>] [--json]`
   - `repair --workspace <path> [--kb-root <path>] [--mcp-name <name>] [--force]`
   - `uninstall --workspace <path> [--mcp-name <name>] [--force]`
 
@@ -238,11 +238,13 @@ node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-
 
 ### 9.3 当前实现约束（必须知晓）
 
-1. 仅支持当前默认 agent workspace
-- `--workspace` 必须与 OpenClaw 当前默认 agent 解析出的 workspace 一致；不一致时拒绝执行（manual config required / fail-closed）。
+1. 显式 workspace 绑定与 fail-closed
+- `install/check/repair/uninstall` 都要求显式 `--workspace`。
+- 目标 `--workspace` 必须可解析并绑定到 OpenClaw agent `id=llmwiki`；缺失绑定、歧义绑定或不匹配时 fail-closed。
 
 2. `KB_ROOT` 是外部且显式的契约
 - `install` 强制 `--kb-root`；`repair` 可从 manifest/MCP 配置恢复，也可显式传入。
+- `KB_ROOT` 指向已安装 `kb` 目录本体（`<KB_ROOT>/raw|wiki|schema|state`），工具相对路径如 `wiki/index.md`、`wiki/log.md` 都在该根下解析；不是 `<KB_ROOT>/kb/...`，也不是 workspace-local `kb/`。
 - 卸载不会删除外部 `KB_ROOT` 内容，只清理 installer-owned 的 workspace 工件与 MCP 注册。
 
 3. 安装 skill 为 OpenClaw 适配变体
@@ -256,6 +258,7 @@ node dist/openclaw_installer.js uninstall --workspace /absolute/path/to/current-
 5. repo-path coupling 与冲突保守策略
 - manifest 记录 `repoRoot`，且期望 MCP 配置固定指向 `<repoRoot>/dist/mcp_server.js` + `KB_ROOT`；移动 repo 或 build 产物缺失会触发 drift。
 - 冲突（manifest ownership、MCP config、skill 内容/目录）默认拒绝覆盖并 fail-closed，只有显式 `--force` 才允许覆盖。
+- OpenClaw 可用性成功判据是 `llmwiki` 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。
 
 ## 10. 与历史文档关系
 
