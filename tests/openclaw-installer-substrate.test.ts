@@ -13,8 +13,24 @@ import {
 import {
   materializeSessionRuntimeArtifacts,
 } from "../src/openclaw-installer/session-runtime-artifact";
+import { EXPECTED_KB_TOOL_NAMES } from "../src/openclaw-installer/mcp-probe";
 import { installOpenClawSkills } from "../src/openclaw-installer/skills";
 import { renderAllOpenClawWorkspaceDocs } from "../src/openclaw-installer/workspace-docs";
+
+const repoRoot = path.resolve(__dirname, "..");
+
+function assertContains(content: string, needle: string, context: string): void {
+  assert.equal(content.includes(needle), true, `${context} should include: ${needle}`);
+}
+
+function mustGetDoc(
+  docs: Map<string, string>,
+  docName: "AGENTS.md" | "SOUL.md" | "TOOLS.md" | "HEARTBEAT.md"
+): string {
+  const content = docs.get(docName);
+  assert.ok(content, `${docName} should be rendered`);
+  return content;
+}
 
 test("llmwiki binding fails closed on malformed workspace entries", async () => {
   const fakeCli = {
@@ -66,7 +82,6 @@ test("llmwiki binding fails closed on ambiguous workspace entries", async () => 
 });
 
 test("manifest validation reports session runtime hash drift", () => {
-  const repoRoot = path.resolve(__dirname, "..");
   const workspacePath = fs.mkdtempSync(
     path.join(os.tmpdir(), "openclaw-substrate-workspace-")
   );
@@ -136,7 +151,6 @@ test("manifest validation reports session runtime hash drift", () => {
 });
 
 test("session runtime materialization rejects symlinked plugin root", () => {
-  const repoRoot = path.resolve(__dirname, "..");
   const workspacePath = fs.mkdtempSync(
     path.join(os.tmpdir(), "openclaw-substrate-symlink-workspace-")
   );
@@ -160,5 +174,158 @@ test("session runtime materialization rejects symlinked plugin root", () => {
         sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
       }),
     /symlink/u
+  );
+});
+
+test("workspace doc rendering is deterministic and follows installed-agent semantics", () => {
+  const first = renderAllOpenClawWorkspaceDocs();
+  const second = renderAllOpenClawWorkspaceDocs();
+  assert.deepEqual(first, second);
+
+  const docs = new Map(first.map((doc) => [doc.docName, doc.content]));
+  assert.equal(docs.size, 4);
+
+  const agents = mustGetDoc(docs, "AGENTS.md");
+  const soul = mustGetDoc(docs, "SOUL.md");
+  const tools = mustGetDoc(docs, "TOOLS.md");
+  const heartbeat = mustGetDoc(docs, "HEARTBEAT.md");
+
+  assertContains(
+    agents,
+    "`KB_ROOT` 是已安装的 `kb` 目录本体，而不是 `<KB_ROOT>/kb/...` 或 workspace-local `kb/`。",
+    "AGENTS.md"
+  );
+  assertContains(agents, "<KB_ROOT>/raw", "AGENTS.md");
+  assertContains(agents, "<KB_ROOT>/wiki", "AGENTS.md");
+  assertContains(agents, "<KB_ROOT>/schema", "AGENTS.md");
+  assertContains(agents, "<KB_ROOT>/state", "AGENTS.md");
+  assertContains(agents, "`wiki/index.md`、`wiki/log.md` 均相对 `KB_ROOT` 解析。", "AGENTS.md");
+  assertContains(
+    agents,
+    "`schema/guidance layer`，用于约束 Agent 维护 `wiki` 的运行规则。",
+    "AGENTS.md"
+  );
+  assertContains(agents, "<KB_ROOT>/wiki/analyses/", "AGENTS.md");
+  assertContains(agents, "plan -> draft -> apply", "AGENTS.md");
+  assertContains(agents, "冲突与开放问题必须显式写出", "AGENTS.md");
+  assertContains(agents, "仅保存 MCP 配置不足以代表可用", "AGENTS.md");
+
+  assertContains(soul, "使命是长期维护可演化 wiki", "SOUL.md");
+  assertContains(soul, "人类负责目标与裁决，Agent 负责检索、编译、交叉链接与一致性维护。", "SOUL.md");
+  assertContains(soul, "高价值 query 输出", "SOUL.md");
+  assertContains(soul, "仅保存 MCP 配置不能证明可用性；standalone MCP 连通性只是兼容/调试路径。", "SOUL.md");
+  assertContains(soul, "ownership 未知、状态歧义、运行时冲突时失败即停并升级人工处理。", "SOUL.md");
+
+  assertContains(tools, "## KB MCP Tools (11)", "TOOLS.md");
+  assertContains(
+    tools,
+    "所有 canonical `kb_*` tools 都读写当前安装绑定的 external `KB_ROOT`，工具路径相对该目录解析。",
+    "TOOLS.md"
+  );
+  for (const toolName of EXPECTED_KB_TOOL_NAMES) {
+    assertContains(tools, `\`${toolName}\``, "TOOLS.md");
+  }
+  assertContains(
+    tools,
+    "`kb_commit` 属于高风险动作：仅在用户显式要求提交、且当前 workflow 明确需要时执行。",
+    "TOOLS.md"
+  );
+  assertContains(
+    tools,
+    "仅保存 MCP 配置不足以证明 OpenClaw 可用；standalone MCP 只用于兼容性/调试排障。",
+    "TOOLS.md"
+  );
+
+  assertContains(heartbeat, "## 启动", "HEARTBEAT.md");
+  assertContains(heartbeat, "## 执行", "HEARTBEAT.md");
+  assertContains(heartbeat, "## 收尾", "HEARTBEAT.md");
+  assertContains(heartbeat, "严格 wiki-first：先查 `wiki`，再按需读 `raw`。", "HEARTBEAT.md");
+  assertContains(heartbeat, "`wiki/index.md`（或父级/index）与 `wiki/log.md`", "HEARTBEAT.md");
+  assertContains(
+    heartbeat,
+    "执行 `kb_run_lint` 做质量检查；必要时再 `kb_rebuild_index` / `kb_repair`，并保留审计记录。",
+    "HEARTBEAT.md"
+  );
+  assertContains(
+    heartbeat,
+    "standalone MCP 连通性只作为兼容/调试信号，不是 OpenClaw 可用性成功契约。",
+    "HEARTBEAT.md"
+  );
+  assertContains(
+    heartbeat,
+    "出现 ownership 歧义或运行时状态异常时 fail-closed，禁止猜测性修复。",
+    "HEARTBEAT.md"
+  );
+});
+
+test("operator-facing docs encode the OpenClaw installer success contract", () => {
+  const readme = fs.readFileSync(path.resolve(repoRoot, "README.md"), "utf8");
+  const agentGuide = fs.readFileSync(
+    path.resolve(repoRoot, "docs/openclaw-installer-agent-guide.md"),
+    "utf8"
+  );
+  const technical = fs.readFileSync(path.resolve(repoRoot, "docs/technical.md"), "utf8");
+
+  assertContains(
+    readme,
+    "`KB_ROOT` is the installed `kb` directory itself (`<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state`)",
+    "README.md"
+  );
+  assertContains(
+    readme,
+    "Tool-relative paths such as `wiki/index.md` and `wiki/log.md` are resolved under that `KB_ROOT`",
+    "README.md"
+  );
+  assertContains(
+    readme,
+    "session-visible `kb_*` availability in `llmwiki` as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability.",
+    "README.md"
+  );
+  assertContains(
+    readme,
+    "The standalone MCP server remains a secondary compatibility/debugging surface, not the OpenClaw success criterion.",
+    "README.md"
+  );
+
+  assertContains(
+    agentGuide,
+    "`KB_ROOT` in this installer contract means the installed `kb` directory itself: `<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state`",
+    "docs/openclaw-installer-agent-guide.md"
+  );
+  assertContains(
+    agentGuide,
+    "runtime tool paths like `wiki/index.md` and `wiki/log.md` resolve directly under that root",
+    "docs/openclaw-installer-agent-guide.md"
+  );
+  assertContains(
+    agentGuide,
+    "Saved MCP config alone is never sufficient proof of OpenClaw usability; `llmwiki` session-visible canonical `kb_*` tools are the success criterion.",
+    "docs/openclaw-installer-agent-guide.md"
+  );
+  assertContains(
+    agentGuide,
+    "secondary compatibility/debugging surface",
+    "docs/openclaw-installer-agent-guide.md"
+  );
+
+  assertContains(
+    technical,
+    "`check --workspace <path> [--mcp-name <name>] [--json]`",
+    "docs/technical.md"
+  );
+  assertContains(
+    technical,
+    "`install/check/repair/uninstall` 都要求显式 `--workspace`。",
+    "docs/technical.md"
+  );
+  assertContains(
+    technical,
+    "`KB_ROOT` 指向已安装 `kb` 目录本体（`<KB_ROOT>/raw|wiki|schema|state`），工具相对路径如 `wiki/index.md`、`wiki/log.md` 都在该根下解析；不是 `<KB_ROOT>/kb/...`，也不是 workspace-local `kb/`。",
+    "docs/technical.md"
+  );
+  assertContains(
+    technical,
+    "OpenClaw 可用性成功判据是 `llmwiki` 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。",
+    "docs/technical.md"
   );
 });

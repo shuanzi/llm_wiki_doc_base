@@ -25,6 +25,7 @@ This is not a plugin install flow. It installs:
 - one installer manifest under the target workspace
 
 It does not move the KB into the OpenClaw workspace. The KB stays external.
+`KB_ROOT` in this installer contract means the installed `kb` directory itself: `<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state` (not `<KB_ROOT>/kb/...` and not workspace-local `kb/`).
 
 ## Hard Constraints
 
@@ -36,6 +37,7 @@ The agent must enforce these rules:
 4. Conflict handling is conservative by default. Do not add `--force` unless there is a specific reason.
 5. Installed skills are adapted variants, not direct copies of repository-local usage assumptions.
 6. `kb_commit` is not part of the default external-KB workflow contract, even though the MCP server still exposes it.
+7. Saved MCP config alone is never sufficient proof of OpenClaw usability; `llmwiki` session-visible canonical `kb_*` tools are the success criterion.
 
 ## What The Installer Creates
 
@@ -44,6 +46,7 @@ After a successful install, expect:
 - MCP registration name: usually `llm-kb`
 - MCP command target: `<repo>/dist/mcp_server.js`
 - MCP environment includes `KB_ROOT=<external-kb-root>`
+- `KB_ROOT` is the kb root itself, so runtime tool paths like `wiki/index.md` and `wiki/log.md` resolve directly under that root
 - Workspace skill directories:
   - `<workspace>/skills/kb_ingest`
   - `<workspace>/skills/kb_query`
@@ -104,7 +107,7 @@ Success condition:
 
 - JSON output contains `"ok": true`
 - `llmwiki` session-visible canonical `kb_*` tools are healthy for the explicit workspace
-- standalone MCP probe remains healthy as a secondary signal
+- saved MCP config alone is insufficient as proof; standalone MCP probe is only a secondary compatibility/debug signal
 
 ## Standard Repair Procedure
 

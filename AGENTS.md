@@ -1,4 +1,6 @@
 # AGENTS.md
+# core rule
+使用中文进行沟通、文档产出等。
 
 # Knowledge Base Rules
 

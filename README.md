@@ -176,12 +176,14 @@ Operator notes for current implementation:
 
 - Installer commands target only the explicit path provided by `--workspace` (required for `install`, `check`, `repair`, and `uninstall`).
 - The explicit `--workspace` must resolve to the OpenClaw agent whose `id` is `llmwiki`; missing or ambiguous binding fails closed.
-- `KB_ROOT` is an explicit external root in the installer contract (`install` requires `--kb-root`; `repair` can infer from manifest/MCP config but accepts explicit override).
+- `KB_ROOT` is the installed `kb` directory itself (`<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state`), not `<KB_ROOT>/kb/...` and not workspace-local `kb/`.
+- Tool-relative paths such as `wiki/index.md` and `wiki/log.md` are resolved under that `KB_ROOT`; `install` requires explicit `--kb-root`, while `repair` can infer from manifest/MCP config or accept explicit override.
 - Installed skills are OpenClaw-adapted variants (`openclaw-adapted-v1`) written under `<workspace>/skills/{kb_ingest|kb_query|kb_lint}`.
 - Installer also materializes a workspace-local OpenClaw native plugin shim under `<workspace>/.openclaw/extensions/llmwiki-kb-tools`, pins that shim to the configured external `KB_ROOT`, registers it in `plugins.load.paths`, adds `llmwiki-kb-tools` to `plugins.allow`, enables `plugins.entries.llmwiki-kb-tools.enabled`, and allows the plugin group in the bound `llmwiki` agent tool policy (`tools.alsoAllow` by default) so real `llmwiki` sessions receive the canonical 11 `kb_*` tools.
 - `kb_commit` remains available in the MCP server surface, but it is not part of the default external-KB installer contract; adapted skills intentionally avoid automatic `kb_commit`.
 - Installer ownership is repo-coupled: expected MCP config points to this repo build artifact (`<repo>/dist/mcp_server.js`) plus the configured `KB_ROOT`.
-- `check` and `repair` treat session-visible `kb_*` availability in `llmwiki` as the primary health contract; the standalone MCP server remains a secondary compatibility/debugging surface.
+- `check` and `repair` treat session-visible `kb_*` availability in `llmwiki` as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability.
+- The standalone MCP server remains a secondary compatibility/debugging surface, not the OpenClaw success criterion.
 - Conflict handling is conservative by default and fails closed on ownership/config/content conflicts unless `--force` is explicitly provided.
 
 Agent-oriented execution guide:
