@@ -9,6 +9,13 @@ export function sha256(content: string): string {
 }
 
 /**
+ * Compute SHA-256 hash of arbitrary bytes and return the full hex digest.
+ */
+export function sha256Buffer(content: Buffer): string {
+  return crypto.createHash("sha256").update(content).digest("hex");
+}
+
+/**
  * Generate a source_id from content.
  * Format: src_sha256_<prefix> (default 8 chars, auto-extend to 12 on collision).
  *
@@ -39,6 +46,5 @@ export function generateSourceId(
  * Compute SHA-256 hash of a file and return the full hex digest.
  */
 export function sha256File(filePath: string): string {
-  const content = fs.readFileSync(filePath, "utf8");
-  return sha256(content);
+  return sha256Buffer(fs.readFileSync(filePath));
 }
