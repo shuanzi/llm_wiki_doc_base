@@ -543,7 +543,7 @@ function ensureMetaPage(
     return { unappliedMalformedRewrite: false };
   }
 
-  const isDestructiveRewrite = state.action === "rewrite";
+  const isDestructiveRewrite = state.action === "rewrite" && state.malformed;
   const shouldApply = apply && (!isDestructiveRewrite || force);
   fixes.push({
     rule: state.action === "create" ? "missing-meta-page" : "invalid-meta-page",
@@ -553,9 +553,11 @@ function ensureMetaPage(
     detail:
       state.action === "create"
         ? `Create ${spec.writtenTo}`
-        : force
-          ? `Rewrite malformed structural page ${spec.writtenTo}`
-          : `Skip destructive rewrite of malformed structural page ${spec.writtenTo}; pass force: true to rewrite it`,
+        : state.malformed
+          ? force
+            ? `Rewrite malformed structural page ${spec.writtenTo}`
+            : `Skip destructive rewrite of malformed structural page ${spec.writtenTo}; pass force: true to rewrite it`
+          : `Rewrite structural page ${spec.writtenTo} to restore expected id/type`,
   });
 
   if (!shouldApply) {
@@ -643,7 +645,23 @@ function checkSourceTraceability(
       continue;
     }
 
-    const canonicalSourcePath = resolveKbPath(manifest.canonical_path, kbRoot);
+    let canonicalSourcePath: string;
+    try {
+      canonicalSourcePath = resolveKbPath(manifest.canonical_path, kbRoot);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-malformed",
+        "Manifest kb/state/manifests/" +
+          sourceId +
+          ".json has invalid canonical_path: " +
+          message
+      );
+      continue;
+    }
+
     if (!fs.existsSync(canonicalSourcePath)) {
       pushSourceTraceabilityIssue(
         issues,
