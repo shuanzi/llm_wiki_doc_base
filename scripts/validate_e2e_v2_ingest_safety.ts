@@ -76,6 +76,21 @@ function diffSnapshots(before: Map<string, string>, after: Map<string, string>):
   return changed;
 }
 
+function assertRun2SkipsStep6b(stdout: string): void {
+  const run2Start = stdout.indexOf("Run 2 — Idempotency re-ingest");
+  assert(run2Start >= 0, `Run 2 output section missing.\nSTDOUT:\n${stdout}`);
+
+  const run2Output = stdout.slice(run2Start);
+  assert(
+    run2Output.includes("[Step 6b] Skipped on Run 2"),
+    `Run 2 did not explicitly skip Step 6b.\nRUN 2 STDOUT:\n${run2Output}`
+  );
+  assert(
+    !run2Output.includes("[TOOL] kbUpdateSection"),
+    `Run 2 unexpectedly called kbUpdateSection.\nRUN 2 STDOUT:\n${run2Output}`
+  );
+}
+
 function testDefaultModeDoesNotMutateRealKb(repoRoot: string): void {
   const realKbRoot = path.join(repoRoot, "kb");
   assert(fs.existsSync(realKbRoot) && fs.statSync(realKbRoot).isDirectory(), `kb root not found: ${realKbRoot}`);
@@ -123,6 +138,7 @@ function testIdempotencyNoContentChangeInExplicitMode(repoRoot: string): void {
 
     const second = runTsx(repoRoot, ["scripts/e2e_v2_ingest.ts", sourcePath, "--kb-root", kbRoot]);
     assert(second.status === 0, `Second explicit mode run failed.\nSTDOUT:\n${second.stdout}\nSTDERR:\n${second.stderr}`);
+    assertRun2SkipsStep6b(second.stdout);
     const afterSecond = snapshotKb(kbRoot);
 
     const changed = diffSnapshots(afterFirst, afterSecond);
@@ -161,6 +177,7 @@ function testIdempotencyNoCrossDayContentChangeInExplicitMode(repoRoot: string):
       { E2E_V2_INGEST_TODAY: "2026-02-15" }
     );
     assert(second.status === 0, `Second cross-day explicit mode run failed.\nSTDOUT:\n${second.stdout}\nSTDERR:\n${second.stderr}`);
+    assertRun2SkipsStep6b(second.stdout);
     const afterSecond = snapshotKb(kbRoot);
 
     const changed = diffSnapshots(afterFirst, afterSecond);
