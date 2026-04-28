@@ -15,6 +15,7 @@ import {
   KB_TOOL_DEFINITIONS,
   type KbCanonicalToolName,
 } from "./kb_tool_contract";
+import { validateKbToolArgs } from "./kb_tool_args";
 
 export type KbToolArgs = Record<string, unknown>;
 
@@ -63,7 +64,13 @@ export async function dispatchKbTool(
   if (!handler) {
     return { success: false, error: `Unknown tool: ${name}` };
   }
-  return handler(args, config);
+
+  const validation = validateKbToolArgs(name as KbCanonicalToolName, args);
+  if (!validation.ok) {
+    return { success: false, error: validation.error };
+  }
+
+  return handler(validation.args, config);
 }
 
 export function listKbToolsResponse(): { tools: typeof KB_TOOL_DEFINITIONS } {

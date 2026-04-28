@@ -73,12 +73,12 @@ Maintenance tools:
 
 9. `kb_rebuild_index` - rebuild `kb/state/cache/page-index.json` deterministically from `kb/wiki/**/*.md`
 10. `kb_run_lint` - run deterministic and semantic KB lint checks without mutating files
-11. `kb_repair` - repair only structural KB artifacts (`index.md`, `log.md`, `page-index.json`) with `dry_run` support
+11. `kb_repair` - repair only structural KB artifacts (`index.md`, `log.md`, `page-index.json`) with `dry_run` support; malformed structural page rewrites require `force: true`
 
 Tool caveats from current implementation:
 
-- `kb_source_add` currently accepts only `.md` and `.txt` sources.
-- `kb_commit` stages only the configured `kb_root` path when that path is inside a git working tree, but files staged earlier outside that scope can still be included in the same commit.
+- `kb_source_add` preserves Markdown, passes `.txt` through as plaintext, and can convert `.html/.htm/.csv/.json/.xml/.pdf/.docx/.pptx/.xlsx/.xls/.epub` via Python MarkItDown when installed. ZIP, OCR/images, audio transcription, Outlook/email, YouTube URLs, SVG, and plugins remain intentionally unsupported.
+- `kb_commit` stages only the configured `kb_root` path and now refuses to commit if files outside that scope are already staged.
 
 ## Environment Semantics (`KB_ROOT` / `WORKSPACE_ROOT`)
 
@@ -99,9 +99,21 @@ MCP startup flow is unchanged by the refactor. OpenClaw installer flow is separa
 From repository root:
 
 ```bash
+npm install
 npm run typecheck
+npm run test
 npm run build
 npm run start:mcp
+```
+
+First-time or repaired KB bootstrap:
+
+```text
+1. Confirm KB_ROOT points to the kb directory itself.
+2. Run kb_rebuild_index. It fails fast if any wiki page cannot be indexed.
+3. Run kb_run_lint.
+4. Fix invalid frontmatter, missing manifests/raw sources, or broken links.
+5. Re-run kb_rebuild_index and kb_run_lint.
 ```
 
 For explicit roots:

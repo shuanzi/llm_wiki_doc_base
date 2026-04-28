@@ -4,6 +4,7 @@ import type { ToolResult, WorkspaceConfig } from "../types";
 
 export interface KbRepairInput {
   dry_run?: boolean;
+  force?: boolean;
 }
 
 export async function kbRepair(

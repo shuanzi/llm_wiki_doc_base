@@ -123,7 +123,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_search_wiki",
     description:
-      "Search the wiki via page-index.json. Supports keyword search, type/tag filtering, and wikilink resolution.",
+      "Search the wiki via page-index.json with full-index auto-rebuild on missing cache. Supports keyword search, type/tag filtering, and wikilink resolution.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -150,7 +150,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
             "If set, resolve this wikilink (e.g. '[[Foo]]' or 'Foo') and return the matching page (ignores query).",
         },
       },
-      required: ["query"],
+      required: [],
     },
   },
   {
@@ -190,10 +190,15 @@ export const KB_MAINTENANCE_TOOL_DEFINITIONS = [
   {
     name: "kb_rebuild_index",
     description:
-      "Rebuild kb/state/cache/page-index.json from kb/wiki/**/*.md deterministically.",
+      "Rebuild kb/state/cache/page-index.json from kb/wiki/**/*.md deterministically. Fails fast on invalid pages unless allow_partial is true.",
     inputSchema: {
       type: "object" as const,
-      properties: {},
+      properties: {
+        allow_partial: {
+          type: "boolean",
+          description: "If true, write an index for valid pages and return skipped_pages for invalid pages. Default: false.",
+        },
+      },
     },
   },
   {
@@ -220,6 +225,10 @@ export const KB_MAINTENANCE_TOOL_DEFINITIONS = [
         dry_run: {
           type: "boolean",
           description: "If true, report intended structural fixes without mutating kb/.",
+        },
+        force: {
+          type: "boolean",
+          description: "If true, allow rewriting malformed structural pages such as wiki/index.md or wiki/log.md. Default: false.",
         },
       },
     },

@@ -1,5 +1,5 @@
 import * as fs from "fs";
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 import * as path from "path";
 import type { WorkspaceConfig } from "../types";
 
@@ -14,8 +14,12 @@ function getKbRoot(workspace: WorkspaceLike): string {
   return typeof workspace === "string" ? workspace : workspace.kb_root;
 }
 
-function escapeShellArg(value: string): string {
-  return "'" + value.replace(/'/g, "'\\''") + "'";
+function runGit(args: string[], cwd: string): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 }
 
 function isRepoRelativePath(relativePath: string): boolean {
@@ -58,16 +62,10 @@ function resolveKbGitScope(workspace: WorkspaceLike): { repoRoot: string; scope:
     missingSegments.length > 0
       ? path.join(existingAncestorReal, ...missingSegments)
       : existingAncestorReal;
-  const execOpts = { cwd: existingAncestor, encoding: "utf8" as const };
 
   let repoRoot: string;
   try {
-    repoRoot = fs.realpathSync(
-      execSync("git rev-parse --show-toplevel", {
-        ...execOpts,
-        stdio: ["ignore", "pipe", "pipe"],
-      }).trim()
-    );
+    repoRoot = fs.realpathSync(runGit(["rev-parse", "--show-toplevel"], existingAncestor));
   } catch {
     throw new Error(
       `kb_root "${kbRootInput}" is not inside a git repository; kb_commit only supports KB roots within a git working tree.`
@@ -85,23 +83,49 @@ function resolveKbGitScope(workspace: WorkspaceLike): { repoRoot: string; scope:
   return { repoRoot, scope };
 }
 
+function listStagedFiles(repoRoot: string): string[] {
+  const output = execFileSync("git", ["diff", "--cached", "--name-only", "-z"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  return output.split("\0").filter((entry) => entry.length > 0);
+}
+
+function isPathWithinScope(repoRelativePath: string, scope: string): boolean {
+  return scope === "." || repoRelativePath === scope || repoRelativePath.startsWith(scope + "/");
+}
+
+function assertNoStagedFilesOutsideScope(repoRoot: string, scope: string): void {
+  const outsideScope = listStagedFiles(repoRoot).filter(
+    (filePath) => !isPathWithinScope(filePath, scope)
+  );
+
+  if (outsideScope.length > 0) {
+    throw new Error(
+      `Refusing to commit because files outside "${scope}" are already staged: ${outsideScope.join(", ")}`
+    );
+  }
+}
+
 export function commitKbChanges(
   message: string,
   workspace: WorkspaceLike
 ): CommitKbChangesResult {
   const { repoRoot, scope } = resolveKbGitScope(workspace);
-  const execOpts = { cwd: repoRoot, encoding: "utf8" as const };
-  const escapedScope = escapeShellArg(scope);
 
-  execSync(`git add -- ${escapedScope}`, execOpts);
+  assertNoStagedFilesOutsideScope(repoRoot, scope);
+  runGit(["add", "-A", "--", scope], repoRoot);
+  assertNoStagedFilesOutsideScope(repoRoot, scope);
 
-  const status = execSync(`git diff --cached --name-only -- ${escapedScope}`, execOpts).trim();
+  const status = runGit(["diff", "--cached", "--name-only", "--", scope], repoRoot);
   if (!status) {
     throw new Error(`No staged changes in "${scope}" to commit.`);
   }
 
-  execSync(`git commit -m ${escapeShellArg(message)}`, execOpts);
-  const commit_hash = execSync("git rev-parse HEAD", execOpts).trim();
+  runGit(["commit", "-m", message], repoRoot);
+  const commit_hash = runGit(["rev-parse", "HEAD"], repoRoot);
 
   return {
     commit_hash,

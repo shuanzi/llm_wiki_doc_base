@@ -93,3 +93,27 @@ test("commitKbChanges rejects kb_root paths outside a git working tree", () => {
     /not inside a git repository|outside the git repository/
   );
 });
+
+test("commitKbChanges rejects pre-staged files outside configured kb_root", () => {
+  const repoRoot = initRepo();
+  const kbRoot = path.join(repoRoot, "external-kb");
+  const outsidePath = path.join(repoRoot, "outside.txt");
+
+  fs.mkdirSync(kbRoot, { recursive: true });
+  fs.writeFileSync(path.join(kbRoot, "note.md"), "initial\n", "utf8");
+  fs.writeFileSync(outsidePath, "initial\n", "utf8");
+  runGit(["add", "."], repoRoot);
+  runGit(["commit", "-m", "initial"], repoRoot);
+  const originalHead = runGit(["rev-parse", "HEAD"], repoRoot);
+
+  fs.writeFileSync(path.join(kbRoot, "note.md"), "updated\n", "utf8");
+  fs.writeFileSync(outsidePath, "staged outside\n", "utf8");
+  runGit(["add", "outside.txt"], repoRoot);
+
+  assert.throws(
+    () => commitKbChanges("update external kb", { kb_root: kbRoot }),
+    /files outside "external-kb" are already staged: outside\.txt/
+  );
+
+  assert.equal(runGit(["rev-parse", "HEAD"], repoRoot), originalHead);
+});

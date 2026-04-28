@@ -9,6 +9,7 @@ import type {
   WorkspaceConfig,
 } from "../types";
 import { parseFrontmatter, resolveKbPath } from "../utils";
+import { rebuildPageIndex } from "./wiki-maintenance";
 
 export interface ReadWikiPageResult {
   path: string;
@@ -180,7 +181,7 @@ function readPageIndex(
     }
 
     throw new Error(
-      "Page index not found. Use kb_write_page to create pages — the index is built incrementally."
+      "Page index not found. Run kb_rebuild_index to build kb/state/cache/page-index.json."
     );
   }
 
@@ -262,11 +263,20 @@ export function loadPageIndex(workspace: WorkspaceLike): PageIndex {
   return loadPageIndexLenient(workspace);
 }
 
+function loadSearchablePageIndex(workspace: WorkspaceLike): PageIndex {
+  try {
+    return loadPageIndexStrict(workspace, { allowMissing: false });
+  } catch (error) {
+    rebuildPageIndex(workspace);
+    return loadPageIndexStrict(workspace, { allowMissing: false });
+  }
+}
+
 export function lookupWikiPagePathById(
   pageId: string,
   workspace: WorkspaceLike
 ): string | null {
-  const entry = loadPageIndexStrict(workspace, { allowMissing: false }).pages.find(
+  const entry = loadSearchablePageIndex(workspace).pages.find(
     (page) => page.page_id === pageId
   );
   return entry?.path ?? null;
@@ -288,6 +298,27 @@ export function resolveWikiPagePathOrId(
   return resolveWikiScopedPath(relativePath, workspace).relativePath;
 }
 
+function normalizeWikiPathLikeTarget(target: string): string | null {
+  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
+  if (!normalized) {
+    return null;
+  }
+
+  normalized = normalized.replace(/^\/+/, "").replace(/\/+/g, "/");
+  if (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+  if (normalized.startsWith("wiki/")) {
+    normalized = normalized.slice("wiki/".length);
+  }
+  if (normalized.endsWith(".md")) {
+    normalized = normalized.slice(0, -3);
+  }
+  normalized = normalized.replace(/^\/+|\/+$/g, "");
+
+  return normalized.length > 0 ? normalized : null;
+}
+
 export function resolveWikiLink(
   link: string,
   workspace: WorkspaceLike
@@ -297,13 +328,17 @@ export function resolveWikiLink(
   const pipeIndex = raw.indexOf("|");
   const linkTarget = (pipeIndex >= 0 ? raw.slice(0, pipeIndex) : raw).trim();
   const needle = linkTarget.toLowerCase();
+  const normalizedPathTarget = normalizeWikiPathLikeTarget(linkTarget);
 
-  for (const page of loadPageIndexStrict(workspace).pages) {
+  for (const page of loadSearchablePageIndex(workspace).pages) {
     const titleMatch = page.title.toLowerCase() === needle;
     const idMatch = page.page_id.toLowerCase() === needle;
     const aliasMatch = page.aliases.some((alias) => alias.toLowerCase() === needle);
+    const pathMatch =
+      normalizedPathTarget !== null &&
+      normalizeWikiPathLikeTarget(page.path) === normalizedPathTarget;
 
-    if (titleMatch || idMatch || aliasMatch) {
+    if (titleMatch || idMatch || aliasMatch || pathMatch) {
       return [
         {
           page_id: page.page_id,
@@ -324,16 +359,21 @@ export function searchWiki(
   input: SearchQuery,
   workspace: WorkspaceLike
 ): SearchResult[] {
-  if (input.resolve_link !== undefined) {
-    return resolveWikiLink(input.resolve_link, workspace);
+  const resolveLink =
+    typeof input.resolve_link === "string" ? input.resolve_link.trim() : "";
+  if (resolveLink) {
+    return resolveWikiLink(resolveLink, workspace);
   }
 
-  const query = input.query.toLowerCase();
+  const query = (input.query ?? "").toLowerCase().trim();
+  if (!query) {
+    throw new Error("query is required unless resolve_link is provided.");
+  }
   const keywords = query.split(/\s+/).filter((keyword) => keyword.length > 0);
   const limit = input.limit ?? 10;
   const results: SearchResult[] = [];
 
-  for (const page of loadPageIndexStrict(workspace).pages) {
+  for (const page of loadSearchablePageIndex(workspace).pages) {
     if (input.type_filter && page.type !== input.type_filter) {
       continue;
     }

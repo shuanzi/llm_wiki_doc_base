@@ -1,22 +1,21 @@
 import { rebuildPageIndex } from "../core/wiki-maintenance";
+import type { RebuildPageIndexResult } from "../core/wiki-maintenance";
 import type { ToolResult, WorkspaceConfig } from "../types";
 
-export interface KbRebuildIndexInput {}
-
-export interface KbRebuildIndexOutput {
-  version: number;
-  total_pages: number;
-  written_to: string;
+export interface KbRebuildIndexInput {
+  allow_partial?: boolean;
 }
 
+export type KbRebuildIndexOutput = RebuildPageIndexResult;
+
 export async function kbRebuildIndex(
-  _input: KbRebuildIndexInput,
+  input: KbRebuildIndexInput,
   config: WorkspaceConfig
 ): Promise<ToolResult<KbRebuildIndexOutput>> {
   try {
     return {
       success: true,
-      data: rebuildPageIndex(config),
+      data: rebuildPageIndex(config, input),
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

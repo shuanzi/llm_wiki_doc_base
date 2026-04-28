@@ -47,10 +47,21 @@ export interface RunKbLintOptions {
   include_semantic?: boolean;
 }
 
+export interface RebuildSkippedPage {
+  path: string;
+  reason: "invalid_frontmatter" | "missing_index_fields";
+  error: string;
+}
+
+export interface RebuildPageIndexOptions {
+  allow_partial?: boolean;
+}
+
 export interface RebuildPageIndexResult {
   version: number;
   total_pages: number;
   written_to: string;
+  skipped_pages: RebuildSkippedPage[];
 }
 
 export interface KbRepairFix {
@@ -63,6 +74,7 @@ export interface KbRepairFix {
 
 export interface KbRepairResult {
   dry_run: boolean;
+  force: boolean;
   applied_fixes: KbRepairFix[];
   lint: KbLintReport;
 }
@@ -74,6 +86,11 @@ interface ScannedWikiPage {
   rebuildEntry: PageIndexEntry | null;
   validation: ReturnType<typeof validateFrontmatter>;
   parseError?: string;
+}
+
+interface PageContentOverride {
+  path: string;
+  content: string;
 }
 
 interface MetaPageSpec {
@@ -238,46 +255,87 @@ function readCachedPageIndex(
   };
 }
 
-function scanWikiPages(workspace: WorkspaceLike): ScannedWikiPage[] {
-  return listWikiMarkdownPaths(workspace).map((relativePath) => {
-    const absolutePath = resolveKbPath(relativePath, getKbRoot(workspace));
-    const content = fs.readFileSync(absolutePath, "utf8");
+function scanWikiPage(relativePath: string, content: string): ScannedWikiPage {
+  try {
+    const { frontmatter, body } = parseFrontmatter(content);
+    return {
+      path: relativePath,
+      frontmatter,
+      body,
+      rebuildEntry: buildPageIndexEntry(relativePath, content),
+      validation: validateFrontmatter(frontmatter),
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      path: relativePath,
+      frontmatter: {},
+      body: "",
+      rebuildEntry: null,
+      validation: {
+        valid: false,
+        errors: [message],
+        warnings: [],
+        parsed: {},
+      },
+      parseError: message,
+    };
+  }
+}
 
-    try {
-      const { frontmatter, body } = parseFrontmatter(content);
-      return {
-        path: relativePath,
-        frontmatter,
-        body,
-        rebuildEntry: buildPageIndexEntry(relativePath, content),
-        validation: validateFrontmatter(frontmatter),
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        path: relativePath,
-        frontmatter: {},
-        body: "",
-        rebuildEntry: null,
-        validation: {
-          valid: false,
-          errors: [message],
-          warnings: [],
-          parsed: {},
-        },
-        parseError: message,
-      };
-    }
+function scanWikiPages(
+  workspace: WorkspaceLike,
+  override?: PageContentOverride
+): ScannedWikiPage[] {
+  const kbRoot = getKbRoot(workspace);
+  const relativePaths = listWikiMarkdownPaths(workspace);
+  const paths = override && !relativePaths.includes(override.path)
+    ? [...relativePaths, override.path].sort((left, right) => left.localeCompare(right))
+    : relativePaths;
+
+  return paths.map((relativePath) => {
+    const content =
+      override && relativePath === override.path
+        ? override.content
+        : fs.readFileSync(resolveKbPath(relativePath, kbRoot), "utf8");
+    return scanWikiPage(relativePath, content);
   });
 }
 
 function buildPageIndexFromScan(pages: ScannedWikiPage[]): PageIndex {
   return {
     pages: pages
+      .filter((page) => page.validation.valid)
       .map((page) => page.rebuildEntry)
       .filter((entry): entry is PageIndexEntry => entry !== null)
       .sort(compareEntries),
   };
+}
+
+function collectPageIndexFailures(pages: ScannedWikiPage[]): RebuildSkippedPage[] {
+  return pages
+    .filter((page) => !page.validation.valid || page.rebuildEntry === null)
+    .map((page) => {
+      if (!page.validation.valid || page.parseError) {
+        return {
+          path: page.path,
+          reason: "invalid_frontmatter" as const,
+          error: page.validation.errors.join("; ") || page.parseError || "Invalid frontmatter",
+        };
+      }
+
+      return {
+        path: page.path,
+        reason: "missing_index_fields" as const,
+        error: "Page is missing id or type frontmatter required for page-index.json",
+      };
+    });
+}
+
+function formatPageIndexFailures(failures: RebuildSkippedPage[]): string {
+  return failures
+    .map((failure) => "- " + failure.path + ": " + failure.reason + ": " + failure.error)
+    .join("\n");
 }
 
 function comparePageIndexEntryContent(left: PageIndexEntry, right: PageIndexEntry): boolean {
@@ -293,11 +351,33 @@ function extractWikilinks(body: string): string[] {
   });
 }
 
+function normalizeWikiPathLikeTarget(target: string): string | null {
+  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
+  if (!normalized) {
+    return null;
+  }
+
+  normalized = normalized.replace(/^\/+/, "").replace(/\/+/g, "/");
+  if (normalized.startsWith("./")) {
+    normalized = normalized.slice(2);
+  }
+  if (normalized.startsWith("wiki/")) {
+    normalized = normalized.slice("wiki/".length);
+  }
+  if (normalized.endsWith(".md")) {
+    normalized = normalized.slice(0, -3);
+  }
+  normalized = normalized.replace(/^\/+|\/+$/g, "");
+
+  return normalized.length > 0 ? normalized : null;
+}
+
 function hasWikilinkTarget(
   target: string,
   pages: ScannedWikiPage[]
 ): boolean {
   const needle = target.toLowerCase();
+  const normalizedPathTarget = normalizeWikiPathLikeTarget(target);
   return pages.some((page) => {
     const id = typeof page.frontmatter.id === "string" ? page.frontmatter.id.toLowerCase() : "";
     const title =
@@ -305,7 +385,15 @@ function hasWikilinkTarget(
     const aliases = normalizeStringArray(page.frontmatter.aliases).map((alias) =>
       alias.toLowerCase()
     );
-    return id === needle || title === needle || aliases.includes(needle);
+    if (id === needle || title === needle || aliases.includes(needle)) {
+      return true;
+    }
+
+    if (!normalizedPathTarget) {
+      return false;
+    }
+
+    return normalizeWikiPathLikeTarget(page.path) === normalizedPathTarget;
   });
 }
 
@@ -391,12 +479,30 @@ function buildPageIndexEntry(filePath: string, content: string): PageIndexEntry 
   };
 }
 
-function buildPageIndex(workspace: WorkspaceLike): PageIndex {
-  const pages = buildPageIndexFromScan(scanWikiPages(workspace)).pages;
+function buildPageIndex(
+  workspace: WorkspaceLike,
+  options: RebuildPageIndexOptions & { override?: PageContentOverride } = {}
+): { index: PageIndex; skipped_pages: RebuildSkippedPage[] } {
+  const scannedPages = scanWikiPages(workspace, options.override);
+  const skippedPages = collectPageIndexFailures(scannedPages);
+  if (skippedPages.length > 0 && options.allow_partial !== true) {
+    throw new Error(
+      "Cannot rebuild page index because one or more wiki pages cannot be indexed.\n" +
+        formatPageIndexFailures(skippedPages)
+    );
+  }
 
-  assertUniquePageIds(pages);
+  const index = buildPageIndexFromScan(scannedPages);
+  assertUniquePageIds(index.pages);
 
-  return { pages };
+  return { index, skipped_pages: skippedPages };
+}
+
+export function assertWikiRebuildable(
+  workspace: WorkspaceLike,
+  override?: PageContentOverride
+): void {
+  buildPageIndex(workspace, { override });
 }
 
 function buildMetaPageContent(spec: MetaPageSpec): string {
@@ -417,11 +523,11 @@ function buildMetaPageContent(spec: MetaPageSpec): string {
 function getMetaPageState(
   workspace: WorkspaceLike,
   spec: MetaPageSpec
-): { action: "create" | "rewrite" | null; absolutePath: string } {
+): { action: "create" | "rewrite" | null; absolutePath: string; malformed: boolean } {
   const absolutePath = resolveKbPath(spec.relativePath, getKbRoot(workspace));
 
   if (!fs.existsSync(absolutePath)) {
-    return { action: "create", absolutePath };
+    return { action: "create", absolutePath, malformed: false };
   }
 
   const content = fs.readFileSync(absolutePath, "utf8");
@@ -429,52 +535,176 @@ function getMetaPageState(
   try {
     frontmatter = parseFrontmatter(content).frontmatter;
   } catch {
-    return { action: "rewrite", absolutePath };
+    return { action: "rewrite", absolutePath, malformed: true };
   }
 
   const validation = validateFrontmatter(frontmatter);
 
   if (!validation.valid) {
-    return { action: "rewrite", absolutePath };
+    return { action: "rewrite", absolutePath, malformed: true };
   }
 
   if (frontmatter.id !== spec.pageId || frontmatter.type !== "index") {
-    return { action: "rewrite", absolutePath };
+    return { action: "rewrite", absolutePath, malformed: false };
   }
 
-  return { action: null, absolutePath };
+  return { action: null, absolutePath, malformed: false };
 }
 
 function ensureMetaPage(
   workspace: WorkspaceLike,
   spec: MetaPageSpec,
   apply: boolean,
+  force: boolean,
   fixes: KbRepairFix[]
-): void {
+): { unappliedMalformedRewrite: boolean } {
   const state = getMetaPageState(workspace, spec);
   if (!state.action) {
-    return;
+    return { unappliedMalformedRewrite: false };
   }
 
+  const isDestructiveRewrite = state.action === "rewrite" && state.malformed;
+  const shouldApply = apply && (!isDestructiveRewrite || force);
   fixes.push({
     rule: state.action === "create" ? "missing-meta-page" : "invalid-meta-page",
     path: spec.writtenTo,
     action: state.action,
-    applied: apply,
+    applied: shouldApply,
     detail:
       state.action === "create"
         ? `Create ${spec.writtenTo}`
-        : `Rewrite malformed structural page ${spec.writtenTo}`,
+        : state.malformed
+          ? force
+            ? `Rewrite malformed structural page ${spec.writtenTo}`
+            : `Skip destructive rewrite of malformed structural page ${spec.writtenTo}; pass force: true to rewrite it`
+          : `Rewrite structural page ${spec.writtenTo} to restore expected id/type`,
   });
 
-  if (!apply) {
-    return;
+  if (!shouldApply) {
+    return {
+      unappliedMalformedRewrite:
+        state.action === "rewrite" && state.malformed,
+    };
   }
 
   fs.mkdirSync(path.dirname(state.absolutePath), { recursive: true });
   fs.writeFileSync(state.absolutePath, buildMetaPageContent(spec), "utf8");
+  return { unappliedMalformedRewrite: false };
+}
+function sourcePageIds(page: ScannedWikiPage): string[] {
+  const sourceIds = normalizeStringArray(page.frontmatter.source_ids);
+  if (sourceIds.length > 0) {
+    return Array.from(new Set(sourceIds)).sort((left, right) => left.localeCompare(right));
+  }
+
+  return typeof page.frontmatter.id === "string" && page.frontmatter.id.startsWith("src_")
+    ? [page.frontmatter.id]
+    : [];
 }
 
+function pushSourceTraceabilityIssue(
+  issues: KbLintIssue[],
+  page: ScannedWikiPage,
+  rule: "source-manifest-missing" | "source-manifest-malformed" | "source-raw-missing",
+  detail: string
+): void {
+  const isExplicitlyUnverified = page.frontmatter.verification_status === "missing_raw_source";
+  pushIssue(issues, {
+    severity: isExplicitlyUnverified ? "warning" : "error",
+    rule: isExplicitlyUnverified ? "source-trace-unverified" : rule,
+    detail,
+    page: page.path,
+  });
+}
+
+function checkSourceTraceability(
+  workspace: WorkspaceLike,
+  page: ScannedWikiPage,
+  issues: KbLintIssue[]
+): void {
+  if (page.frontmatter.type !== "source") {
+    return;
+  }
+
+  const kbRoot = getKbRoot(workspace);
+  for (const sourceId of sourcePageIds(page)) {
+    let manifestPath: string;
+    try {
+      manifestPath = resolveKbPath("state/manifests/" + sourceId + ".json", kbRoot);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-malformed",
+        "Source page references invalid source_id " + sourceId + ": " + message
+      );
+      continue;
+    }
+
+    if (!fs.existsSync(manifestPath)) {
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-missing",
+        "Source page references " + sourceId + ", but kb/state/manifests/" + sourceId + ".json is missing."
+      );
+      continue;
+    }
+
+    let manifest: { source_id?: unknown; canonical_path?: unknown };
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as {
+        source_id?: unknown;
+        canonical_path?: unknown;
+      };
+    } catch {
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-malformed",
+        "Manifest kb/state/manifests/" + sourceId + ".json is not valid JSON."
+      );
+      continue;
+    }
+
+    if (manifest.source_id !== sourceId || typeof manifest.canonical_path !== "string") {
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-malformed",
+        "Manifest kb/state/manifests/" + sourceId + ".json does not match source_id or lacks canonical_path."
+      );
+      continue;
+    }
+
+    let canonicalSourcePath: string;
+    try {
+      canonicalSourcePath = resolveKbPath(manifest.canonical_path, kbRoot);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-malformed",
+        "Manifest kb/state/manifests/" +
+          sourceId +
+          ".json has invalid canonical_path: " +
+          message
+      );
+      continue;
+    }
+
+    if (!fs.existsSync(canonicalSourcePath)) {
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-raw-missing",
+        "Manifest canonical source is missing: kb/" + manifest.canonical_path + "."
+      );
+    }
+  }
+}
 export function runKbLint(
   workspace: WorkspaceLike,
   options: RunKbLintOptions = {}
@@ -601,6 +831,10 @@ export function runKbLint(
       });
     }
 
+    if (page.validation.valid) {
+      checkSourceTraceability(workspace, page, deterministicIssues);
+    }
+
     for (const linkTarget of extractWikilinks(page.body)) {
       if (!hasWikilinkTarget(linkTarget, scannedPages)) {
         pushIssue(deterministicIssues, {
@@ -702,47 +936,62 @@ export function runKbLint(
   };
 }
 
-export function rebuildPageIndex(workspace: WorkspaceLike): RebuildPageIndexResult {
+export function rebuildPageIndex(
+  workspace: WorkspaceLike,
+  options: RebuildPageIndexOptions = {}
+): RebuildPageIndexResult {
   const kbRoot = getKbRoot(workspace);
   const pageIndexPath = resolveKbPath(PAGE_INDEX_PATH, kbRoot);
-  const pageIndex = buildPageIndex(workspace);
+  const { index, skipped_pages } = buildPageIndex(workspace, options);
 
   fs.mkdirSync(path.dirname(pageIndexPath), { recursive: true });
-  fs.writeFileSync(pageIndexPath, JSON.stringify(pageIndex, null, 2), "utf8");
+  fs.writeFileSync(pageIndexPath, JSON.stringify(index, null, 2), "utf8");
 
   return {
     version: 2,
-    total_pages: pageIndex.pages.length,
+    total_pages: index.pages.length,
     written_to: WRITTEN_TO_PATH,
+    skipped_pages,
   };
 }
 
 export function repairKb(
   workspace: WorkspaceLike,
-  options: { dry_run?: boolean } = {}
+  options: { dry_run?: boolean; force?: boolean } = {}
 ): KbRepairResult {
   const dryRun = options.dry_run === true;
   const apply = !dryRun;
+  const force = options.force === true;
   const fixes: KbRepairFix[] = [];
+  let hasUnappliedMalformedMetaRewrite = false;
 
   for (const spec of META_PAGE_SPECS) {
-    ensureMetaPage(workspace, spec, apply, fixes);
+    const outcome = ensureMetaPage(workspace, spec, apply, force, fixes);
+    hasUnappliedMalformedMetaRewrite =
+      hasUnappliedMalformedMetaRewrite || outcome.unappliedMalformedRewrite;
   }
+
+  const blockedByUnappliedMalformedMetaRewrite =
+    apply && hasUnappliedMalformedMetaRewrite;
+  const shouldRebuildPageIndex = apply && !hasUnappliedMalformedMetaRewrite;
 
   fixes.push({
     rule: "rebuild-page-index",
     path: WRITTEN_TO_PATH,
     action: "rebuild",
-    applied: apply,
-    detail: `Rebuild ${WRITTEN_TO_PATH}`,
+    applied: shouldRebuildPageIndex,
+    detail: blockedByUnappliedMalformedMetaRewrite
+      ? `Skip rebuilding ${WRITTEN_TO_PATH} because malformed structural pages still require force: true`
+      : `Rebuild ${WRITTEN_TO_PATH}`,
   });
 
-  if (apply) {
+  if (shouldRebuildPageIndex) {
     rebuildPageIndex(workspace);
   }
 
   return {
     dry_run: dryRun,
+    force,
     applied_fixes: fixes,
     lint: runKbLint(workspace),
   };

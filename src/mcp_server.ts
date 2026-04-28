@@ -18,10 +18,8 @@
  * so Node.js CJS require() cannot resolve it at runtime. Dynamic import() with an
  * explicit .js suffix in the specifier bypasses this and resolves correctly via the
  * same wildcard. Static `import type` declarations work at compile time because the
- * TypeScript bundler moduleResolution uses typesVersions ("*": ["./dist/esm/*"]).
+ * TypeScript node16 moduleResolution uses the package export map and typesVersions.
  */
-
-import { Server } from "@modelcontextprotocol/sdk/server";
 
 import {
   buildKbRootMissingMessage,
@@ -91,6 +89,9 @@ async function callToolResponse(
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  const { Server: TypedServer } = await import(
+    "@modelcontextprotocol/sdk/server/index.js"
+  );
   // Dynamic import with explicit .js suffix resolves the SDK's wildcard export map
   // correctly at runtime (see top-of-file comment for why this is necessary).
   const { ListToolsRequestSchema, CallToolRequestSchema } = await import(
@@ -100,7 +101,7 @@ async function main(): Promise<void> {
     "@modelcontextprotocol/sdk/server/stdio.js"
   );
 
-  const server = new Server(
+  const server = new TypedServer(
     { name: "kb-mcp", version: "0.1.0" },
     {
       capabilities: {

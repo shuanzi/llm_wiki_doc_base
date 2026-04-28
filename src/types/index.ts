@@ -50,6 +50,7 @@ export interface PageFrontmatter {
   aliases?: string[];
   source_ids?: string[];
   related?: string[];
+  verification_status?: "verified" | "missing_raw_source";
   schema_migrated_at?: string;
 }
 
@@ -114,7 +115,7 @@ export interface SearchResult {
 }
 
 export interface SearchQuery {
-  query: string;
+  query?: string;
   type_filter?: string;
   tags?: string[];
   limit?: number;

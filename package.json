@@ -14,7 +14,10 @@
     "typecheck": "tsc --noEmit",
     "validate:plugin-surface": "npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_plugin_surface.ts",
     "start:mcp": "node dist/mcp_server.js",
-    "start:openclaw-installer": "node dist/openclaw_installer.js"
+    "start:openclaw-installer": "node dist/openclaw_installer.js",
+    "test": "tsx --test tests/*.test.ts",
+    "test:unit": "tsx --test tests/*.test.ts",
+    "test:typecheck": "tsc --noEmit"
   },
   "bin": {
     "kb-mcp": "dist/mcp_server.js",

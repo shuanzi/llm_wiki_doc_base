@@ -1,7 +1,7 @@
 ---
 id: src_sha256_381eec28
 type: source
-title: [翻譯] 認識 x64 程式碼模型（code model）
+title: "[翻譯] 認識 x64 程式碼模型（code model）"
 source_ids: [src_sha256_381eec28]
 updated_at: 2026-04-11
 status: active

@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import type { WorkspaceConfig } from "../types";
-import { parseFrontmatter, serializeFrontmatter } from "../utils";
+import { parseFrontmatter, serializeFrontmatter, validateFrontmatter } from "../utils";
+import { assertWikiRebuildable, rebuildPageIndex } from "./wiki-maintenance";
 import { assertNotSymlinkWriteTarget, resolveWikiScopedPath } from "./wiki-search";
 
 export interface EnsureWikiEntryInput {
@@ -17,8 +18,29 @@ export interface EnsureWikiEntryResult {
 
 type WorkspaceLike = string | WorkspaceConfig;
 
-function getKbRoot(workspace: WorkspaceLike): string {
-  return typeof workspace === "string" ? workspace : workspace.kb_root;
+function assertSingleLine(value: string, label: string): void {
+  if (/\r|\n/u.test(value)) {
+    throw new Error(`${label} must be a single line.`);
+  }
+}
+
+function validateDedupKey(dedupKey: string): void {
+  assertSingleLine(dedupKey, "dedup_key");
+  if (!/^[A-Za-z0-9._:-]+$/u.test(dedupKey)) {
+    throw new Error("dedup_key may contain only letters, numbers, dot, underscore, colon, and hyphen.");
+  }
+}
+
+function validateEntryInput(input: EnsureWikiEntryInput): void {
+  assertSingleLine(input.entry, "entry");
+  if (input.anchor !== null) {
+    assertSingleLine(input.anchor, "anchor");
+  }
+  validateDedupKey(input.dedup_key);
+
+  if (input.entry.includes("<!-- dedup:") || input.entry.includes("-->") || input.entry.includes("---")) {
+    throw new Error("entry must not contain dedup markers, HTML comment terminators, or frontmatter delimiters.");
+  }
 }
 
 function insertEntryAtAnchor(
@@ -65,6 +87,8 @@ export function ensureWikiEntry(
   input: EnsureWikiEntryInput,
   workspace: WorkspaceLike
 ): EnsureWikiEntryResult {
+  validateEntryInput(input);
+
   const resolvedPath = resolveWikiScopedPath(input.path, workspace);
   assertNotSymlinkWriteTarget(input.path, resolvedPath.absolutePath);
   if (!fs.existsSync(resolvedPath.absolutePath)) {
@@ -77,21 +101,48 @@ export function ensureWikiEntry(
     return { action: "already_exists" };
   }
 
-  const entryLine = `${input.entry} ${dedupMarker}`;
-  let newContent = insertEntryAtAnchor(content, entryLine, input.anchor, input.path);
-
-  if (input.bump_updated_at ?? true) {
-    const { frontmatter, body } = parseFrontmatter(newContent);
-    if (Object.keys(frontmatter).length > 0) {
-      const updatedFrontmatter = {
-        ...frontmatter,
-        updated_at: new Date().toISOString().slice(0, 10),
-      };
-      const serialized = serializeFrontmatter(updatedFrontmatter as Record<string, unknown>);
-      newContent = serialized + "\n\n" + body.trimStart();
+  const currentParsed = parseFrontmatter(content);
+  if (Object.keys(currentParsed.frontmatter).length > 0) {
+    const currentValidation = validateFrontmatter(currentParsed.frontmatter);
+    if (!currentValidation.valid) {
+      throw new Error(
+        `Frontmatter validation failed before entry insert:\n${currentValidation.errors.join("\n")}`
+      );
     }
   }
 
+  const entryLine = `${input.entry} ${dedupMarker}`;
+  const insertedContent = insertEntryAtAnchor(content, entryLine, input.anchor, input.path);
+  const { frontmatter, body } = parseFrontmatter(insertedContent);
+
+  if (Object.keys(frontmatter).length > 0) {
+    const insertedValidation = validateFrontmatter(frontmatter);
+    if (!insertedValidation.valid) {
+      throw new Error(
+        `Frontmatter validation failed after entry insert:\n${insertedValidation.errors.join("\n")}`
+      );
+    }
+  }
+
+  let newContent = insertedContent;
+  if ((input.bump_updated_at ?? true) && Object.keys(frontmatter).length > 0) {
+    const updatedFrontmatter = {
+      ...frontmatter,
+      updated_at: new Date().toISOString().slice(0, 10),
+    };
+    const updatedValidation = validateFrontmatter(updatedFrontmatter);
+    if (!updatedValidation.valid) {
+      throw new Error(
+        `Frontmatter validation failed after entry insert:\n${updatedValidation.errors.join("\n")}`
+      );
+    }
+
+    const serialized = serializeFrontmatter(updatedFrontmatter as Record<string, unknown>);
+    newContent = serialized + "\n\n" + body.trimStart();
+  }
+
+  assertWikiRebuildable(workspace);
   fs.writeFileSync(resolvedPath.absolutePath, newContent, "utf8");
+  rebuildPageIndex(workspace);
   return { action: "inserted" };
 }
