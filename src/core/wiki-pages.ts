@@ -1,17 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { PageIndex, PageIndexEntry, WorkspaceConfig } from "../types";
+import type { WorkspaceConfig } from "../types";
 import {
-  extractExcerpt,
-  extractHeadings,
   parseFrontmatter,
   resolveKbPath,
   serializeFrontmatter,
   validateFrontmatter,
 } from "../utils";
+import { assertWikiRebuildable, rebuildPageIndex } from "./wiki-maintenance";
 import {
   assertNotSymlinkWriteTarget,
-  loadPageIndexLenient,
   resolveWikiScopedPath,
   type ResolvedWikiPath,
 } from "./wiki-search";
@@ -42,12 +40,18 @@ export interface UpdateWikiSectionResult {
   action: "replaced" | "appended" | "created_section";
 }
 
-const PAGE_INDEX_PATH = "state/cache/page-index.json";
-
 type WorkspaceLike = string | WorkspaceConfig;
 
 function getKbRoot(workspace: WorkspaceLike): string {
   return typeof workspace === "string" ? workspace : workspace.kb_root;
+}
+
+function getWikiRoot(workspace: WorkspaceLike): string {
+  return path.resolve(getKbRoot(workspace), "wiki");
+}
+
+function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  return candidatePath === rootPath || candidatePath.startsWith(rootPath + path.sep);
 }
 
 function getHeadingLevel(line: string): number | null {
@@ -55,18 +59,80 @@ function getHeadingLevel(line: string): number | null {
   return match ? match[1].length : null;
 }
 
-function upsertPageIndexEntry(workspace: WorkspaceLike, entry: PageIndexEntry): void {
-  const pageIndexPath = resolveKbPath(PAGE_INDEX_PATH, getKbRoot(workspace));
-  const pageIndex: PageIndex = loadPageIndexLenient(workspace);
-  pageIndex.pages = pageIndex.pages.filter((page) => page.path !== entry.path);
-  pageIndex.pages.push(entry);
-
-  const indexDir = path.dirname(pageIndexPath);
-  if (!fs.existsSync(indexDir)) {
-    fs.mkdirSync(indexDir, { recursive: true });
+function listWikiMarkdownPaths(workspace: WorkspaceLike): string[] {
+  const kbRoot = getKbRoot(workspace);
+  const wikiRoot = getWikiRoot(workspace);
+  if (!fs.existsSync(wikiRoot) || !fs.statSync(wikiRoot).isDirectory()) {
+    return [];
   }
 
-  fs.writeFileSync(pageIndexPath, JSON.stringify(pageIndex, null, 2), "utf8");
+  const realKbRoot = fs.realpathSync(kbRoot);
+  const realWikiRoot = fs.realpathSync(wikiRoot);
+  if (!isWithinRoot(realWikiRoot, realKbRoot)) {
+    throw new Error("kb/wiki resolves through a symlink outside kb/");
+  }
+
+  const relativePaths: string[] = [];
+  const stack: string[] = [wikiRoot];
+
+  while (stack.length > 0) {
+    const currentPath = stack.pop() as string;
+    const entries = fs
+      .readdirSync(currentPath, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+
+    for (const entry of entries) {
+      const absolutePath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(absolutePath);
+        continue;
+      }
+
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        relativePaths.push(path.relative(kbRoot, absolutePath).replace(/\\/g, "/"));
+      }
+    }
+  }
+
+  return relativePaths.sort((left, right) => left.localeCompare(right));
+}
+
+function assertUniquePageId(
+  pageId: string,
+  targetRelativePath: string,
+  workspace: WorkspaceLike
+): void {
+  const kbRoot = getKbRoot(workspace);
+
+  for (const relativePath of listWikiMarkdownPaths(workspace)) {
+    if (relativePath === targetRelativePath) {
+      continue;
+    }
+
+    const absolutePath = resolveKbPath(relativePath, kbRoot);
+    let parsed: ReturnType<typeof parseFrontmatter>;
+    try {
+      parsed = parseFrontmatter(fs.readFileSync(absolutePath, "utf8"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Cannot verify page_id uniqueness because ${relativePath} has invalid frontmatter: ${message}`
+      );
+    }
+
+    const validation = validateFrontmatter(parsed.frontmatter);
+    if (!validation.valid) {
+      throw new Error(
+        `Cannot verify page_id uniqueness because ${relativePath} has invalid frontmatter: ${validation.errors.join("; ")}`
+      );
+    }
+
+    if (parsed.frontmatter.id === pageId) {
+      throw new Error(
+        `Page ID "${pageId}" is already used by "${relativePath}" — IDs must be unique across the wiki`
+      );
+    }
+  }
 }
 
 export function writeWikiPage(
@@ -76,7 +142,7 @@ export function writeWikiPage(
   const resolvedPath: ResolvedWikiPath = resolveWikiScopedPath(input.path, workspace);
   assertNotSymlinkWriteTarget(input.path, resolvedPath.absolutePath);
 
-  const { frontmatter, body } = parseFrontmatter(input.content);
+  const { frontmatter } = parseFrontmatter(input.content);
   const validation = validateFrontmatter(frontmatter);
   if (!validation.valid) {
     throw new Error(`Frontmatter validation failed:\n${validation.errors.join("\n")}`);
@@ -84,15 +150,7 @@ export function writeWikiPage(
 
   const page_id = frontmatter.id as string;
   const relativePath = resolvedPath.relativePath;
-  const pageIndex = loadPageIndexLenient(workspace);
-  const conflictEntry = pageIndex.pages.find(
-    (entry) => entry.page_id === page_id && entry.path !== relativePath
-  );
-  if (conflictEntry) {
-    throw new Error(
-      `Page ID "${page_id}" is already used by "${conflictEntry.path}" — IDs must be unique across the wiki`
-    );
-  }
+  assertUniquePageId(page_id, relativePath, workspace);
 
   const fileAlreadyExists = fs.existsSync(resolvedPath.absolutePath);
   if (input.create_only && fileAlreadyExists) {
@@ -105,18 +163,9 @@ export function writeWikiPage(
     fs.mkdirSync(parentDir, { recursive: true });
   }
 
+  assertWikiRebuildable(workspace);
   fs.writeFileSync(resolvedPath.absolutePath, input.content, "utf8");
-
-  upsertPageIndexEntry(workspace, {
-    page_id,
-    path: relativePath,
-    type: frontmatter.type ?? "",
-    title: frontmatter.title ?? "",
-    aliases: Array.isArray(frontmatter.aliases) ? frontmatter.aliases : [],
-    tags: Array.isArray(frontmatter.tags) ? frontmatter.tags : [],
-    headings: extractHeadings(body),
-    body_excerpt: extractExcerpt(body),
-  });
+  rebuildPageIndex(workspace);
 
   return {
     path: relativePath,
@@ -145,6 +194,13 @@ export function updateWikiSection(
 
   const raw = fs.readFileSync(resolvedPath.absolutePath, "utf8");
   const { frontmatter, body } = parseFrontmatter(raw);
+  const currentValidation = validateFrontmatter(frontmatter);
+  if (!currentValidation.valid) {
+    throw new Error(
+      `Frontmatter validation failed before update:\n${currentValidation.errors.join("\n")}`
+    );
+  }
+
   const append = input.append ?? false;
   const createIfMissing = input.create_if_missing ?? true;
   const lines = body.split("\n");
@@ -200,20 +256,19 @@ export function updateWikiSection(
     ...frontmatter,
     updated_at: new Date().toISOString().slice(0, 10),
   };
+  const updatedValidation = validateFrontmatter(updatedFrontmatter);
+  if (!updatedValidation.valid) {
+    throw new Error(
+      `Frontmatter validation failed after update:\n${updatedValidation.errors.join("\n")}`
+    );
+  }
+
   const serialized = serializeFrontmatter(updatedFrontmatter as Record<string, unknown>);
   const newContent = serialized + "\n\n" + newBody.trimStart();
-  fs.writeFileSync(resolvedPath.absolutePath, newContent, "utf8");
 
-  const indexPath = resolveKbPath(PAGE_INDEX_PATH, getKbRoot(workspace));
-  if (fs.existsSync(indexPath)) {
-    const index = loadPageIndexLenient(workspace);
-    const entryIndex = index.pages.findIndex((page) => page.path === resolvedPath.relativePath);
-    if (entryIndex !== -1) {
-      index.pages[entryIndex].headings = extractHeadings(newBody);
-      index.pages[entryIndex].body_excerpt = extractExcerpt(newBody);
-      fs.writeFileSync(indexPath, JSON.stringify(index, null, 2), "utf8");
-    }
-  }
+  assertWikiRebuildable(workspace);
+  fs.writeFileSync(resolvedPath.absolutePath, newContent, "utf8");
+  rebuildPageIndex(workspace);
 
   return {
     path: resolvedPath.relativePath,

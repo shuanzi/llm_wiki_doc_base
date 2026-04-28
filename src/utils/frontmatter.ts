@@ -12,10 +12,12 @@ const FRONTMATTER_FIELD_ORDER = [
   "aliases",
   "source_ids",
   "related",
+  "verification_status",
 ] as const;
 
 const ARRAY_FIELDS = ["tags", "aliases", "source_ids", "related"] as const;
 const STATUS_VALUES = ["active", "stub", "deprecated"] as const;
+const VERIFICATION_STATUS_VALUES = ["verified", "missing_raw_source"] as const;
 
 function removeBom(content: string): string {
   return content.startsWith("\uFEFF") ? content.slice(1) : content;
@@ -239,6 +241,16 @@ export function validateFrontmatter(
     warnings.push(
       `Unknown page type: "${type}" — not in core types (${CORE_PAGE_TYPES.join(", ")})`
     );
+  }
+
+  if (fm.verification_status !== undefined) {
+    if (typeof fm.verification_status !== "string") {
+      errors.push("Invalid field type: verification_status must be a string");
+    } else if (!(VERIFICATION_STATUS_VALUES as readonly string[]).includes(fm.verification_status)) {
+      errors.push(
+        `Invalid verification_status: "${fm.verification_status}" — must be verified or missing_raw_source`
+      );
+    }
   }
 
   for (const key of ARRAY_FIELDS) {

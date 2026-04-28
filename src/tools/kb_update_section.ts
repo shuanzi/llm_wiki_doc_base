@@ -23,7 +23,7 @@ export async function kbUpdateSection(
 
     return {
       success: true,
-      data: { path: input.path, action: data.action },
+      data,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

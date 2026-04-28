@@ -89,23 +89,23 @@ scripts/
 1. `kb_source_add`
 - 作用：注册源文件，复制到 `kb/raw/inbox/`，写 manifest。
 - 关键行为：按内容 SHA256 生成 `src_sha256_xxx`；按内容哈希去重。
-- 现状限制：仅支持 `.md/.txt`（MVP 限制）。
+- 现状边界：Markdown / plaintext 原生支持；HTML、CSV、JSON、XML、PDF、DOCX、PPTX、XLSX/XLS、EPUB 依赖 Python MarkItDown 转换；ZIP、OCR/图片、音频转录、Outlook/email、YouTube、SVG 与 plugins 暂不支持。
 
 2. `kb_read_source`
 - 作用：按 `source_id` 读 manifest，再读 canonical source。
 - 关键行为：最大返回 200KB，超限截断并附 warning 文本。
 
 3. `kb_write_page`
-- 作用：创建/更新 wiki 页面，并增量维护 `page-index.json`。
-- 关键行为：frontmatter 校验、ID 全局唯一性校验、`create_only` 支持、返回 `warnings[]`。
+- 作用：创建/更新 wiki 页面，并重建 `page-index.json`。
+- 关键行为：frontmatter 校验、通过扫描 `kb/wiki/**/*.md` 做 ID 全局唯一性校验、`create_only` 支持、返回 `warnings[]`。
 
 4. `kb_update_section`
 - 作用：替换或追加某个 heading section 内容。
-- 关键行为：支持 `append` 与 `create_if_missing`；自动更新 `updated_at`；更新 index 对应 `headings/body_excerpt`。
+- 关键行为：支持 `append` 与 `create_if_missing`；修改前后均校验 frontmatter；自动更新 `updated_at`；重建 page index。
 
 5. `kb_ensure_entry`
 - 作用：向 index/log 幂等写入条目。
-- 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；重复调用返回 `already_exists`；支持 anchor heading 定位插入。
+- 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；校验单行 entry 与安全 dedup key；重复调用返回 `already_exists`；支持 anchor heading 定位插入；写入后重建 page index。
 
 6. `kb_search_wiki`
 - 作用：基于 `page-index.json` 搜索。
@@ -206,14 +206,12 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 
 ## 8. 当前技术债 / 未完成项
 
-1. `kb_source_add` 文件类型仍是 MVP 范围（仅 `.md/.txt`），对 PDF/HTML/Office 等源无原生接入。
-2. `kb_commit` 只执行对配置 `kb_root` 范围的 stage，但无法隔离“已预先 staged 的非 `kb_root` 文件”被一并提交的风险。
-3. frontmatter 解析器是轻量实现（`parseSimpleYaml`），并非完整 YAML 解析器，复杂 YAML 语法兼容性有限。
-4. `page-index.json` 是增量维护模型；若页面被工具外手动删除/改名，索引可能漂移，需要 lint/重建机制兜底。
-5. `kb_search_wiki` 基于索引字段做轻量打分检索，不是全文/语义检索，召回与排序能力有限。
-6. `kb_run_lint` / `kb_repair` 已成为独立 MCP 工具，但 README 与流程文档仍需持续保持与 tool surface 同步，避免再次出现“8 tools”类滞后描述。
-7. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
-8. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；溯源完整性应以具体 `source_id` 是否存在 manifest 为准。
+1. MarkItDown 仍是运行时外部依赖，尚未提供安装检测/集成测试 gate；转换失败需按错误提示安装 Python 与 markitdown extras。
+2. `kb_search_wiki` 基于索引字段做轻量打分检索，不是全文/语义检索，召回与排序能力有限。
+3. 手工编辑或删除 `kb/wiki/**/*.md` 后仍需通过 `kb_rebuild_index` / `kb_run_lint` 兜底确认 cache 一致性。
+4. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；已显式标记的缺 raw source 页面会被 lint 作为 unverified warning 处理。
+5. `kb_run_lint` / `kb_repair` 已成为独立 MCP 工具，但 README 与流程文档仍需持续保持与 tool surface 同步，避免再次出现“8 tools”类滞后描述。
+6. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
 
 ## 9. OpenClaw Installer（当前主线）
 

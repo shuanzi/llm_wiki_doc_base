@@ -1,0 +1,652 @@
+{
+  "pages": [
+    {
+      "page_id": "hardware_isolation",
+      "path": "wiki/concepts/hardware_isolation.md",
+      "type": "concept",
+      "title": "硬件隔离",
+      "aliases": [
+        "Hardware Isolation",
+        "硬件隔离",
+        "安全隔离",
+        "security isolation"
+      ],
+      "tags": [
+        "security",
+        "hardware",
+        "isolation",
+        "memory-protection"
+      ],
+      "headings": [
+        "硬件隔离",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "硬件隔离是通过 CPU 架构层面的安全扩展，在物理硬件级别将安全态（Secure World）与非安全态（Normal World/Normal）的计算资源严格分离的技术机制。这种隔离确保敏感代码和数据（如密钥、认证逻辑）不能被非安全态软件读取或篡改。\n- 寄存器级隔离：安全态拥有独立的寄存器组或寄存器状态，安全态与非安全态之间切换时必须通过受控入口（如 SMC/ecall）。\n- 内存级隔离：通..."
+    },
+    {
+      "page_id": "opensbi",
+      "path": "wiki/entities/opensbi.md",
+      "type": "entity",
+      "title": "OpenSBI",
+      "aliases": [
+        "Open SBI",
+        "RISC-V SBI"
+      ],
+      "tags": [
+        "risc-v",
+        "firmware",
+        "bootloader",
+        "sbi"
+      ],
+      "headings": [
+        "OpenSBI",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "OpenSBI（Open Supervisor Binary Interface）是 RISC-V 平台的开源特权固件实现，由 Western Digital 主导开发。它实现了 RISC-V SBI（Supervisor Binary Interface）规范，在机器态（M-mode）运行，为上层操作系统（S-mode）提供标准化的硬件抽象接口。\n- SBI 规范实现：作为 RISC-V 启动链..."
+    },
+    {
+      "page_id": "reports_index",
+      "path": "wiki/reports/index.md",
+      "type": "index",
+      "title": "Reports Index",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Reports"
+      ],
+      "body_excerpt": ""
+    },
+    {
+      "page_id": "risc_v",
+      "path": "wiki/entities/risc_v.md",
+      "type": "entity",
+      "title": "RISC-V",
+      "aliases": [
+        "RISC-V ISA",
+        "riscv",
+        "RISCV"
+      ],
+      "tags": [
+        "architecture",
+        "isa",
+        "open-source",
+        "hardware"
+      ],
+      "headings": [
+        "RISC-V",
+        "关键特性",
+        "矩阵扩展进展（据 2025-03-18 文章修订稿）",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "RISC-V 是一种开放的精简指令集架构（ISA），由加州大学伯克利分校发起，现由 RISC-V International 维护。其最大特点是完全开源、模块化，允许任何人免费使用、实现和扩展，已从嵌入式微控制器延伸至高性能服务器和 AI 加速器场景。\n- 开放 ISA：无需授权费，允许商用与学术使用，打破 ARM/x86 的授权壁垒。\n- 模块化扩展：基础整数指令集（RV32I/RV64I）加上..."
+    },
+    {
+      "page_id": "risc_v_matrix_extensions",
+      "path": "wiki/concepts/risc_v_matrix_extensions.md",
+      "type": "concept",
+      "title": "RISC-V 矩阵扩展",
+      "aliases": [],
+      "tags": [
+        "risc-v",
+        "matrix-extension",
+        "ai",
+        "ml",
+        "accelerator"
+      ],
+      "headings": [
+        "RISC-V 矩阵扩展",
+        "讨论路径（基于该来源的归纳）",
+        "工程关注点（基于该来源）",
+        "不确定性与边界",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "RISC-V 矩阵扩展是面向 AI/ML 矩阵计算负载的一组 ISA 扩展探索方向，目标是在通用处理器与加速器场景下提升矩阵乘累加（MAC）吞吐。按当前来源（单篇文章）描述，社区讨论主要围绕“复用向量寄存器表达矩阵操作”与“引入附加矩阵寄存器状态”两类路径展开；下文的 Integrated/Attached/折中形态是该来源中的归纳与当前提案讨论方向，不代表已定型的官方 taxonomy。\n- I..."
+    },
+    {
+      "page_id": "risc_v_trust_chain_analysis",
+      "path": "wiki/analyses/risc_v_trust_chain_analysis.md",
+      "type": "analysis",
+      "title": "RISC-V 安全可信 3.0 启动链与信任边界分析",
+      "aliases": [],
+      "tags": [
+        "risc-v",
+        "tee",
+        "secure-boot",
+        "trusted-computing",
+        "trust-boundary",
+        "analysis"
+      ],
+      "headings": [
+        "RISC-V 安全可信 3.0 启动链与信任边界分析",
+        "分析范围与依据",
+        "启动链分层与各层职责（按现有 wiki 口径）",
+        "信任边界与隔离边界的变化点",
+        "可信 3.0 相比 2.0 的可观察增量（按当前单源/现有 wiki 归纳）",
+        "已写清的结构 vs 仍待解决的问题",
+        "已写清的结构（在现有 wiki 中可稳定复述）",
+        "仍待解决的问题（现有 wiki 已显式暴露）",
+        "局限性与适用边界",
+        "结论（谨慎）"
+      ],
+      "body_excerpt": "本文是按当前单源与现有 wiki 页面可支持信息进行的归纳性分析，核心依据为 [[srcsha2565d99456c|RISC-V TEE标准制定及安全可信3.0启动方案技术分享]] 及其在 [[riscv]]、[[secureboot]]、[[trustedcomputing]]、[[hardwareisolation]]、[[opensbi]]、[[tee]]、[[tpcm]] 等页的结构化沉..."
+    },
+    {
+      "page_id": "secure_boot",
+      "path": "wiki/concepts/secure_boot.md",
+      "type": "concept",
+      "title": "安全启动（信任链）",
+      "aliases": [
+        "Secure Boot",
+        "信任链",
+        "trust chain",
+        "安全启动"
+      ],
+      "tags": [
+        "security",
+        "boot",
+        "trust-chain",
+        "firmware"
+      ],
+      "headings": [
+        "安全启动（信任链）",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "安全启动（Secure Boot）是通过构建分层信任链（Trust Chain），确保系统从上电到操作系统加载的每个阶段都经过完整性验证的安全机制。核心思想是\"信任根（Root of Trust）\"：从不可篡改的只读存储中的初始代码开始，逐级验证下一阶段引导程序的签名和完整性，形成完整的信任传递链。\n- 信任根（RoT）：信任链的起点，通常存储于只读 ROM 或硬件安全模块中，不可被外部篡改。\n-..."
+    },
+    {
+      "page_id": "src_sha256_08e04538",
+      "path": "wiki/sources/src_sha256_08e04538.md",
+      "type": "source",
+      "title": "From Vector to Matrix: The Future of RISC-V Matrix Extensions",
+      "aliases": [],
+      "tags": [
+        "risc-v",
+        "matrix-extension",
+        "vector-extension",
+        "ai-acceleration",
+        "isa"
+      ],
+      "headings": [
+        "From Vector to Matrix: The Future of RISC-V Matrix Extensions",
+        "文档概述",
+        "关键要点（据原文）",
+        "核心观点（作者论述）",
+        "不确定性与边界",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "本文围绕 [[riscv|RISC-V]] 在 AI/ML 场景中的矩阵加速路径，比较了“Integrated Matrix Extension（IME）”与“Attached Matrix Extension（AME）”两类思路，并讨论了 Spacemit、Xuantie、Stream Computing、SiFive 等方案。文章还引入 Apple AMX/ARM SME 与华为 Ascend..."
+    },
+    {
+      "page_id": "src_sha256_0976343c",
+      "path": "wiki/sources/src_sha256_0976343c.md",
+      "type": "source",
+      "title": "飞书Zara：工作中，如何推动事情发生",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "飞书Zara：工作中，如何推动事情发生",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha2560976343c\n- Kind: markdown\n- Content Hash: sha256:0976343ca5558607b780a2cd62b4e325725959642882e3136d49a53dffed6c1d\n- Ingested: 2026-04-11\n大力哥 2021年11月30日 20:19\n我跟Zara不算认识，第一次知道她是在..."
+    },
+    {
+      "page_id": "src_sha256_1af814f9",
+      "path": "wiki/sources/src_sha256_1af814f9.md",
+      "type": "source",
+      "title": "RISC-V”安全”那些事儿（三） - RISC-V",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V”安全”那些事儿（三） - RISC-V",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2561af814f9\n- Kind: markdown\n- Content Hash: sha256:1af814f998b522a774c2060a14fe3b7f25064b1567a207391493db9446c0e507\n- Ingested: 2026-04-11\n- 活动比赛Competitions\n- 社区动态\n- K3\n- Eco Soft..."
+    },
+    {
+      "page_id": "src_sha256_23d8fea9",
+      "path": "wiki/sources/src_sha256_23d8fea9.md",
+      "type": "source",
+      "title": "RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha25623d8fea9\n- Kind: markdown\n- Content Hash: sha256:23d8fea99d732c6e3a289d84decbbc7e82bcf266e6138c0a72c5894f7fccd09c\n- Ingested: 2026-04-11\nAlibaba Dragonwell \\[1\\] 是一 款免费的 OpenJDK ..."
+    },
+    {
+      "page_id": "src_sha256_381eec28",
+      "path": "wiki/sources/src_sha256_381eec28.md",
+      "type": "source",
+      "title": "[翻譯] 認識 x64 程式碼模型（code model）",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "[翻譯] 認識 x64 程式碼模型（code model）",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256381eec28\n- Kind: markdown\n- Content Hash: sha256:381eec28c3192c32249181e7135ece54cd6033ca9b3440595ab509a84b76c4f1\n- Ingested: 2026-04-11\n- 原文標題：Understanding the x64 code models\n..."
+    },
+    {
+      "page_id": "src_sha256_3a5b77c6",
+      "path": "wiki/sources/src_sha256_3a5b77c6.md",
+      "type": "source",
+      "title": "用初中数学理解LLM工作原理",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "用初中数学理解LLM工作原理",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha2563a5b77c6\n- Kind: markdown\n- Content Hash: sha256:3a5b77c6461a3f3d4af5adf7691ec64be2a0bc09e13c06a29b00ed8b8149e848\n- Ingested: 2026-04-11\n2024年12月19日 00:01\n点击上方“ 图灵人工智能 ”，选择“星标”公众..."
+    },
+    {
+      "page_id": "src_sha256_44ea060c",
+      "path": "wiki/sources/src_sha256_44ea060c.md",
+      "type": "source",
+      "title": "Linux操作系统内存管理(思维导图详解)",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Linux操作系统内存管理(思维导图详解)",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha25644ea060c\n- Kind: markdown\n- Content Hash: sha256:44ea060c2045f8963ef5fbb32d9dd1b7544a32b8bb9fa5e892f93e137c677a90\n- Ingested: 2026-04-11\n目录\n收起\n一、 计算机的存储体系\n二、内存使用演化\n三. 物理内存：连续分配存储..."
+    },
+    {
+      "page_id": "src_sha256_51f2d174",
+      "path": "wiki/sources/src_sha256_51f2d174.md",
+      "type": "source",
+      "title": "标六万字长文一次性说清LLM的后训练技术题",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "标六万字长文一次性说清LLM的后训练技术题",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha25651f2d174\n- Kind: markdown\n- Content Hash: sha256:51f2d174d344ee134242df13332346d555045dec52dbf28ca83b10429086e7a0\n- Ingested: 2026-04-11\n2025年7月23日 00:03\n点击上方“ 图灵人工智能 ”，选择“星标”公众号..."
+    },
+    {
+      "page_id": "src_sha256_5c602904",
+      "path": "wiki/sources/src_sha256_5c602904.md",
+      "type": "source",
+      "title": "RISC-V”安全”那些事儿（二） - RISC-V",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V”安全”那些事儿（二） - RISC-V",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2565c602904\n- Kind: markdown\n- Content Hash: sha256:5c6029043af61f97c6f66d53e36104b9c0f3a33c50a2b4be72be1c0fa2928a25\n- Ingested: 2026-04-11\n- 活动比赛Competitions\n- 社区动态\n- K3\n- Eco Soft..."
+    },
+    {
+      "page_id": "src_sha256_5d99456c",
+      "path": "wiki/sources/src_sha256_5d99456c.md",
+      "type": "source",
+      "title": "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+      "aliases": [],
+      "tags": [
+        "risc-v",
+        "tee",
+        "trusted-computing",
+        "secure-boot",
+        "tpcm",
+        "hardware-security"
+      ],
+      "headings": [
+        "RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+        "文档概述",
+        "关键要点",
+        "核心论断",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "本文来自山东大学智研院，系统阐述了在 [[riscv|RISC-V]] 体系结构下制定 [[tee|TEE（可信执行环境）]] 标准的必要性，以及团队提出的基于 [[tpcm|TPCM（可信平台控制模块）]] 的\"安全可信 3.0\"启动方案。文章从 ARM TrustZone 的成熟生态出发，指出 RISC-V 安全生态碎片化问题，论证标准化的迫切性，并给出一套完整的分层启动信任链方案。\n- 标准..."
+    },
+    {
+      "page_id": "src_sha256_7602e90d",
+      "path": "wiki/sources/src_sha256_7602e90d.md",
+      "type": "source",
+      "title": "只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "只需一条命令，快速找回Windows 10/11消失的“高级启动选项”菜单-51CTO.COM",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2567602e90d\n- Kind: markdown\n- Content Hash: sha256:7602e90deb6472a314769c63d4b26e3207082eab59f153fe0364b207e68d00a7\n- Ingested: 2026-04-11\n在最新版本的Windows 10和Windows 11中，用户可以在PC的初始启动..."
+    },
+    {
+      "page_id": "src_sha256_8f375822",
+      "path": "wiki/sources/src_sha256_8f375822.md",
+      "type": "source",
+      "title": "Windows 11安全手册 - 硬件安全性",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Windows 11安全手册 - 硬件安全性",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha2568f375822\n- Kind: markdown\n- Content Hash: sha256:8f3758227baa9ae21b45c91855308631d373b1cc2eab5a2d8d2f7b4a76d0b901\n- Ingested: 2026-04-11\n!硬件安全一章的封面。\n当今不断发展的威胁要求硬件和软件之间保持紧密的一致性，才能..."
+    },
+    {
+      "page_id": "src_sha256_909eda4b",
+      "path": "wiki/sources/src_sha256_909eda4b.md",
+      "type": "source",
+      "title": "u-boot是什么？",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "u-boot是什么？",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha256909eda4b\n- Kind: markdown\n- Content Hash: sha256:909eda4b565a0a77d058e5ecba57d5bc8d18daae3ea53133f63e5a3f3fd719c5\n- Ingested: 2026-04-11\n查看剩余 2 条回答\n伊朗局势 481 万 热\n全红婵网暴案群主被行拘 401 万..."
+    },
+    {
+      "page_id": "src_sha256_990e1e16",
+      "path": "wiki/sources/src_sha256_990e1e16.md",
+      "type": "source",
+      "title": "RISC-V Linux 启动流程分析 - 泰晓科技",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V Linux 启动流程分析 - 泰晓科技",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256990e1e16\n- Kind: markdown\n- Content Hash: sha256:990e1e16e14a28e8657ed6839de9663dd9613f08a906233ed0ce84f17671b937\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
+    },
+    {
+      "page_id": "src_sha256_a1c9e765",
+      "path": "wiki/sources/src_sha256_a1c9e765.md",
+      "type": "source",
+      "title": "泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256a1c9e765\n- Kind: markdown\n- Content Hash: sha256:a1c9e765a95d2be8e3a1d5fbdd13b9b85c3bec100abdccbe77124561213e25dc\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
+    },
+    {
+      "page_id": "src_sha256_b0079051",
+      "path": "wiki/sources/src_sha256_b0079051.md",
+      "type": "source",
+      "title": "Observations on Siri, Apple Intelligence, and hiding in plain sight",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Observations on Siri, Apple Intelligence, and hiding in plain sight",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256b0079051\n- Kind: markdown\n- Content Hash: sha256:b0079051c03556dfe6e0dd03d7ffe563df63f650abca07c83182f8426b4df50a\n- Ingested: 2026-04-11\nApple launched “Apple Intelligence” yeste..."
+    },
+    {
+      "page_id": "src_sha256_b9eea30d",
+      "path": "wiki/sources/src_sha256_b9eea30d.md",
+      "type": "source",
+      "title": "半导体产业链",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "半导体产业链",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha256b9eea30d\n- Kind: markdown\n- Content Hash: sha256:b9eea30d160cf2520e6ba2d58619ece21ea9759f5adab0c787b8098b91534253\n- Ingested: 2026-04-11\n2025年7月23日 17:21\n!图片\n半导体产业链，本质上是一个高度复杂、覆盖..."
+    },
+    {
+      "page_id": "src_sha256_bed29132",
+      "path": "wiki/sources/src_sha256_bed29132.md",
+      "type": "source",
+      "title": "Docker Containers on RISC-V Architecture",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Docker Containers on RISC-V Architecture",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256bed29132\n- Kind: markdown\n- Content Hash: sha256:bed291327c977a35c2f75db393221cbb18c56ec472663d18994beee39b1a37ee\n- Ingested: 2026-04-11\nContainers are part of the vast majority ..."
+    },
+    {
+      "page_id": "src_sha256_c6066312",
+      "path": "wiki/sources/src_sha256_c6066312.md",
+      "type": "source",
+      "title": "RISC-V\\\"安全\\\"那些事儿（一） - RISC-V",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V\\\"安全\\\"那些事儿（一） - RISC-V",
+        "Source Info",
+        "Summary"
+      ],
+      "body_excerpt": "- Source ID: srcsha256c6066312\n- Kind: markdown\n- Content Hash: sha256:c6066312cafaadb94ed627a09fad9f0314f57e5b7b24b445fa57fcf27455ba02\n- Ingested: 2026-04-11\nzhengwenbin\n背景\n在数字化浪潮汹涌澎湃的当下，计算机已深度融入人们生活..."
+    },
+    {
+      "page_id": "src_sha256_d0516b4b",
+      "path": "wiki/sources/src_sha256_d0516b4b.md",
+      "type": "source",
+      "title": "大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256d0516b4b\n- Kind: markdown\n- Content Hash: sha256:d0516b4b1c922cf35d2d080068ba3eed6ea3a452bc9f509064ddcde49226490d\n- Ingested: 2026-04-11\n原创 机器人三号 2025年3月30日 18:52\nAnthropic 的 AI ..."
+    },
+    {
+      "page_id": "src_sha256_e1362439",
+      "path": "wiki/sources/src_sha256_e1362439.md",
+      "type": "source",
+      "title": "刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256e1362439\n- Kind: markdown\n- Content Hash: sha256:e1362439ed2c4e627154548b3f0af378dea793fd9035fab12e7be066a55c2f14\n- Ingested: 2026-04-11\n> 真实的 AI 商战，往往就是这样朴实无华。  \nAnthropic 封杀第三方..."
+    },
+    {
+      "page_id": "src_sha256_e4e3e218",
+      "path": "wiki/sources/src_sha256_e4e3e218.md",
+      "type": "source",
+      "title": "RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256e4e3e218\n- Kind: markdown\n- Content Hash: sha256:e4e3e218b2bd39289996b66eaa77d84b866c46293b1cb2a183d366a09d5d6d0b\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
+    },
+    {
+      "page_id": "src_sha256_f04df3b5",
+      "path": "wiki/sources/src_sha256_f04df3b5.md",
+      "type": "source",
+      "title": "RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技",
+        "Source Info",
+        "Summary",
+        "Structure"
+      ],
+      "body_excerpt": "- Source ID: srcsha256f04df3b5\n- Kind: markdown\n- Content Hash: sha256:f04df3b5a8c04f426ee20135e7ac10792ef16d6e15476d34e6302c96fe244ff3\n- Ingested: 2026-04-11\n泰晓科技 -- 聚焦 Linux - 追本溯源，见微知著！  \n网站地址：http..."
+    },
+    {
+      "page_id": "tee",
+      "path": "wiki/entities/tee.md",
+      "type": "entity",
+      "title": "TEE（可信执行环境）",
+      "aliases": [
+        "Trusted Execution Environment",
+        "可信执行环境",
+        "TEE"
+      ],
+      "tags": [
+        "security",
+        "trusted-computing",
+        "hardware-security",
+        "isolation"
+      ],
+      "headings": [
+        "TEE（可信执行环境）",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "TEE（Trusted Execution Environment，可信执行环境）是一种通过硬件隔离机制为敏感代码和数据提供安全运行空间的技术框架。TEE 与普通执行环境（REE）并行运行，通过严格的硬件访问控制确保安全区域内的代码和数据不受普通软件环境的攻击。\n- 硬件隔离：通过 CPU 安全扩展（如 ARM TrustZone、RISC-V 安全态扩展）在硬件层面划分安全态（Secure Wo..."
+    },
+    {
+      "page_id": "tpcm",
+      "path": "wiki/entities/tpcm.md",
+      "type": "entity",
+      "title": "TPCM（可信平台控制模块）",
+      "aliases": [
+        "Trusted Platform Control Module",
+        "可信平台控制模块",
+        "TPCM"
+      ],
+      "tags": [
+        "security",
+        "trusted-computing",
+        "hardware-security",
+        "risc-v"
+      ],
+      "headings": [
+        "TPCM（可信平台控制模块）",
+        "关键特性",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "TPCM（Trusted Platform Control Module，可信平台控制模块）是可信计算 3.0 框架中的核心硬件模块，扮演\"可信管控核心\"角色。不同于被动的 TPM/TCM，TPCM 具备主动监控与策略执行能力，能对平台及上层软件执行过程进行实时度量、监控与响应。\n- 主动可信：区别于 TPM/TCM 的被动度量，TPCM 主动介入系统运行，实时监测异常行为并执行可信策略。\n- 双..."
+    },
+    {
+      "page_id": "trusted_computing",
+      "path": "wiki/concepts/trusted_computing.md",
+      "type": "concept",
+      "title": "可信计算",
+      "aliases": [
+        "Trusted Computing",
+        "可信计算",
+        "可信计算体系"
+      ],
+      "tags": [
+        "security",
+        "trusted-computing",
+        "tee",
+        "hardware-security"
+      ],
+      "headings": [
+        "可信计算",
+        "关键特性",
+        "演进历程：1.0 → 2.0 → 3.0",
+        "核心组件",
+        "关联",
+        "来源"
+      ],
+      "body_excerpt": "可信计算（Trusted Computing）是一种从硬件层面到软件层面为计算系统建立\"不可篡改、可度量、可验证\"环境的安全体系。其核心目标是确保计算平台的行为符合预期，防止恶意软件篡改系统状态。\n- 可信 1.0：以容错计算等基本安全机制为基础，被动式安全防护，主要关注硬件可靠性。\n- 可信 2.0：以 TCG（Trusted Computing Group）国际标准为代表，引入 TPM/TCM..."
+    },
+    {
+      "page_id": "wiki_index",
+      "path": "wiki/index.md",
+      "type": "index",
+      "title": "Knowledge Base Index",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Knowledge Base Index",
+        "Navigation",
+        "Sources",
+        "Concepts",
+        "Entities",
+        "Analyses"
+      ],
+      "body_excerpt": "- [[wikilog|Change Log]] — ingest and edit history <!-- dedup:indexnavwikilog -->\n- [[reports/index|Reports Index]] — reports catalog <!-- dedup:indexnavreportsindex -->\n<!-- V1 migration: summaries p..."
+    },
+    {
+      "page_id": "wiki_log",
+      "path": "wiki/log.md",
+      "type": "index",
+      "title": "Change Log",
+      "aliases": [],
+      "tags": [],
+      "headings": [
+        "Change Log",
+        "V1 历史条目 (迁移)",
+        "[2026-04-11] migrated | 飞书Zara：工作中，如何推动事情发生",
+        "[2026-04-11] migrated | 用初中数学理解LLM工作原理",
+        "[2026-04-11] migrated | 泰晓沙龙 第二期：Linux 虚拟化技术 - 泰晓科技",
+        "[2026-04-11] migrated | 标六万字长文一次性说清LLM的后训练技术题",
+        "[2026-04-11] migrated | 大模型的内部世界相当地反直觉……（来自 Anthropic 的最新研究）",
+        "[2026-04-11] migrated | 只需一条命令，快速找回Windows 10/11消失的\"高级启动选项\"菜单-51CTO.COM",
+        "[2026-04-11] migrated | 半导体产业链",
+        "[2026-04-11] migrated | 刚刚，Anthropic 怒拔马斯克网线！OpenAI 联手 GitHub 连夜「偷家」",
+        "[2026-04-11] migrated | u-boot是什么？",
+        "[2026-04-11] migrated | [翻譯] 認識 x64 程式碼模型（code model）",
+        "[2026-04-11] migrated | Windows 11安全手册 - 硬件安全性",
+        "[2026-04-11] migrated | RISC-V\"安全\"那些事儿（二） - RISC-V",
+        "[2026-04-11] migrated | RISC-V\"安全\"那些事儿（三） - RISC-V",
+        "[2026-04-11] migrated | RISC-V\"安全\"那些事儿（一） - RISC-V",
+        "[2026-04-11] migrated | RISC-V 当前指令集扩展类别与检测方式 - 泰晓科技",
+        "[2026-04-11] migrated | RISC-V 中开发 Java 是一种什么体验？ 让 Dragonwell JDK 来回答",
+        "[2026-04-11] migrated | RISC-V UEFI 架构支持详解，第 1 部分 - OpenSBI/U-Boot/UEFI 简介 - 泰晓科技",
+        "[2026-04-11] migrated | RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+        "[2026-04-11] migrated | RISC-V Linux 启动流程分析 - 泰晓科技",
+        "[2026-04-11] migrated | Observations on Siri, Apple Intelligence, and hiding in plain sight",
+        "[2026-04-11] migrated | Linux操作系统内存管理(思维导图详解)",
+        "[2026-04-11] migrated | Docker Containers on RISC-V Architecture",
+        "[2026-04-12] ingest | RISC-V TEE标准制定及安全可信3.0启动方案技术分享",
+        "[2026-04-19] ingest | From Vector to Matrix: The Future of RISC-V Matrix Extensions",
+        "[2026-04-19] query | RISC-V 安全可信 3.0 启动链与信任边界分析"
+      ],
+      "body_excerpt": "- 迁移自 V1 日志格式 <!-- dedup:logingestsrcsha2560976343c -->\n- 迁移自 V1 日志格式 <!-- dedup:logingestsrcsha2563a5b77c6 -->\n- 迁移自 V1 日志格式 <!-- dedup:logingestsrcsha256a1c9e765 -->\n- 迁移自 V1 日志格式 <!-- dedup:loginge..."
+    }
+  ]
+}

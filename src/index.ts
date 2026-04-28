@@ -13,5 +13,10 @@ export { kbEnsureEntry } from "./tools/kb_ensure_entry";
 export { kbSearchWiki } from "./tools/kb_search_wiki";
 export { kbReadPage } from "./tools/kb_read_page";
 export { kbCommit } from "./tools/kb_commit";
+export { kbRebuildIndex } from "./tools/kb_rebuild_index";
+export { kbRunLint } from "./tools/kb_run_lint";
+export { kbRepair } from "./tools/kb_repair";
+
+export { rebuildPageIndex, runKbLint, repairKb } from "./core/wiki-maintenance";
 
 export type * from "./types";
