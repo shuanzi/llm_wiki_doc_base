@@ -88,6 +88,11 @@ interface ScannedWikiPage {
   parseError?: string;
 }
 
+interface PageContentOverride {
+  path: string;
+  content: string;
+}
+
 interface MetaPageSpec {
   relativePath: "wiki/index.md" | "wiki/log.md";
   writtenTo: "kb/wiki/index.md" | "kb/wiki/log.md";
@@ -250,36 +255,50 @@ function readCachedPageIndex(
   };
 }
 
-function scanWikiPages(workspace: WorkspaceLike): ScannedWikiPage[] {
-  return listWikiMarkdownPaths(workspace).map((relativePath) => {
-    const absolutePath = resolveKbPath(relativePath, getKbRoot(workspace));
-    const content = fs.readFileSync(absolutePath, "utf8");
+function scanWikiPage(relativePath: string, content: string): ScannedWikiPage {
+  try {
+    const { frontmatter, body } = parseFrontmatter(content);
+    return {
+      path: relativePath,
+      frontmatter,
+      body,
+      rebuildEntry: buildPageIndexEntry(relativePath, content),
+      validation: validateFrontmatter(frontmatter),
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      path: relativePath,
+      frontmatter: {},
+      body: "",
+      rebuildEntry: null,
+      validation: {
+        valid: false,
+        errors: [message],
+        warnings: [],
+        parsed: {},
+      },
+      parseError: message,
+    };
+  }
+}
 
-    try {
-      const { frontmatter, body } = parseFrontmatter(content);
-      return {
-        path: relativePath,
-        frontmatter,
-        body,
-        rebuildEntry: buildPageIndexEntry(relativePath, content),
-        validation: validateFrontmatter(frontmatter),
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      return {
-        path: relativePath,
-        frontmatter: {},
-        body: "",
-        rebuildEntry: null,
-        validation: {
-          valid: false,
-          errors: [message],
-          warnings: [],
-          parsed: {},
-        },
-        parseError: message,
-      };
-    }
+function scanWikiPages(
+  workspace: WorkspaceLike,
+  override?: PageContentOverride
+): ScannedWikiPage[] {
+  const kbRoot = getKbRoot(workspace);
+  const relativePaths = listWikiMarkdownPaths(workspace);
+  const paths = override && !relativePaths.includes(override.path)
+    ? [...relativePaths, override.path].sort((left, right) => left.localeCompare(right))
+    : relativePaths;
+
+  return paths.map((relativePath) => {
+    const content =
+      override && relativePath === override.path
+        ? override.content
+        : fs.readFileSync(resolveKbPath(relativePath, kbRoot), "utf8");
+    return scanWikiPage(relativePath, content);
   });
 }
 
@@ -462,9 +481,9 @@ function buildPageIndexEntry(filePath: string, content: string): PageIndexEntry 
 
 function buildPageIndex(
   workspace: WorkspaceLike,
-  options: RebuildPageIndexOptions = {}
+  options: RebuildPageIndexOptions & { override?: PageContentOverride } = {}
 ): { index: PageIndex; skipped_pages: RebuildSkippedPage[] } {
-  const scannedPages = scanWikiPages(workspace);
+  const scannedPages = scanWikiPages(workspace, options.override);
   const skippedPages = collectPageIndexFailures(scannedPages);
   if (skippedPages.length > 0 && options.allow_partial !== true) {
     throw new Error(
@@ -480,9 +499,10 @@ function buildPageIndex(
 }
 
 export function assertWikiRebuildable(
-  workspace: WorkspaceLike
+  workspace: WorkspaceLike,
+  override?: PageContentOverride
 ): void {
-  buildPageIndex(workspace);
+  buildPageIndex(workspace, { override });
 }
 
 function buildMetaPageContent(spec: MetaPageSpec): string {
@@ -608,7 +628,20 @@ function checkSourceTraceability(
 
   const kbRoot = getKbRoot(workspace);
   for (const sourceId of sourcePageIds(page)) {
-    const manifestPath = resolveKbPath("state/manifests/" + sourceId + ".json", kbRoot);
+    let manifestPath: string;
+    try {
+      manifestPath = resolveKbPath("state/manifests/" + sourceId + ".json", kbRoot);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushSourceTraceabilityIssue(
+        issues,
+        page,
+        "source-manifest-malformed",
+        "Source page references invalid source_id " + sourceId + ": " + message
+      );
+      continue;
+    }
+
     if (!fs.existsSync(manifestPath)) {
       pushSourceTraceabilityIssue(
         issues,

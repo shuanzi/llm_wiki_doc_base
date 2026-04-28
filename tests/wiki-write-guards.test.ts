@@ -59,6 +59,32 @@ status: active
   );
 });
 
+test("writeWikiPage can repair the target page even if its current frontmatter is invalid", () => {
+  const kbRoot = makeWorkspace();
+  const targetPath = path.join(kbRoot, "wiki", "concepts", "broken.md");
+  fs.writeFileSync(targetPath, INVALID_PARSEABLE_PAGE, "utf8");
+
+  const result = writeWikiPage(
+    {
+      path: "wiki/concepts/broken.md",
+      content: `---
+id: repaired_page
+type: concept
+title: Repaired Page
+updated_at: 2026-04-28
+status: active
+---
+
+# Repaired
+`,
+    },
+    { kb_root: kbRoot }
+  );
+
+  assert.equal(result.action, "updated");
+  assert.match(fs.readFileSync(targetPath, "utf8"), /id: repaired_page/u);
+});
+
 test("updateWikiSection rejects writes when wiki has known index-rebuild blockers", () => {
   const kbRoot = makeWorkspace();
   const targetPath = path.join(kbRoot, "wiki", "concepts", "sample.md");

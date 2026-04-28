@@ -249,6 +249,40 @@ status: active
   assert.match(issue?.detail ?? "", /invalid canonical_path/u);
 });
 
+test("runKbLint reports invalid source_id path instead of throwing", () => {
+  const kbRoot = makeWorkspace("kb-lint-invalid-source-id-");
+
+  writeFile(kbRoot, "wiki/index.md", VALID_INDEX);
+  writeFile(kbRoot, "wiki/log.md", VALID_LOG);
+  writeFile(
+    kbRoot,
+    "wiki/sources/src_sha256_invalid_source_id.md",
+    `---
+id: src_sha256_invalid_source_id
+type: source
+title: Invalid Source Id Reference
+updated_at: 2026-04-28
+status: active
+source_ids:
+  - ../../../bad
+---
+
+# Invalid Source Id Reference
+`
+  );
+
+  rebuildPageIndex({ kb_root: kbRoot }, { allow_partial: true });
+  const report = runKbLint({ kb_root: kbRoot }, { include_semantic: false });
+  const issue = report.deterministic.issues.find(
+    (candidate) =>
+      candidate.rule === "source-manifest-malformed" &&
+      candidate.page === "wiki/sources/src_sha256_invalid_source_id.md"
+  );
+
+  assert.equal(report.deterministic.errors, 1);
+  assert.match(issue?.detail ?? "", /invalid source_id/u);
+});
+
 test("runKbLint resolves path-like wikilink target to wiki relative path", () => {
   const kbRoot = makeWorkspace("kb-lint-path-like-");
 

@@ -163,7 +163,10 @@ export function writeWikiPage(
     fs.mkdirSync(parentDir, { recursive: true });
   }
 
-  assertWikiRebuildable(workspace);
+  assertWikiRebuildable(workspace, {
+    path: relativePath,
+    content: input.content,
+  });
   fs.writeFileSync(resolvedPath.absolutePath, input.content, "utf8");
   rebuildPageIndex(workspace);
 
