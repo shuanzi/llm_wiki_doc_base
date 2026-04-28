@@ -85,6 +85,39 @@ status: active
   assert.match(fs.readFileSync(targetPath, "utf8"), /id: repaired_page/u);
 });
 
+test("writeWikiPage can repair one invalid target while another invalid page still exists", () => {
+  const kbRoot = makeWorkspace();
+  const targetPath = path.join(kbRoot, "wiki", "concepts", "broken-a.md");
+  fs.writeFileSync(targetPath, INVALID_PARSEABLE_PAGE, "utf8");
+  fs.writeFileSync(
+    path.join(kbRoot, "wiki", "entities", "broken-b.md"),
+    INVALID_PARSEABLE_PAGE.replace("broken_page", "broken_page_b"),
+    "utf8"
+  );
+
+  const result = writeWikiPage(
+    {
+      path: "wiki/concepts/broken-a.md",
+      content: `---
+id: repaired_a
+type: concept
+title: Repaired A
+updated_at: 2026-04-28
+status: active
+---
+
+# Repaired A
+`,
+    },
+    { kb_root: kbRoot }
+  );
+
+  assert.equal(result.action, "updated");
+  assert.match(fs.readFileSync(targetPath, "utf8"), /id: repaired_a/u);
+  assert.match(result.warnings.join("\n"), /rebuilt partially/u);
+  assert.match(result.warnings.join("\n"), /Skipped invalid page_id uniqueness check/u);
+});
+
 test("updateWikiSection rejects writes when wiki has known index-rebuild blockers", () => {
   const kbRoot = makeWorkspace();
   const targetPath = path.join(kbRoot, "wiki", "concepts", "sample.md");

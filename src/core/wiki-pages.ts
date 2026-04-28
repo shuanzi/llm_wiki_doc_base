@@ -100,7 +100,8 @@ function listWikiMarkdownPaths(workspace: WorkspaceLike): string[] {
 function assertUniquePageId(
   pageId: string,
   targetRelativePath: string,
-  workspace: WorkspaceLike
+  workspace: WorkspaceLike,
+  options: { allow_invalid_pages?: boolean; warnings?: string[] } = {}
 ): void {
   const kbRoot = getKbRoot(workspace);
 
@@ -115,6 +116,13 @@ function assertUniquePageId(
       parsed = parseFrontmatter(fs.readFileSync(absolutePath, "utf8"));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      if (options.allow_invalid_pages) {
+        options.warnings?.push(
+          `Skipped invalid page_id uniqueness check for ${relativePath}: ${message}`
+        );
+        continue;
+      }
+
       throw new Error(
         `Cannot verify page_id uniqueness because ${relativePath} has invalid frontmatter: ${message}`
       );
@@ -122,6 +130,13 @@ function assertUniquePageId(
 
     const validation = validateFrontmatter(parsed.frontmatter);
     if (!validation.valid) {
+      if (options.allow_invalid_pages) {
+        options.warnings?.push(
+          `Skipped invalid page_id uniqueness check for ${relativePath}: ${validation.errors.join("; ")}`
+        );
+        continue;
+      }
+
       throw new Error(
         `Cannot verify page_id uniqueness because ${relativePath} has invalid frontmatter: ${validation.errors.join("; ")}`
       );
@@ -150,9 +165,24 @@ export function writeWikiPage(
 
   const page_id = frontmatter.id as string;
   const relativePath = resolvedPath.relativePath;
-  assertUniquePageId(page_id, relativePath, workspace);
-
   const fileAlreadyExists = fs.existsSync(resolvedPath.absolutePath);
+  const warnings = [...validation.warnings];
+  let isRepairingInvalidTarget = false;
+
+  if (fileAlreadyExists) {
+    try {
+      const existing = parseFrontmatter(fs.readFileSync(resolvedPath.absolutePath, "utf8"));
+      isRepairingInvalidTarget = !validateFrontmatter(existing.frontmatter).valid;
+    } catch {
+      isRepairingInvalidTarget = true;
+    }
+  }
+
+  assertUniquePageId(page_id, relativePath, workspace, {
+    allow_invalid_pages: isRepairingInvalidTarget,
+    warnings,
+  });
+
   if (input.create_only && fileAlreadyExists) {
     throw new Error(`File already exists at "${relativePath}" and create_only is true`);
   }
@@ -163,18 +193,28 @@ export function writeWikiPage(
     fs.mkdirSync(parentDir, { recursive: true });
   }
 
-  assertWikiRebuildable(workspace, {
-    path: relativePath,
-    content: input.content,
-  });
-  fs.writeFileSync(resolvedPath.absolutePath, input.content, "utf8");
-  rebuildPageIndex(workspace);
+  if (isRepairingInvalidTarget) {
+    fs.writeFileSync(resolvedPath.absolutePath, input.content, "utf8");
+    const rebuildResult = rebuildPageIndex(workspace, { allow_partial: true });
+    if (rebuildResult.skipped_pages.length > 0) {
+      warnings.push(
+        "Page written while other wiki pages remain invalid; page-index was rebuilt partially."
+      );
+    }
+  } else {
+    assertWikiRebuildable(workspace, {
+      path: relativePath,
+      content: input.content,
+    });
+    fs.writeFileSync(resolvedPath.absolutePath, input.content, "utf8");
+    rebuildPageIndex(workspace);
+  }
 
   return {
     path: relativePath,
     page_id,
     action,
-    warnings: validation.warnings,
+    warnings,
   };
 }
 
