@@ -26,6 +26,7 @@ import { kbWritePage } from "../src/tools/kb_write_page";
 import { kbUpdateSection } from "../src/tools/kb_update_section";
 import { kbEnsureEntry } from "../src/tools/kb_ensure_entry";
 import { kbCommit } from "../src/tools/kb_commit";
+import { serializeFrontmatter } from "../src/utils";
 
 // ── CLI parsing ───────────────────────────────────────────────────────────────
 
@@ -316,18 +317,33 @@ function parseIsoDate(value: unknown): string | null {
 
 const INGEST_TODAY = resolveIngestToday();
 
-function makeSourcePage(sourceId: string, title: string, charCount: number, updatedAt: string): string {
-  return `---
-id: ${sourceId}
-type: source
-title: ${title}
-updated_at: ${updatedAt}
-status: active
-source_ids: [${sourceId}]
-tags: [e2e-driver, auto-generated]
----
+type PageFrontmatterTemplate = Record<string, unknown> & {
+  id: string;
+  type: "source" | "entity" | "concept";
+  title: string;
+  updated_at: string;
+  status: "active";
+  tags: string[];
+  source_ids: string[];
+};
 
-# ${title}
+function buildPage(
+  frontmatter: PageFrontmatterTemplate,
+  body: string
+): string {
+  return `${serializeFrontmatter(frontmatter)}\n\n${body.trim()}`;
+}
+
+function makeSourcePage(sourceId: string, title: string, charCount: number, updatedAt: string): string {
+  return buildPage({
+    id: sourceId,
+    type: "source",
+    title,
+    updated_at: updatedAt,
+    status: "active",
+    tags: ["e2e-driver", "auto-generated"],
+    source_ids: [sourceId],
+  }, `# ${title}
 
 ## 文档概述
 
@@ -342,7 +358,7 @@ tags: [e2e-driver, auto-generated]
 ## 来源
 
 - 原始文件：${title}
-`;
+`);
 }
 
 function makeEntityPage(
@@ -352,17 +368,15 @@ function makeEntityPage(
   sourceTitle: string,
   updatedAt: string
 ): string {
-  return `---
-id: ${entityId}
-type: entity
-title: ${entityTitle}
-updated_at: ${updatedAt}
-status: active
-tags: [e2e-driver, auto-generated]
-source_ids: [${sourceId}]
----
-
-# ${entityTitle}
+  return buildPage({
+    id: entityId,
+    type: "entity",
+    title: entityTitle,
+    updated_at: updatedAt,
+    status: "active",
+    tags: ["e2e-driver", "auto-generated"],
+    source_ids: [sourceId],
+  }, `# ${entityTitle}
 
 Placeholder entity page for ${entityTitle}, backed by [[${sourceId}|${sourceTitle}]].
 
@@ -374,7 +388,7 @@ Placeholder entity page for ${entityTitle}, backed by [[${sourceId}|${sourceTitl
 
 ## 来源
 
-- 基于 [[${sourceId}|${sourceTitle}]]`;
+- 基于 [[${sourceId}|${sourceTitle}]]`);
 }
 
 function makeConceptPage(
@@ -384,17 +398,15 @@ function makeConceptPage(
   sourceTitle: string,
   updatedAt: string
 ): string {
-  return `---
-id: ${conceptId}
-type: concept
-title: ${conceptTitle}
-updated_at: ${updatedAt}
-status: active
-tags: [e2e-driver, auto-generated]
-source_ids: [${sourceId}]
----
-
-# ${conceptTitle}
+  return buildPage({
+    id: conceptId,
+    type: "concept",
+    title: conceptTitle,
+    updated_at: updatedAt,
+    status: "active",
+    tags: ["e2e-driver", "auto-generated"],
+    source_ids: [sourceId],
+  }, `# ${conceptTitle}
 
 Placeholder concept page for ${conceptTitle}, backed by [[${sourceId}|${sourceTitle}]].
 
@@ -407,7 +419,7 @@ Placeholder concept page for ${conceptTitle}, backed by [[${sourceId}|${sourceTi
 ## 来源
 
 - 基于 [[${sourceId}|${sourceTitle}]]
-`;
+`);
 }
 
 // ── Logging helpers ───────────────────────────────────────────────────────────
@@ -443,7 +455,12 @@ interface RunResult {
   ensureActions: Record<string, string>;
 }
 
-async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: string): Promise<RunResult> {
+async function runIngest(
+  sourcePath: string,
+  config: WorkspaceConfig,
+  runLabel: string,
+  runStep6bCoverageCheck: boolean
+): Promise<RunResult> {
   log(`\n${"=".repeat(70)}`);
   log(`${runLabel}`);
   log(`Source: ${sourcePath}`);
@@ -553,7 +570,8 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
 
   // ── Step 5: kbWritePage — entity pages ──────────────────────────────────
   log("\n[Step 5] kbWritePage — entity pages...");
-  for (const entity of entities) {
+  let firstEntityWriteAction: "created" | "updated" | null = null;
+  for (const [index, entity] of entities.entries()) {
     const updatedAt = existingUpdatedAtByPageId[entity.id] ?? INGEST_TODAY;
     const content = makeEntityPage(entity.id, entity.title, sourceId, sourceTitle, updatedAt);
     const wpInput = { path: `wiki/entities/${entity.id}.md`, content };
@@ -563,7 +581,11 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
       abort(`kbWritePage (entity:${entity.id})`, wpResult.error ?? "unknown");
     }
     checkWarnings(`kbWritePage (entity:${entity.id})`, wpResult.data!.warnings);
-    log(`  [OK] entity "${entity.id}": action=${wpResult.data!.action}`);
+    const action = wpResult.data!.action;
+    if (index === 0) {
+      firstEntityWriteAction = action;
+    }
+    log(`  [OK] entity "${entity.id}": action=${action}`);
   }
 
   // ── Step 6: kbWritePage — concept pages ────────────────────────────────
@@ -581,10 +603,10 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
     log(`  [OK] concept "${concept.id}": action=${wpResult.data!.action}`);
   }
 
-  // ── Step 6b: kbUpdateSection — deterministic update for tool coverage ────
-  if (!runLabel.includes("Run 2") && entities.length > 0) {
+  // ── Step 6b: kbUpdateSection — create-time-only coverage/normalization check
+  if (runStep6bCoverageCheck && entities.length > 0 && firstEntityWriteAction === "created") {
     const firstEntity = entities[0];
-    log(`\n[Step 6b] kbUpdateSection — normalize 来源 section on entity "${firstEntity.id}"...`);
+    log(`\n[Step 6b] kbUpdateSection — create-time 来源 section coverage check on entity "${firstEntity.id}"...`);
     const usInput = {
       path: `wiki/entities/${firstEntity.id}.md`,
       heading: "## 来源",
@@ -599,6 +621,12 @@ async function runIngest(sourcePath: string, config: WorkspaceConfig, runLabel: 
     } else {
       log(`  [OK] kbUpdateSection: action=${usResult.data!.action}`);
     }
+  } else if (!runStep6bCoverageCheck) {
+    log("\n[Step 6b] Skipped on Run 2 — preserving raw second-pass writes for idempotency drift detection.");
+  } else if (entities.length === 0) {
+    log("\n[Step 6b] Skipped — no entity pages available for coverage check.");
+  } else {
+    log("\n[Step 6b] Skipped — first entity already existed; avoiding repeat section update/date drift.");
   }
 
   // ── Step 7: kbEnsureEntry — index.md and log.md ─────────────────────────
@@ -876,7 +904,7 @@ async function main(): Promise<void> {
   log(`Commit:  ${doCommit}`);
   try {
     // ── Run 1 ────────────────────────────────────────────────────────────
-    const run1 = await runIngest(sourcePath, config, "Run 1 — Initial ingest");
+    const run1 = await runIngest(sourcePath, config, "Run 1 — Initial ingest", true);
     const run1OK = await verify(run1, config, "Run 1");
 
     if (!run1OK) {
@@ -886,7 +914,7 @@ async function main(): Promise<void> {
     log("\nOK");
 
     // ── Run 2 (idempotency) ───────────────────────────────────────────────
-    const run2 = await runIngest(sourcePath, config, "Run 2 — Idempotency re-ingest");
+    const run2 = await runIngest(sourcePath, config, "Run 2 — Idempotency re-ingest", false);
     const run2OK = await verify(run2, config, "Run 2");
     const snapshotAfterRun2 = snapshotKbContents(config.kb_root);
     const idempotencyOK = checkIdempotency(run1, run2);
