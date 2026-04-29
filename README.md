@@ -1,4 +1,4 @@
-# OpenClaw KB（V2）
+# OpenClaw KB
 
 OpenClaw KB 是一个由 LLM 持续维护的知识库系统。它把原始资料沉淀为可编辑、可追踪、可检索的 wiki 知识层，并通过 MCP / OpenClaw 工具暴露标准化操作。
 
