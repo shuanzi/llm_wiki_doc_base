@@ -1,7 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { Manifest, SourceKind, WorkspaceConfig } from "../types";
-import { resolveKbPath, sha256Buffer, validateSafeId } from "../utils";
+import type { Manifest, SourceIngestStatus, SourceKind, WorkspaceConfig } from "../types";
+import {
+  parseFrontmatter,
+  resolveKbPath,
+  sha256Buffer,
+  validateFrontmatter,
+  validateSafeId,
+} from "../utils";
 import {
   convertSourceToMarkdown,
   isMarkdownExtension,
@@ -18,6 +24,14 @@ export interface RegisterSourceFileResult {
   canonical_path: string;
   file_name: string;
   manifest: Manifest;
+}
+
+export interface FinalizeSourceIngestInput {
+  source_id: string;
+  status: Exclude<SourceIngestStatus, "registered">;
+  summary_page_id?: string;
+  touched_pages?: string[];
+  error?: string;
 }
 
 export interface ReadRegisteredSourceOptions {
@@ -125,6 +139,183 @@ export function loadSourceManifest(sourceId: string, workspace: WorkspaceLike): 
   } catch {
     throw new Error(`Malformed manifest for source_id: ${sourceId}`);
   }
+}
+
+
+function manifestPath(sourceId: string, workspace: WorkspaceLike): string {
+  validateSafeId(sourceId, "source_id");
+  return resolveKbPath(`state/manifests/${sourceId}.json`, getKbRoot(workspace));
+}
+
+function assertFinalizeStatus(status: string): asserts status is Exclude<SourceIngestStatus, "registered"> {
+  if (status !== "ingested" && status !== "failed") {
+    throw new Error("status must be ingested or failed.");
+  }
+}
+
+function isWithinRoot(candidatePath: string, rootPath: string): boolean {
+  return candidatePath === rootPath || candidatePath.startsWith(rootPath + path.sep);
+}
+
+function assertNoSymlinkedWikiAncestors(
+  pagePath: string,
+  resolvedPath: string,
+  wikiRoot: string
+): void {
+  let currentPath = path.dirname(resolvedPath);
+  while (isWithinRoot(currentPath, wikiRoot)) {
+    if (fs.existsSync(currentPath) && fs.lstatSync(currentPath).isSymbolicLink()) {
+      throw new Error(`touched_pages entry must not traverse a symlinked directory: ${pagePath}`);
+    }
+
+    if (currentPath === wikiRoot) {
+      break;
+    }
+
+    currentPath = path.dirname(currentPath);
+  }
+}
+
+function assertTouchedPages(touchedPages: string[] | undefined, workspace: WorkspaceLike): void {
+  if (!touchedPages || touchedPages.length === 0) {
+    return;
+  }
+
+  const kbRoot = getKbRoot(workspace);
+  const wikiRoot = resolveKbPath("wiki", kbRoot);
+  const realWikiRoot = fs.realpathSync(wikiRoot);
+  for (const pagePath of touchedPages) {
+    if (typeof pagePath !== "string" || pagePath.trim().length === 0) {
+      throw new Error("touched_pages entries must be non-empty strings.");
+    }
+
+    const resolvedPath = resolveKbPath(pagePath, kbRoot);
+    if (resolvedPath !== wikiRoot && !resolvedPath.startsWith(wikiRoot + path.sep)) {
+      throw new Error(`touched_pages entry must resolve within kb/wiki/: ${pagePath}`);
+    }
+
+    if (!resolvedPath.endsWith(".md")) {
+      throw new Error(`touched_pages entry must be a markdown file within kb/wiki/: ${pagePath}`);
+    }
+    if (!fs.existsSync(resolvedPath)) {
+      throw new Error(`touched_pages entry must reference an existing file: ${pagePath}`);
+    }
+    assertNoSymlinkedWikiAncestors(pagePath, resolvedPath, wikiRoot);
+    const linkStats = fs.lstatSync(resolvedPath);
+    if (linkStats.isSymbolicLink()) {
+      throw new Error(`touched_pages entry must not reference a symlink: ${pagePath}`);
+    }
+    const realPath = fs.realpathSync(resolvedPath);
+    if (realPath !== realWikiRoot && !realPath.startsWith(realWikiRoot + path.sep)) {
+      throw new Error(`touched_pages entry must resolve within kb/wiki/: ${pagePath}`);
+    }
+    const stats = fs.statSync(resolvedPath);
+    if (!stats.isFile()) {
+      throw new Error(`touched_pages entry must reference a markdown file: ${pagePath}`);
+    }
+  }
+}
+
+function listWikiMarkdownFiles(workspace: WorkspaceLike): string[] {
+  const wikiRoot = resolveKbPath("wiki", getKbRoot(workspace));
+  if (!fs.existsSync(wikiRoot) || !fs.statSync(wikiRoot).isDirectory()) {
+    return [];
+  }
+
+  const files: string[] = [];
+  const stack = [wikiRoot];
+
+  while (stack.length > 0) {
+    const currentPath = stack.pop() as string;
+    const entries = fs.readdirSync(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const absolutePath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(absolutePath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        files.push(absolutePath);
+      }
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+function assertSummaryPageExists(summaryPageId: string, workspace: WorkspaceLike): void {
+  const markdownFiles = listWikiMarkdownFiles(workspace);
+  const matches: string[] = [];
+  for (const absolutePath of markdownFiles) {
+    let parsed: ReturnType<typeof parseFrontmatter>;
+    try {
+      parsed = parseFrontmatter(fs.readFileSync(absolutePath, "utf8"));
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `summary_page_id uniqueness cannot be verified because ${absolutePath} has invalid frontmatter: ${message}`
+      );
+    }
+
+    const pageId = parsed.frontmatter.id;
+    if (pageId !== summaryPageId) {
+      continue;
+    }
+
+    const validation = validateFrontmatter(parsed.frontmatter);
+    if (!validation.valid) {
+      throw new Error(
+        `summary_page_id uniqueness cannot be verified because ${absolutePath} has invalid frontmatter: ${validation.errors.join("; ")}`
+      );
+    }
+    matches.push(absolutePath);
+  }
+
+  if (matches.length === 0) {
+    throw new Error(`summary_page_id must reference an existing wiki page id: ${summaryPageId}`);
+  }
+  if (matches.length > 1) {
+    throw new Error(`summary_page_id must reference a unique wiki page id: ${summaryPageId}`);
+  }
+}
+
+export function finalizeSourceIngest(
+  input: FinalizeSourceIngestInput,
+  workspace: WorkspaceLike
+): Manifest {
+  validateSafeId(input.source_id, "source_id");
+  assertFinalizeStatus(input.status);
+  if (input.status === "ingested" && !input.summary_page_id) {
+    throw new Error("summary_page_id is required when status is ingested.");
+  }
+  if (input.status === "failed" && (!input.error || input.error.trim().length === 0)) {
+    throw new Error("error is required when status is failed.");
+  }
+  if (input.summary_page_id) {
+    validateSafeId(input.summary_page_id, "summary_page_id");
+  }
+  const manifest = loadSourceManifest(input.source_id, workspace);
+  if (manifest.ingest_status !== "registered") {
+    throw new Error(
+      `Cannot finalize source_id ${input.source_id}: ingest_status is ${manifest.ingest_status}; only registered can be finalized.`
+    );
+  }
+  if (input.summary_page_id) {
+    assertSummaryPageExists(input.summary_page_id, workspace);
+  }
+  assertTouchedPages(input.touched_pages, workspace);
+
+  const now = new Date().toISOString();
+  const updatedManifest: Manifest = {
+    ...manifest,
+    ingest_status: input.status,
+    ingest_summary_page_id: input.summary_page_id,
+    ingest_touched_pages: input.touched_pages,
+    ingest_error: input.status === "failed" ? input.error : undefined,
+    ingested_at: input.status === "ingested" ? now : undefined,
+    failed_at: input.status === "failed" ? now : undefined,
+  };
+
+  fs.writeFileSync(manifestPath(input.source_id, workspace), JSON.stringify(updatedManifest, null, 2), "utf8");
+  return updatedManifest;
 }
 
 export function registerSourceFile(

@@ -145,10 +145,12 @@ function main(): void {
 
   const expectedCanonicalToolNames = [
     "kb_source_add",
+    "kb_ingest_finalize",
     "kb_read_source",
     "kb_write_page",
     "kb_update_section",
     "kb_ensure_entry",
+    "kb_append_log_entry",
     "kb_search_wiki",
     "kb_read_page",
     "kb_commit",
@@ -160,7 +162,7 @@ function main(): void {
   assertDeepEqual(
     canonicalToolNames,
     expectedCanonicalToolNames,
-    "Canonical KB tool names drifted from the expected 11-tool contract."
+    "Canonical KB tool names drifted from the expected 13-tool contract."
   );
 
   assert(typeof pluginEntry.register === "function", "Built plugin must export a register(api) hook.");

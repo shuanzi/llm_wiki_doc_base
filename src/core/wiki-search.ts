@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import { parseFrontmatter, resolveKbPath } from "../utils";
 import { rebuildPageIndex } from "./wiki-maintenance";
+import { searchWikiChunks } from "./wiki-search-index";
 
 export interface ReadWikiPageResult {
   path: string;
@@ -363,6 +364,10 @@ export function searchWiki(
     typeof input.resolve_link === "string" ? input.resolve_link.trim() : "";
   if (resolveLink) {
     return resolveWikiLink(resolveLink, workspace);
+  }
+
+  if (input.mode === "chunk") {
+    return searchWikiChunks(input, workspace);
   }
 
   const query = (input.query ?? "").toLowerCase().trim();

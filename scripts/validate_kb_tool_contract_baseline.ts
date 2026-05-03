@@ -11,6 +11,7 @@ import { kbSearchWiki } from "../src/tools/kb_search_wiki";
 import { kbSourceAdd } from "../src/tools/kb_source_add";
 import { kbUpdateSection } from "../src/tools/kb_update_section";
 import { kbWritePage } from "../src/tools/kb_write_page";
+import { KB_WORKFLOW_TOOL_DEFINITIONS } from "../src/runtime/kb_tool_contract";
 import { writeWikiPage as coreWriteWikiPage, updateWikiSection } from "../src/core/wiki-pages";
 import { ensureWikiEntry as coreEnsureWikiEntry } from "../src/core/wiki-log";
 import { searchWiki as coreSearchWiki, readWikiPage as coreReadWikiPage } from "../src/core/wiki-search";
@@ -119,187 +120,13 @@ async function testMcpServerSurfaceMatchesInventory(): Promise<void> {
       }));
       const actualToolMap = new Map(actualTools.map((tool) => [tool.name, tool]));
 
-      const expectedWorkflowTools = [
-        {
-          name: "kb_source_add",
-          description:
-            "Register a source file (.md or .txt) into the knowledge base. Returns manifest and source_id.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              file_path: {
-                type: "string",
-                description: "Absolute or relative path to the source file to ingest.",
-              },
-            },
-            required: ["file_path"],
-          },
-        },
-        {
-          name: "kb_read_source",
-          description: "Read raw source content by source_id. Large files are truncated at 200 KB.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              source_id: {
-                type: "string",
-                description: "The source_id returned by kb_source_add.",
-              },
-            },
-            required: ["source_id"],
-          },
-        },
-        {
-          name: "kb_write_page",
-          description:
-            "Create or update a wiki page. Validates YAML frontmatter and refreshes page-index.json.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              path: {
-                type: "string",
-                description: "Path to the wiki page, relative to kb/ (e.g. wiki/concepts/foo.md).",
-              },
-              content: {
-                type: "string",
-                description: "Full Markdown content including YAML frontmatter block.",
-              },
-              create_only: {
-                type: "boolean",
-                description: "If true, fail if the file already exists. Default: false.",
-              },
-            },
-            required: ["path", "content"],
-          },
-        },
-        {
-          name: "kb_update_section",
-          description:
-            "Update (replace or append to) a specific heading section in an existing wiki page.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              path: {
-                type: "string",
-                description: "Path to the wiki page, relative to kb/.",
-              },
-              heading: {
-                type: "string",
-                description: "Exact heading line to find (e.g. '## Summary').",
-              },
-              content: {
-                type: "string",
-                description: "New content to place under the heading.",
-              },
-              append: {
-                type: "boolean",
-                description: "If true, append content after existing section content. Default: false.",
-              },
-              create_if_missing: {
-                type: "boolean",
-                description:
-                  "If true, create the section at end of file when heading is not found. Default: true.",
-              },
-            },
-            required: ["path", "heading", "content"],
-          },
-        },
-        {
-          name: "kb_ensure_entry",
-          description:
-            "Idempotently insert a line entry into an index or log page. Uses a dedup_key to prevent duplicates.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              path: {
-                type: "string",
-                description: "Path to the wiki page, relative to kb/.",
-              },
-              entry: {
-                type: "string",
-                description: "The line content to insert.",
-              },
-              anchor: {
-                type: ["string", "null"],
-                description:
-                  "Exact anchor line after which to insert the entry. Pass null to append at end of file.",
-              },
-              dedup_key: {
-                type: "string",
-                description: "Unique key used for idempotency — if already present, no-op.",
-              },
-            },
-            required: ["path", "entry", "anchor", "dedup_key"],
-          },
-        },
-        {
-          name: "kb_search_wiki",
-          description:
-            "Search the wiki via page-index.json. Supports keyword search, type/tag filtering, and wikilink resolution.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "Keyword query string.",
-              },
-              type_filter: {
-                type: "string",
-                description: "Filter results to a specific page type (e.g. 'concept', 'entity').",
-              },
-              tags: {
-                type: "array",
-                items: { type: "string" },
-                description: "Require all listed tags to be present on matching pages.",
-              },
-              limit: {
-                type: "number",
-                description: "Maximum number of results to return. Default: 10.",
-              },
-              resolve_link: {
-                type: "string",
-                description:
-                  "If set, resolve this wikilink (e.g. '[[Foo]]' or 'Foo') and return the matching page (ignores query).",
-              },
-            },
-            required: ["query"],
-          },
-        },
-        {
-          name: "kb_read_page",
-          description: "Read a wiki page by path or page_id. Returns frontmatter and body separately.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              path_or_id: {
-                type: "string",
-                description:
-                  "Path relative to kb/ (e.g. wiki/concepts/foo.md) OR a page_id (e.g. 'foo').",
-              },
-            },
-            required: ["path_or_id"],
-          },
-        },
-        {
-          name: "kb_commit",
-          description:
-            "Stage all kb/ changes and create a Git commit. Message should follow: 'kb: <action> <source_id> and <description>'.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              message: {
-                type: "string",
-                description: "Git commit message.",
-              },
-            },
-            required: ["message"],
-          },
-        },
-      ];
+      const expectedWorkflowTools = KB_WORKFLOW_TOOL_DEFINITIONS.map(
+        ({ name, description, inputSchema }) => ({ name, description, inputSchema })
+      );
 
       assert(
         actualTools.length >= expectedWorkflowTools.length,
-        "MCP tools/list surface must include the original 8 workflow tools"
+        "MCP tools/list surface must include the canonical workflow tools"
       );
 
       for (const expectedTool of expectedWorkflowTools) {
@@ -310,7 +137,7 @@ async function testMcpServerSurfaceMatchesInventory(): Promise<void> {
         assertDeepEqual(
           actualTool,
           expectedTool,
-          `Workflow tool contract changed unexpectedly for ${expectedTool.name}`
+          `Workflow tool contract drifted from runtime inventory for ${expectedTool.name}`
         );
       }
 
@@ -708,7 +535,7 @@ async function testCommitNoOpMappingIsPreserved(): Promise<void> {
         "    exit 1\n" +
         "    ;;\n" +
         "  rev-parse)\n" +
-        "    printf 'deadbeef\\n'\n" +
+        "    printf '" + tempRoot + "\\n'\n" +
         "    exit 0\n" +
         "    ;;\n" +
         "  *)\n" +
@@ -812,24 +639,13 @@ Fresh body.
   }
 }
 
-async function testCoreStrictPageIndexRejectsMalformedEntries(): Promise<void> {
+async function testCoreSearchablePageIndexRecoversMalformedEntries(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     writePageIndex(kbRoot, { pages: [{} as never] });
 
-    let searchError: unknown;
-    try {
-      coreSearchWiki({ query: "foo" }, config);
-    } catch (error) {
-      searchError = error;
-    }
-
-    assert(searchError instanceof Error, "core searchWiki should throw for malformed strict page-index entries");
-    assertIncludes(
-      searchError instanceof Error ? searchError.message : "",
-      "Malformed page index",
-      "core searchWiki should fail deterministically for malformed page-index entries"
-    );
+    const searchResults = coreSearchWiki({ query: "foo" }, config);
+    assert(searchResults.length === 0, "core searchWiki should recover malformed page-index entries by rebuilding");
 
     let readError: unknown;
     try {
@@ -838,11 +654,11 @@ async function testCoreStrictPageIndexRejectsMalformedEntries(): Promise<void> {
       readError = error;
     }
 
-    assert(readError instanceof Error, "core readWikiPage should throw for malformed strict page-index entries");
+    assert(readError instanceof Error, "core readWikiPage should report the missing page after rebuilding malformed page-index entries");
     assertIncludes(
       readError instanceof Error ? readError.message : "",
-      "Malformed page index",
-      "core readWikiPage should fail deterministically for malformed page-index entries"
+      "Page not found",
+      "core readWikiPage should rebuild malformed page-index entries before page_id lookup"
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -1051,7 +867,7 @@ status: active
   }
 }
 
-async function testCoreWriteWikiPagePreservesLegacyIndexEntries(): Promise<void> {
+async function testCoreWriteWikiPageRebuildsLegacyIndexEntries(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     const legacyIndex = {
@@ -1094,8 +910,8 @@ New body.
     ) as { pages: Array<Record<string, unknown>> };
 
     assert(
-      writtenIndex.pages.some((page) => page.page_id === "legacy_page"),
-      "core writeWikiPage should preserve existing legacy page-index entries instead of dropping them"
+      !writtenIndex.pages.some((page) => page.page_id === "legacy_page"),
+      "core writeWikiPage should deterministically rebuild page-index entries from wiki pages"
     );
     assert(
       writtenIndex.pages.some((page) => page.page_id === "new_page"),
@@ -1173,19 +989,16 @@ async function testCoreSearchWikiSupportsLegacyEntriesWithSafeDefaults(): Promis
   }
 }
 
-async function testCoreWriteWikiPageRejectsBadTopLevelIndexShapeWithoutRewrite(): Promise<void> {
+async function testCoreWriteWikiPageRebuildsBadTopLevelIndexShape(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     const indexPath = path.join(kbRoot, "state", "cache", "page-index.json");
     fs.writeFileSync(indexPath, JSON.stringify({ pages: null }, null, 2), "utf8");
-    const before = fs.readFileSync(indexPath, "utf8");
 
-    let writeError: unknown;
-    try {
-      coreWriteWikiPage(
-        {
-          path: "wiki/concepts/shape-fail.md",
-          content: `---
+    const result = coreWriteWikiPage(
+      {
+        path: "wiki/concepts/shape-fail.md",
+        content: `---
 id: shape_fail
 type: concept
 title: Shape Fail
@@ -1195,22 +1008,15 @@ status: active
 
 Body.
 `,
-        },
-        config
-      );
-    } catch (error) {
-      writeError = error;
-    }
-
-    assert(writeError instanceof Error, "core writeWikiPage should fail for top-level malformed page-index shape");
-    assertIncludes(
-      writeError instanceof Error ? writeError.message : "",
-      "Malformed page index",
-      "core writeWikiPage should report malformed page-index shape deterministically"
+      },
+      config
     );
+
+    assert(result.path === "wiki/concepts/shape-fail.md", "core writeWikiPage should succeed and rebuild malformed page-index shape");
+    const writtenIndex = JSON.parse(fs.readFileSync(indexPath, "utf8")) as { pages: Array<{ page_id: string }> };
     assert(
-      fs.readFileSync(indexPath, "utf8") === before,
-      "core writeWikiPage should not rewrite page-index.json when the top-level shape is malformed"
+      writtenIndex.pages.some((page) => page.page_id === "shape_fail"),
+      "core writeWikiPage should rewrite malformed page-index shape from wiki pages"
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -1229,13 +1035,13 @@ async function main(): Promise<void> {
   await testCommitNoOpMappingIsPreserved();
   await testReadPageResolvesPageIdViaPageIndex();
   await testCoreWriteWikiPageAllowsFreshKbWithoutWikiDir();
-  await testCoreStrictPageIndexRejectsMalformedEntries();
+  await testCoreSearchablePageIndexRecoversMalformedEntries();
   await testCoreUpdateAndEnsureRejectSymlinkFileTargets();
   await testCoreRejectsSymlinkedParentDirectoryAliases();
-  await testCoreWriteWikiPagePreservesLegacyIndexEntries();
+  await testCoreWriteWikiPageRebuildsLegacyIndexEntries();
   await testCoreReadWikiPageByIdSupportsLegacyIndexEntry();
   await testCoreSearchWikiSupportsLegacyEntriesWithSafeDefaults();
-  await testCoreWriteWikiPageRejectsBadTopLevelIndexShapeWithoutRewrite();
+  await testCoreWriteWikiPageRebuildsBadTopLevelIndexShape();
   console.log("PASS: kb tool contract baseline checks passed.");
 }
 

@@ -9,14 +9,16 @@ import {
 
 const KB_TOOL_SUMMARIES: Record<(typeof EXPECTED_KB_TOOL_NAMES)[number], string> = {
   kb_source_add: "登记原始资料到 manifest（仅登记，不改写 raw 内容）。",
+  kb_ingest_finalize: "完成 ingest lifecycle，标记 source 为 ingested/failed 并记录 touched pages。",
   kb_read_source: "按 source_id 读取 raw 材料。",
   kb_write_page: "整页写入/替换 wiki 页面，并校验 frontmatter。",
   kb_update_section: "按标题更新或追加 markdown section。",
-  kb_ensure_entry: "以 dedup_key 幂等维护索引/日志条目。",
-  kb_search_wiki: "在 wiki 索引中做检索（query/filter/link resolution）。",
+  kb_ensure_entry: "以 dedup_key 幂等维护索引等单行条目。",
+  kb_append_log_entry: "以 dedup_key 幂等追加结构化多行 log entry。",
+  kb_search_wiki: "在 wiki 索引中做 page/chunk 检索（query/filter/link resolution）。",
   kb_read_page: "按路径或 page id 读取 wiki 页面。",
   kb_commit: "对 `KB_ROOT` 下改动做 git 提交（高风险，需显式用户意图）。",
-  kb_rebuild_index: "从 `wiki` 重建 `state/cache/page-index.json`。",
+  kb_rebuild_index: "从 `wiki` 重建 `state/cache/page-index.json` 与 `search-index.json`。",
   kb_run_lint: "执行确定性 + 语义 lint（不直接改内容）。",
   kb_repair: "修复 KB 结构性工件，支持 dry_run。",
 };
@@ -129,7 +131,7 @@ function buildToolsDocContent(): string {
   const lines: string[] = [
     "# TOOLS.md",
     "",
-    "## KB MCP Tools (11)",
+    "## KB MCP Tools (13)",
     "所有 canonical `kb_*` tools 都读写当前安装绑定的 external `KB_ROOT`，工具路径相对该目录解析。",
   ];
 
@@ -149,8 +151,8 @@ function buildToolsDocContent(): string {
     "",
     "## 实战工作流",
     "1. 查询：优先 `kb_search_wiki` + `kb_read_page`；证据不足时再 `kb_read_source`。",
-    "2. ingest/写入：`kb_source_add` -> `kb_read_source` -> `kb_write_page`/`kb_update_section`。",
-    "3. 索引与日志：完成页面落盘后，用 `kb_ensure_entry` 维护 `wiki/index.md` 与 `wiki/log.md`。",
+    "2. ingest/写入：`kb_source_add` -> `kb_read_source` -> `kb_write_page`/`kb_update_section` -> `kb_append_log_entry` -> `kb_ingest_finalize`。",
+    "3. 索引与日志：完成页面落盘后，用 `kb_ensure_entry` 维护 `wiki/index.md`；用 `kb_append_log_entry` 维护 `wiki/log.md`。",
     "4. 质量与修复：先 `kb_run_lint`，必要时 `kb_rebuild_index` 或 `kb_repair`，并保留 dry_run 审核。",
     "5. installer 生命周期：`install/check/repair/uninstall` 的主判据是 installer-configured OpenClaw agent 会话可见 canonical `kb_*`。",
     "6. `kb_commit` 属于高风险动作：仅在用户显式要求提交、且当前 workflow 明确需要时执行。",

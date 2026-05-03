@@ -3,12 +3,19 @@ import * as os from "os";
 import * as path from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { PageIndex } from "../src/types";
+import type { PageIndex, SearchIndex } from "../src/types";
+
+interface RebuildSkippedPage {
+  path: string;
+  reason: string;
+  error: string;
+}
 
 interface RebuildIndexSummary {
   version: number;
   total_pages: number;
   written_to: string;
+  skipped_pages: RebuildSkippedPage[];
 }
 
 function assert(condition: boolean, message: string): void {
@@ -86,10 +93,18 @@ function readIndex(kbRoot: string): PageIndex {
   return JSON.parse(fs.readFileSync(indexPath, "utf8")) as PageIndex;
 }
 
-async function callRebuildIndex(client: Client): Promise<RebuildIndexSummary> {
+function readSearchIndex(kbRoot: string): SearchIndex {
+  const indexPath = path.join(kbRoot, "state", "cache", "search-index.json");
+  return JSON.parse(fs.readFileSync(indexPath, "utf8")) as SearchIndex;
+}
+
+async function callRebuildIndex(
+  client: Client,
+  args: { allow_partial?: boolean } = {}
+): Promise<RebuildIndexSummary> {
   const result = await client.callTool({
     name: "kb_rebuild_index",
-    arguments: {},
+    arguments: args,
   });
 
   assert(!result.isError, "kb_rebuild_index should succeed");
@@ -179,29 +194,35 @@ async function main(): Promise<void> {
         rebuildTool,
         {
           name: "kb_rebuild_index",
-          description: "Rebuild kb/state/cache/page-index.json from kb/wiki/**/*.md deterministically.",
+          description:
+            "Rebuild kb/state/cache/page-index.json and kb/state/cache/search-index.json from kb/wiki/**/*.md deterministically. Fails fast on invalid pages unless allow_partial is true.",
           inputSchema: {
             type: "object",
-            properties: {},
+            properties: {
+              allow_partial: {
+                type: "boolean",
+                description:
+                  "If true, write an index for valid pages and return skipped_pages for invalid pages. Default: false.",
+              },
+            },
           },
         },
-        "kb_rebuild_index should expose the expected zero-argument MCP schema"
+        "kb_rebuild_index should expose the expected MCP schema"
       );
 
-      const firstSummary = await callRebuildIndex(client);
-      assertDeepEqual(
-        firstSummary,
-        {
-          version: 2,
-          total_pages: 2,
-          written_to: "kb/state/cache/page-index.json",
-        },
-        "kb_rebuild_index summary should match the maintenance-tool contract"
-      );
+      const firstSummary = await callRebuildIndex(client, { allow_partial: true });
+      assert(firstSummary.version === 2, "kb_rebuild_index summary should use version 2");
+      assert(firstSummary.total_pages === 2, "kb_rebuild_index summary should count indexed pages");
+      assert(firstSummary.written_to === "kb/state/cache/page-index.json", "kb_rebuild_index should report the page index path");
+      assert(firstSummary.skipped_pages.length === 1, "allow_partial should report one skipped invalid page");
+      assert(firstSummary.skipped_pages[0].path === "wiki/concepts/skipped.md", "Skipped page path should be reported");
 
       const indexPath = path.join(kbRoot, "state", "cache", "page-index.json");
-      assert(fs.existsSync(indexPath), "kb_rebuild_index should create the cache file");
+      const searchIndexPath = path.join(kbRoot, "state", "cache", "search-index.json");
+      assert(fs.existsSync(indexPath), "kb_rebuild_index should create the page cache file");
+      assert(fs.existsSync(searchIndexPath), "kb_rebuild_index should create the search cache file");
       const firstIndexText = fs.readFileSync(indexPath, "utf8");
+      const firstSearchIndexText = fs.readFileSync(searchIndexPath, "utf8");
       const firstIndex = JSON.parse(firstIndexText) as Record<string, unknown>;
       assert(
         !Object.prototype.hasOwnProperty.call(firstIndex, "version"),
@@ -237,12 +258,17 @@ async function main(): Promise<void> {
         "kb_rebuild_index should rebuild a deterministic root-compatible page-index.json"
       );
 
-      const secondSummary = await callRebuildIndex(client);
+      const secondSummary = await callRebuildIndex(client, { allow_partial: true });
       const secondIndexText = fs.readFileSync(indexPath, "utf8");
+      const secondSearchIndexText = fs.readFileSync(searchIndexPath, "utf8");
       assertDeepEqual(secondSummary, firstSummary, "Repeated rebuilds should return the same summary");
       assert(
         secondIndexText === firstIndexText,
         "Repeated rebuilds against the same wiki tree should write identical page-index.json content"
+      );
+      assert(
+        secondSearchIndexText === firstSearchIndexText,
+        "Repeated rebuilds against the same wiki tree should write identical search-index.json content"
       );
 
       const persistedIndex = readIndex(kbRoot);
@@ -253,6 +279,16 @@ async function main(): Promise<void> {
       assert(
         persistedIndex.pages.every((page) => page.path !== "wiki/concepts/no-index.txt"),
         "Non-markdown files must be ignored during rebuild"
+      );
+      const persistedSearchIndex = readSearchIndex(kbRoot);
+      assert(persistedSearchIndex.version === 1, "Persisted search-index.json should use version 1");
+      assert(
+        persistedSearchIndex.chunks.every((chunk) => chunk.path.endsWith(".md")),
+        "Persisted search-index.json should only include markdown page chunks"
+      );
+      assert(
+        persistedSearchIndex.chunks.some((chunk) => chunk.page_id === "alpha" && chunk.heading_path.includes("Summary")),
+        "Persisted search-index.json should include full-body heading chunks"
       );
     });
 

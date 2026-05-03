@@ -71,7 +71,7 @@ Body 内容由你撰写——结构化摘要，包含：
 2. 已有 → `kb_update_section` **带 `append: true`** 追加更新
 3. 新概念 → `kb_write_page` 创建 `wiki/concepts/{id}.md`，检查 warnings
 
-### 第 6 步：更新索引和日志
+### 第 6 步：更新索引、日志和 manifest 状态
 
 1. 对每个新建的页面，使用 `kb_ensure_entry` 在 `wiki/index.md` 对应 section 下添加条目
    - `path`: `"wiki/index.md"`
@@ -79,11 +79,12 @@ Body 内容由你撰写——结构化摘要，包含：
    - `dedup_key`: `"index_{page_id}"`（稳定、每个页面只能有一个索引条目）
    - `entry`: `- [[page_id|Title]] — 一行摘要`
 
-2. 使用 `kb_ensure_entry` 在 `wiki/log.md` 添加本次 ingest 日志
-   - `path`: `"wiki/log.md"`
-   - `anchor`: `null`（追加到末尾）
+2. 使用 `kb_append_log_entry` 在 `wiki/log.md` 添加本次 ingest 日志
+   - `kind`: `"ingest"`
    - `dedup_key`: `"log_ingest_{source_id}"`（每次 ingest 一条，重跑不重复）
-   - `entry`: 结构化日志，格式 `## [日期] ingest | {标题}`，后跟变更列表
+   - `summary` / `changes` / `references`: 按本次写入结果填写
+
+3. 使用 `kb_ingest_finalize` 将 source manifest 标记为 `ingested`，记录 `summary_page_id` 和本次 touched wiki pages。若整合失败，标记为 `failed` 并写明 `error`。
 
 ### 第 7 步：提交
 

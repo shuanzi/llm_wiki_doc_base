@@ -189,7 +189,7 @@ function changedPaths(beforeSnapshot: FilesystemSnapshot, afterSnapshot: Filesys
 
 async function callRepair(
   client: Client,
-  args: { dry_run?: boolean } = {}
+  args: { dry_run?: boolean; force?: boolean } = {}
 ): Promise<KbRepairResult> {
   const result = await client.callTool({
     name: "kb_repair",
@@ -264,13 +264,17 @@ async function testDryRunDoesNotMutate(): Promise<void> {
         {
           name: "kb_repair",
           description:
-            "Repair structural KB artifacts only: restore missing or malformed meta pages and rebuild page-index.json. Does not modify content pages.",
+            "Repair structural KB artifacts only: restore missing or malformed meta pages and rebuild page-index.json/search-index.json. Does not modify content pages.",
           inputSchema: {
             type: "object",
             properties: {
               dry_run: {
                 type: "boolean",
                 description: "If true, report intended structural fixes without mutating kb/.",
+              },
+              force: {
+                type: "boolean",
+                description: "If true, allow rewriting malformed structural pages such as wiki/index.md or wiki/log.md. Default: false.",
               },
             },
           },
@@ -373,7 +377,7 @@ async function testApplyRepairsOnlyStructuralArtifacts(): Promise<void> {
     const diffPaths = changedPaths(beforeSnapshot, afterSnapshot);
     assertDeepEqual(
       diffPaths,
-      ["state/cache/page-index.json", "wiki/index.md", "wiki/log.md"],
+      ["state/cache/page-index.json", "state/cache/search-index.json", "wiki/index.md", "wiki/log.md"],
       "Apply mode should only modify the allowed structural artifact paths"
     );
 

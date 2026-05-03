@@ -15,6 +15,39 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "kb_ingest_finalize",
+    description:
+      "Finalize source ingest lifecycle by marking a registered source as ingested or failed after wiki integration is complete.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        source_id: {
+          type: "string",
+          description: "The source_id returned by kb_source_add.",
+        },
+        status: {
+          type: "string",
+          enum: ["ingested", "failed"],
+          description: "Final ingest lifecycle status.",
+        },
+        summary_page_id: {
+          type: "string",
+          description: "Source summary page id, required when status is ingested.",
+        },
+        touched_pages: {
+          type: "array",
+          items: { type: "string" },
+          description: "Wiki-relative page paths changed by the ingest, e.g. wiki/sources/src_sha256_x.md.",
+        },
+        error: {
+          type: "string",
+          description: "Failure reason when status is failed.",
+        },
+      },
+      required: ["source_id", "status"],
+    },
+  },
+  {
     name: "kb_read_source",
     description:
       "Read canonical Markdown source content by source_id. Defaults to 200 KB windows and supports byte pagination.",
@@ -40,7 +73,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_write_page",
     description:
-      "Create or update a wiki page. Validates YAML frontmatter and refreshes page-index.json.",
+      "Create or update a wiki page. Validates YAML frontmatter and refreshes page-index.json/search-index.json.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -95,7 +128,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_ensure_entry",
     description:
-      "Idempotently insert a line entry into an index or log page. Uses a dedup_key to prevent duplicates.",
+      "Idempotently insert a single-line entry into an index-like page. Uses a dedup_key to prevent duplicates; use kb_append_log_entry for multi-line log blocks.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -121,9 +154,67 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "kb_append_log_entry",
+    description:
+      "Append a structured multi-line ingest/query/lint/repair entry to wiki/log.md idempotently. Prefer this over kb_ensure_entry for log blocks.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        path: {
+          type: "string",
+          description: "Log page path relative to kb/. Default: wiki/log.md.",
+        },
+        kind: {
+          type: "string",
+          enum: ["ingest", "query", "lint", "repair"],
+          description: "Operation kind for the log heading.",
+        },
+        title: {
+          type: "string",
+          description: "Log entry title.",
+        },
+        summary: {
+          type: "string",
+          description: "One-line summary/result/conclusion.",
+        },
+        date: {
+          type: "string",
+          description: "YYYY-MM-DD date. Default: today.",
+        },
+        run_id: {
+          type: "string",
+          description: "Optional unique run id, e.g. YYYYMMDDTHHMMSS.",
+        },
+        changes: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional one-line changed-page summaries.",
+        },
+        references: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional page ids or wikilinks referenced by this entry.",
+        },
+        output_page_id: {
+          type: "string",
+          description: "Optional output page id.",
+        },
+        output_label: {
+          type: "string",
+          description: "Optional display label for output_page_id.",
+        },
+        dedup_key: {
+          type: "string",
+          description: "Unique idempotency key for this log block.",
+        },
+      },
+      required: ["kind", "title", "summary", "dedup_key"],
+    },
+  },
+  {
     name: "kb_search_wiki",
     description:
-      "Search the wiki via page-index.json with full-index auto-rebuild on missing cache. Supports keyword search, type/tag filtering, and wikilink resolution.",
+      "Search the wiki via page-index.json or full-body search-index.json with auto-rebuild on missing cache. Supports keyword search, type/tag filtering, wikilink resolution, and page/chunk modes.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -143,6 +234,11 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
         limit: {
           type: "number",
           description: "Maximum number of results to return. Default: 10.",
+        },
+        mode: {
+          type: "string",
+          enum: ["page", "chunk"],
+          description: "Search mode. page uses page-index.json; chunk uses full-body search-index.json.",
         },
         resolve_link: {
           type: "string",
@@ -190,7 +286,7 @@ export const KB_MAINTENANCE_TOOL_DEFINITIONS = [
   {
     name: "kb_rebuild_index",
     description:
-      "Rebuild kb/state/cache/page-index.json from kb/wiki/**/*.md deterministically. Fails fast on invalid pages unless allow_partial is true.",
+      "Rebuild kb/state/cache/page-index.json and kb/state/cache/search-index.json from kb/wiki/**/*.md deterministically. Fails fast on invalid pages unless allow_partial is true.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -218,7 +314,7 @@ export const KB_MAINTENANCE_TOOL_DEFINITIONS = [
   {
     name: "kb_repair",
     description:
-      "Repair structural KB artifacts only: restore missing or malformed meta pages and rebuild page-index.json. Does not modify content pages.",
+      "Repair structural KB artifacts only: restore missing or malformed meta pages and rebuild page-index.json/search-index.json. Does not modify content pages.",
     inputSchema: {
       type: "object" as const,
       properties: {

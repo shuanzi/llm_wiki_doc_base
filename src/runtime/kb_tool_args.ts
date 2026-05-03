@@ -100,10 +100,15 @@ function optionalStringArray(
 
 function validateSearchArgs(args: Record<string, unknown>, errors: string[]): void {
   optionalString(args, "query", errors);
+  optionalString(args, "mode", errors);
   optionalString(args, "type_filter", errors);
   optionalString(args, "resolve_link", errors);
   optionalStringArray(args, "tags", errors);
   optionalPositiveInteger(args, "limit", errors);
+
+  if (typeof args.mode === "string" && args.mode !== "page" && args.mode !== "chunk") {
+    errors.push('mode must be either "page" or "chunk" when provided');
+  }
 
   const query = typeof args.query === "string" ? args.query.trim() : "";
   const resolveLink = typeof args.resolve_link === "string" ? args.resolve_link.trim() : "";
@@ -126,6 +131,16 @@ export function validateKbToolArgs(
   switch (name) {
     case "kb_source_add":
       requireString(args, "file_path", errors);
+      break;
+    case "kb_ingest_finalize":
+      requireString(args, "source_id", errors);
+      requireString(args, "status", errors);
+      if (typeof args.status === "string" && args.status !== "ingested" && args.status !== "failed") {
+        errors.push('status must be either "ingested" or "failed"');
+      }
+      optionalString(args, "summary_page_id", errors);
+      optionalStringArray(args, "touched_pages", errors);
+      optionalString(args, "error", errors);
       break;
     case "kb_read_source":
       requireString(args, "source_id", errors);
@@ -152,6 +167,22 @@ export function validateKbToolArgs(
       } else {
         optionalStringOrNull(args, "anchor", errors);
       }
+      requireString(args, "dedup_key", errors);
+      break;
+    case "kb_append_log_entry":
+      optionalString(args, "path", errors);
+      requireString(args, "kind", errors);
+      if (typeof args.kind === "string" && !["ingest", "query", "lint", "repair"].includes(args.kind)) {
+        errors.push('kind must be ingest, query, lint, or repair');
+      }
+      requireString(args, "title", errors);
+      requireString(args, "summary", errors);
+      optionalString(args, "date", errors);
+      optionalString(args, "run_id", errors);
+      optionalStringArray(args, "changes", errors);
+      optionalStringArray(args, "references", errors);
+      optionalString(args, "output_page_id", errors);
+      optionalString(args, "output_label", errors);
       requireString(args, "dedup_key", errors);
       break;
     case "kb_search_wiki":

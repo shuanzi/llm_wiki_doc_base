@@ -343,3 +343,97 @@ status: active
   assert.equal(brokenLinks.length, 0);
   assert.equal(report.deterministic.errors, 0);
 });
+
+test("runKbLint accepts Chinese uncertainty sections on analysis pages", () => {
+  const kbRoot = makeWorkspace("kb-lint-analysis-cn-");
+
+  writeFile(kbRoot, "wiki/index.md", VALID_INDEX);
+  writeFile(kbRoot, "wiki/log.md", VALID_LOG);
+  writeFile(
+    kbRoot,
+    "wiki/analyses/alpha.md",
+    `---
+id: alpha_analysis
+type: analysis
+title: Alpha Analysis
+updated_at: 2026-04-28
+status: active
+related: [wiki_index]
+---
+
+# Alpha Analysis
+
+## 分析范围与依据
+
+当前页面用于验证中文 section 约定。
+
+## 仍待解决的问题
+
+- 后续需要补充更多来源。
+`
+  );
+
+  rebuildPageIndex({ kb_root: kbRoot });
+  const report = runKbLint({ kb_root: kbRoot }, { include_semantic: true });
+  const uncertaintyWarnings = report.semantic.issues.filter(
+    (issue) => issue.rule === "semantic-missing-uncertainties"
+  );
+
+  assert.equal(uncertaintyWarnings.length, 0);
+});
+
+test("rebuildPageIndex allow_partial keeps page-index/search-index on valid pages only", () => {
+  const kbRoot = makeWorkspace("kb-rebuild-allow-partial-search-index-");
+
+  writeFile(kbRoot, "wiki/index.md", VALID_INDEX);
+  writeFile(kbRoot, "wiki/log.md", VALID_LOG);
+  writeFile(
+    kbRoot,
+    "wiki/concepts/valid.md",
+    `---
+id: valid_concept
+type: concept
+title: Valid Concept
+updated_at: 2026-04-28
+status: active
+---
+
+# Valid Concept
+
+Valid body.
+`
+  );
+  writeFile(
+    kbRoot,
+    "wiki/concepts/broken.md",
+    `---
+id: broken_concept
+type: concept
+title: "Broken
+updated_at: 2026-04-28
+status: active
+---
+
+# Broken Concept
+`
+  );
+
+  const result = rebuildPageIndex({ kb_root: kbRoot }, { allow_partial: true });
+  const pageIndex = JSON.parse(
+    fs.readFileSync(path.join(kbRoot, "state", "cache", "page-index.json"), "utf8")
+  ) as { pages: Array<{ page_id: string }> };
+  const searchIndex = JSON.parse(
+    fs.readFileSync(path.join(kbRoot, "state", "cache", "search-index.json"), "utf8")
+  ) as { chunks: Array<{ page_id: string; path: string }> };
+
+  assert.equal(result.total_pages, 3);
+  assert.equal(result.skipped_pages.length, 1);
+  assert.equal(result.skipped_pages[0].path, "wiki/concepts/broken.md");
+  assert.equal(result.skipped_pages[0].reason, "invalid_frontmatter");
+  assert.match(result.skipped_pages[0].error, /Invalid YAML frontmatter/u);
+
+  const pageIds = pageIndex.pages.map((page) => page.page_id).sort((a, b) => a.localeCompare(b));
+  assert.deepEqual(pageIds, ["valid_concept", "wiki_index", "wiki_log"]);
+  assert.equal(searchIndex.chunks.every((chunk) => chunk.path !== "wiki/concepts/broken.md"), true);
+  assert.equal(searchIndex.chunks.some((chunk) => chunk.page_id === "valid_concept"), true);
+});

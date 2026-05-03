@@ -1092,7 +1092,7 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
 
   assertContains(tools, "installer-configured OpenClaw agent", "TOOLS.md");
   assertNotContains(tools, "`llmwiki` 会话可见", "TOOLS.md");
-  assertContains(tools, "## KB MCP Tools (11)", "TOOLS.md");
+  assertContains(tools, "## KB MCP Tools (13)", "TOOLS.md");
   assertContains(
     tools,
     "所有 canonical `kb_*` tools 都读写当前安装绑定的 external `KB_ROOT`，工具路径相对该目录解析。",

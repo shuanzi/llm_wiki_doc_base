@@ -11,6 +11,7 @@ user-invocable: true
 1. `kb_search_wiki(query)` 搜索相关页面
    - 使用多个关键词组合搜索，确保覆盖面
    - 利用 type_filter 和 tags 缩小范围
+   - 召回不足时使用 `mode: "chunk"` 做全文 chunk 搜索
 2. `kb_read_page` 精读 top 结果（通常 3-5 篇）
 3. 综合 wiki 内容回答，引用具体页面：`[[页面名]]`
 4. 缺少关键信息时 **明确说明**，不要推测
@@ -35,7 +36,7 @@ user-invocable: true
 
 - 无 analysis 落盘时，也要记录：
   - 先生成本次 query 的唯一 `run_id`（建议 `YYYYMMDDTHHMMSS`，如 `20260419T141530`）
-  - `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_query_{topic}_{run_id}", entry: "## [{date}] query | {topic}\n- run_id: {run_id}\n- 结论: {一句话结论}\n- 参考: [[page_a]], [[page_b]]" })`
+  - `kb_append_log_entry({ kind: "query", title: "{topic}", run_id, summary: "{一句话结论}", references: ["page_a", "page_b"], dedup_key: "log_query_{topic}_{run_id}" })`
 
 ### 结果回写（当回答有长期价值时）
 
@@ -47,7 +48,7 @@ user-invocable: true
      - 检查返回的 `warnings[]`，非空时向用户报告并修正
    - `kb_ensure_entry({ path: "wiki/index.md", anchor: "## Analyses", dedup_key: "index_{topic_id}", entry: "- [[{topic_id}|Title]] — summary" })`
    - 在同一次 query 语义下记录结果（包含 analysis 产出，沿用同一个 `run_id`）：
-     - `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_query_{topic}_{run_id}", entry: "## [{date}] query | {topic}\n- run_id: {run_id}\n- 结论: {一句话结论}\n- 产出: [[{topic_id}|Title]] (analysis)\n- 参考: [[page_a]], [[page_b]]" })`
+     - `kb_append_log_entry({ kind: "query", title: "{topic}", run_id, summary: "{一句话结论}", output_page_id: "{topic_id}", output_label: "Title", references: ["page_a", "page_b"], dedup_key: "log_query_{topic}_{run_id}" })`
    - `kb_commit` — message: `kb: analysis — {简短描述}`
 
 ### Analysis 页面格式

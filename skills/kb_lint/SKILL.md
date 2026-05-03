@@ -88,7 +88,7 @@ user-invocable: true
 
 - 不保存 report 时：
   - 先生成本次 lint 的唯一 `run_id`（建议 `YYYYMMDDTHHMMSS`，如 `20260419T142010`）
-  - `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_lint_{scope}_{run_id}", entry: "## [{date}] lint | {scope}\n- run_id: {run_id}\n- 结果: {一句话总结（可为 No findings / clean pass）}\n- 发现: {错误数}/{警告数}/{建议数}" })`
+  - `kb_append_log_entry({ kind: "lint", title: "{scope}", run_id, summary: "{一句话总结（可为 No findings / clean pass）}", changes: ["发现: {错误数}/{警告数}/{建议数}"], dedup_key: "log_lint_{scope}_{run_id}" })`
 
 ### 可选：保存报告
 
@@ -98,7 +98,7 @@ user-invocable: true
   - 检查返回的 `warnings[]`
 - `kb_ensure_entry({ path: "wiki/index.md", anchor: "## Reports", dedup_key: "index_{report_id}", entry: "- [[{report_id}|Lint Report {date}]] — summary" })`
 - 在同一次 lint pass 语义下记录结果（包含 report 产出，沿用同一个 `run_id`）：
-  - `kb_ensure_entry({ path: "wiki/log.md", anchor: null, dedup_key: "log_lint_{scope}_{run_id}", entry: "## [{date}] lint | {scope}\n- run_id: {run_id}\n- 结果: {一句话总结}\n- 发现: {错误数}/{警告数}/{建议数}\n- 产出: [[{report_id}|Lint Report {date}]] (report)" })`
+  - `kb_append_log_entry({ kind: "lint", title: "{scope}", run_id, summary: "{一句话总结}", changes: ["发现: {错误数}/{警告数}/{建议数}"], output_page_id: "{report_id}", output_label: "Lint Report {date}", dedup_key: "log_lint_{scope}_{run_id}" })`
 - `kb_commit` — message: `kb: lint report — {date}`
 
 ### 内容约定

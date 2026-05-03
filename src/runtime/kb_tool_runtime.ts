@@ -1,7 +1,9 @@
 import type { WorkspaceConfig } from "../types";
 
+import { kbAppendLogEntry } from "../tools/kb_append_log_entry";
 import { kbCommit } from "../tools/kb_commit";
 import { kbEnsureEntry } from "../tools/kb_ensure_entry";
+import { kbIngestFinalize } from "../tools/kb_ingest_finalize";
 import { kbReadPage } from "../tools/kb_read_page";
 import { kbReadSource } from "../tools/kb_read_source";
 import { kbRebuildIndex } from "../tools/kb_rebuild_index";
@@ -33,6 +35,8 @@ type KbToolHandler = (
 const KB_TOOL_HANDLERS: Record<KbCanonicalToolName, KbToolHandler> = {
   kb_source_add: (args, workspace) =>
     kbSourceAdd(args as unknown as Parameters<typeof kbSourceAdd>[0], workspace),
+  kb_ingest_finalize: (args, workspace) =>
+    kbIngestFinalize(args as unknown as Parameters<typeof kbIngestFinalize>[0], workspace),
   kb_read_source: (args, workspace) =>
     kbReadSource(args as unknown as Parameters<typeof kbReadSource>[0], workspace),
   kb_write_page: (args, workspace) =>
@@ -41,6 +45,8 @@ const KB_TOOL_HANDLERS: Record<KbCanonicalToolName, KbToolHandler> = {
     kbUpdateSection(args as unknown as Parameters<typeof kbUpdateSection>[0], workspace),
   kb_ensure_entry: (args, workspace) =>
     kbEnsureEntry(args as unknown as Parameters<typeof kbEnsureEntry>[0], workspace),
+  kb_append_log_entry: (args, workspace) =>
+    kbAppendLogEntry(args as unknown as Parameters<typeof kbAppendLogEntry>[0], workspace),
   kb_search_wiki: (args, workspace) =>
     kbSearchWiki(args as unknown as Parameters<typeof kbSearchWiki>[0], workspace),
   kb_read_page: (args, workspace) =>
