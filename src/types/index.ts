@@ -4,6 +4,8 @@
 
 // --- Source & Manifest ---
 
+export type SourceIngestStatus = "registered" | "ingested" | "failed";
+
 export type SourceKind = "markdown" | "plaintext" | "converted_markdown";
 
 export interface SourceConversionMetadata {
@@ -23,8 +25,15 @@ export interface Manifest {
   /** Canonical Markdown path consumed by kb_read_source / ingest. */
   canonical_path: string;
   file_name: string;
-  ingest_status: "registered" | "ingested" | "failed";
+  ingest_status: SourceIngestStatus;
   created_at: string;
+
+  /** Ingest lifecycle metadata written by kb_ingest_finalize. */
+  ingested_at?: string;
+  failed_at?: string;
+  ingest_summary_page_id?: string;
+  ingest_touched_pages?: string[];
+  ingest_error?: string;
 
   /** Original file artifact for non-Markdown sources. Old manifests may omit these fields. */
   original_path?: string;
@@ -103,6 +112,26 @@ export interface PageIndex {
   pages: PageIndexEntry[];
 }
 
+// --- Full-text Search Index ---
+
+export interface SearchIndexChunk {
+  chunk_id: string;
+  page_id: string;
+  path: string;
+  type: string;
+  title: string;
+  heading_path: string[];
+  text: string;
+  source_ids: string[];
+  tags: string[];
+  outlinks: string[];
+}
+
+export interface SearchIndex {
+  version: number;
+  chunks: SearchIndexChunk[];
+}
+
 // --- Search ---
 
 export interface SearchResult {
@@ -112,6 +141,8 @@ export interface SearchResult {
   type: string;
   score: number;
   excerpt: string;
+  heading_path?: string[];
+  match_text?: string;
 }
 
 export interface SearchQuery {
@@ -120,6 +151,7 @@ export interface SearchQuery {
   tags?: string[];
   limit?: number;
   resolve_link?: string;
+  mode?: "page" | "chunk";
 }
 
 // --- Tool Results ---

@@ -21,8 +21,17 @@ export async function kbCommit(
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    const stderr =
+      err && typeof err === "object" && "stderr" in err
+        ? String((err as { stderr?: unknown }).stderr ?? "")
+        : "";
+    const details = `${message}\n${stderr}`;
 
-    if (message.includes("nothing to commit") || message.includes("No staged changes")) {
+    if (details.includes("nothing to commit")) {
+      return { success: false, error: "No changes in kb/ to commit." };
+    }
+
+    if (details.includes("No staged changes")) {
       return { success: false, error: message };
     }
 

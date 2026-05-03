@@ -106,6 +106,7 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 - 由 `kb_query` 回写产生，通常是深度对比或综合分析
 - 应明确列出分析依据（引用的 wiki 页面和源文件）
 - 标注分析的局限性和假设
+- Analysis 页面应包含一个不确定性/开放问题 section；中文标题可使用 `## 不确定性`、`## 开放问题`、`## 仍待解决的问题`、`## 局限性与适用边界`，英文标题可使用 `## Uncertainties` 或 `## Open Questions`。
 
 ---
 
@@ -142,6 +143,8 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 - ingest
 - meaningful query（满足下列操作条件的 wiki synthesis）
 - 完整 lint pass（含 `No findings` 的 clean pass）
+
+多行日志块应优先通过 `kb_append_log_entry` 写入；`kb_ensure_entry` 仅用于 index 等单行条目。
 
 meaningful query 的可执行判定（需同时满足）：
 1. 执行过 `kb_search_wiki`

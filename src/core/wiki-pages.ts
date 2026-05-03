@@ -314,7 +314,7 @@ export function updateWikiSection(
   rebuildPageIndex(workspace);
 
   return {
-    path: resolvedPath.relativePath,
+    path: input.path,
     action,
   };
 }

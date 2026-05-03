@@ -139,6 +139,7 @@ export function bootstrapExternalKbRoot(
     ["wiki/log.md", buildBootstrapLogPage(now)],
     ["schema/wiki-conventions.md", readMainlineWikiConventions(repoRoot)],
     ["state/cache/page-index.json", buildBootstrapPageIndexJson()],
+    ["state/cache/search-index.json", buildBootstrapSearchIndexJson()],
   ]);
 
   const createdFiles: string[] = [];
@@ -193,6 +194,10 @@ function readMainlineWikiConventions(repoRoot: string): string {
 
 function buildBootstrapPageIndexJson(): string {
   return `${JSON.stringify({ pages: [] }, null, 2)}\n`;
+}
+
+function buildBootstrapSearchIndexJson(): string {
+  return `${JSON.stringify({ version: 1, chunks: [] }, null, 2)}\n`;
 }
 
 function buildBootstrapIndexPage(now: Date): string {

@@ -8,6 +8,7 @@ import {
   resolveKbPath,
   validateFrontmatter,
 } from "../utils";
+import { rebuildSearchIndex } from "./wiki-search-index";
 
 const PAGE_INDEX_PATH = "state/cache/page-index.json";
 const WRITTEN_TO_PATH = "kb/state/cache/page-index.json";
@@ -408,6 +409,20 @@ function daysBetween(dayIso: string, now: Date): number | null {
 
 function pushIssue(issues: KbLintIssue[], issue: KbLintIssue): void {
   issues.push(issue);
+}
+
+
+function hasAnalysisUncertaintySection(body: string): boolean {
+  return /^##\s+(uncertainties|open questions|不确定性|开放问题|仍待解决的问题|局限性|适用边界)/im.test(
+    body
+  );
+}
+
+function analysisUncertaintyDetail(): string {
+  return (
+    "Analysis page has no uncertainty / open-question section. " +
+    "Accepted headings include Uncertainties, Open Questions, 不确定性, 开放问题, 仍待解决的问题, 局限性, or 适用边界."
+  );
 }
 
 function listWikiMarkdownPaths(workspace: WorkspaceLike): string[] {
@@ -892,14 +907,11 @@ export function runKbLint(
         }
       }
 
-      if (
-        page.frontmatter.type === "analysis" &&
-        !/##\s+(uncertainties|open questions)/i.test(page.body)
-      ) {
+      if (page.frontmatter.type === "analysis" && !hasAnalysisUncertaintySection(page.body)) {
         pushIssue(semanticIssues, {
           severity: "warning",
           rule: "semantic-missing-uncertainties",
-          detail: "Analysis page has no uncertainties or open questions section.",
+          detail: analysisUncertaintyDetail(),
           page: page.path,
         });
       }
@@ -946,6 +958,7 @@ export function rebuildPageIndex(
 
   fs.mkdirSync(path.dirname(pageIndexPath), { recursive: true });
   fs.writeFileSync(pageIndexPath, JSON.stringify(index, null, 2), "utf8");
+  rebuildSearchIndex(workspace, { allow_partial: options.allow_partial === true });
 
   return {
     version: 2,
@@ -982,7 +995,7 @@ export function repairKb(
     applied: shouldRebuildPageIndex,
     detail: blockedByUnappliedMalformedMetaRewrite
       ? `Skip rebuilding ${WRITTEN_TO_PATH} because malformed structural pages still require force: true`
-      : `Rebuild ${WRITTEN_TO_PATH}`,
+      : `Rebuild ${WRITTEN_TO_PATH} and kb/state/cache/search-index.json`,
   });
 
   if (shouldRebuildPageIndex) {

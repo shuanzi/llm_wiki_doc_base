@@ -42,6 +42,7 @@ kb/
   state/
     manifests/         # source manifest
     cache/page-index.json
+    cache/search-index.json
 src/
   mcp_server.ts        # stdio MCP server
   openclaw_plugin.ts   # OpenClaw native runtime adapter
@@ -114,24 +115,26 @@ WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
 
 ## MCP 工具
 
-MCP server（`kb-mcp`）当前暴露 11 个工具。
+MCP server（`kb-mcp`）当前暴露 13 个工具。
 
 Workflow tools：
 
 1. `kb_source_add`：注册本地 source 文件，写入 raw source 与 manifest。
-2. `kb_read_source`：按 `source_id` 读取 canonical source，支持分页窗口。
-3. `kb_write_page`：创建或更新完整 wiki 页面，并校验 frontmatter。
-4. `kb_update_section`：替换或追加指定 heading section。
-5. `kb_ensure_entry`：向 index/log 等页面幂等插入单行条目。
-6. `kb_search_wiki`：基于 `page-index.json` 搜索 wiki，支持 query、type/tag filter 与 wikilink 解析。
-7. `kb_read_page`：按路径或 `page_id` 读取 wiki 页面。
-8. `kb_commit`：仅 stage 配置的 `kb_root` 范围并创建 git commit。
+2. `kb_ingest_finalize`：source 完成 wiki 集成后，将 manifest 标记为 `ingested` 或 `failed`，并记录摘要页、touched pages 或失败原因。
+3. `kb_read_source`：按 `source_id` 读取 canonical source，支持分页窗口。
+4. `kb_write_page`：创建或更新完整 wiki 页面，并校验 frontmatter。
+5. `kb_update_section`：替换或追加指定 heading section。
+6. `kb_ensure_entry`：向 index 等页面幂等插入单行条目。
+7. `kb_append_log_entry`：向 `wiki/log.md` 幂等追加结构化多行操作日志。
+8. `kb_search_wiki`：基于 `page-index.json` 或 `search-index.json` 搜索 wiki，支持 page/chunk mode、query、type/tag filter 与 wikilink 解析。
+9. `kb_read_page`：按路径或 `page_id` 读取 wiki 页面。
+10. `kb_commit`：仅 stage 配置的 `kb_root` 范围并创建 git commit。
 
 Maintenance tools：
 
-9. `kb_rebuild_index`：从 `kb/wiki/**/*.md` 确定性重建 `kb/state/cache/page-index.json`。
-10. `kb_run_lint`：执行 deterministic 与 semantic KB lint，默认包含 semantic advisory checks。
-11. `kb_repair`：仅修复结构性 KB artifact（`index.md`、`log.md`、`page-index.json`），支持 `dry_run`。
+11. `kb_rebuild_index`：从 `kb/wiki/**/*.md` 确定性重建 `kb/state/cache/page-index.json` 与 `kb/state/cache/search-index.json`。
+12. `kb_run_lint`：执行 deterministic 与 semantic KB lint，默认包含 semantic advisory checks。
+13. `kb_repair`：仅修复结构性 KB artifact（`index.md`、`log.md`、`page-index.json`、`search-index.json`），支持 `dry_run`。
 
 当前实现注意点：
 
@@ -160,7 +163,7 @@ npm run build
 openclaw plugins install /absolute/path/to/this/repo
 ```
 
-运行 `openclaw agent --local` 时，OpenClaw 会预加载已安装的 local plugins，使 canonical 11 个 `kb_*` 工具在 session 内可用。
+运行 `openclaw agent --local` 时，OpenClaw 会预加载已安装的 local plugins，使 canonical 13 个 `kb_*` 工具在 session 内可用。
 
 ## OpenClaw Installer（External KB）
 

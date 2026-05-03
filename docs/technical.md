@@ -9,16 +9,16 @@
 1. 存储层（`kb/`）
 - `kb/raw/`：原始材料的不可变副本与资产。
 - `kb/wiki/`：可编辑知识层（source/entity/concept/analysis/report/index/log）。
-- `kb/state/`：机器状态（`manifests`、`cache/page-index.json`）。
+- `kb/state/`：机器状态（`manifests`、`cache/page-index.json`、`cache/search-index.json`）。
 - `kb/schema/`：内容约定（`wiki-conventions.md`）。
 
 2. 工具层（`src/tools/kb_*.ts`）
-- 提供 11 个 MCP 工具：8 个 workflow 原子能力 + 3 个 maintenance 能力。
+- 提供 13 个 MCP 工具：10 个 workflow 原子能力 + 3 个 maintenance 能力。
 - 负责 I/O、安全边界、基础校验、局部索引维护。
  - 其中 workflow tool 负责日常 ingest/query primitive，maintenance tool 负责索引重建、lint、结构修复。
 
 3. 服务层（`src/mcp_server.ts`）
-- 以 stdio MCP server 暴露 11 个工具及 JSON Schema。
+- 以 stdio MCP server 暴露 13 个工具及 JSON Schema。
 - 负责 `kb_root` 解析、启动前目录守卫、工具路由分发。
 
 4. 流程层（`skills/` + `scripts/`）
@@ -41,12 +41,13 @@ kb/
     reports/
   state/
     manifests/             # 每个 source_id 一个 manifest json
-    cache/page-index.json  # 搜索与 path/id 解析的机器索引
+    cache/page-index.json  # page 级搜索与 path/id 解析的机器索引
+    cache/search-index.json # full-body chunk 搜索索引
   schema/wiki-conventions.md
 
 src/
   mcp_server.ts
-  tools/kb_*.ts            # 8 个 workflow tool + 3 个 maintenance tool
+  tools/kb_*.ts            # 10 个 workflow tool + 3 个 maintenance tool
   core/                    # 共享 KB 领域逻辑（source/wiki/log/search/maintenance/git）
   types/index.ts           # Manifest/PageFrontmatter/PageIndex 等结构
   utils/frontmatter.ts     # frontmatter 解析/校验/摘要抽取
@@ -69,7 +70,7 @@ scripts/
 以 `src/types/index.ts` 为准：
 
 - `Manifest`
-  - 字段：`source_id`、`source_locator`、`source_kind`、`content_hash`、`canonical_path`、`file_name`、`ingest_status`、`created_at`。
+  - 字段：`source_id`、`source_locator`、`source_kind`、`content_hash`、`canonical_path`、`file_name`、`ingest_status`、`created_at`，以及 ingest lifecycle metadata（`ingested_at`、`failed_at`、`ingest_summary_page_id`、`ingest_touched_pages`、`ingest_error`）。
   - 存储：`kb/state/manifests/{source_id}.json`。
 
 - `PageFrontmatter`
@@ -82,66 +83,79 @@ scripts/
   - `PageIndexEntry` 含 `page_id/path/type/title/aliases/tags/headings/body_excerpt`。
   - 用途：`kb_search_wiki` 检索、`kb_read_page` 的 id->path 解析。
 
+- `SearchIndex`
+  - 结构：`{ version, chunks: SearchIndexChunk[] }`。
+  - `SearchIndexChunk` 含 `chunk_id/page_id/path/type/title/heading_path/text/source_ids/tags/outlinks`。
+  - 用途：`kb_search_wiki({ mode: "chunk" })` 对完整 wiki body 做 chunk 级召回，弥补 `body_excerpt` 召回不足。
+
 ## 4. 工具职责（当前行为）
 
-### 4.1 Workflow tools（8 个）
+### 4.1 Workflow tools（10 个）
 
 1. `kb_source_add`
 - 作用：注册源文件，复制到 `kb/raw/inbox/`，写 manifest。
 - 关键行为：按内容 SHA256 生成 `src_sha256_xxx`；按内容哈希去重。
 - 现状边界：Markdown / plaintext 原生支持；HTML、CSV、JSON、XML、PDF、DOCX、PPTX、XLSX/XLS、EPUB 依赖 Python MarkItDown 转换；ZIP、OCR/图片、音频转录、Outlook/email、YouTube、SVG 与 plugins 暂不支持。
 
-2. `kb_read_source`
+2. `kb_ingest_finalize`
+- 作用：在 source 完成 wiki 集成后更新 manifest lifecycle。
+- 关键行为：将 `ingest_status` 从 `registered` 终结为 `ingested` 或 `failed`；`ingested` 要求 `summary_page_id`；可记录 touched wiki pages 与失败原因。
+
+3. `kb_read_source`
 - 作用：按 `source_id` 读 manifest，再读 canonical source。
 - 关键行为：最大返回 200KB，超限截断并附 warning 文本。
 
-3. `kb_write_page`
-- 作用：创建/更新 wiki 页面，并重建 `page-index.json`。
+4. `kb_write_page`
+- 作用：创建/更新 wiki 页面，并重建 `page-index.json` 与 `search-index.json`。
 - 关键行为：frontmatter 校验、通过扫描 `kb/wiki/**/*.md` 做 ID 全局唯一性校验、`create_only` 支持、返回 `warnings[]`。
 
-4. `kb_update_section`
+5. `kb_update_section`
 - 作用：替换或追加某个 heading section 内容。
-- 关键行为：支持 `append` 与 `create_if_missing`；修改前后均校验 frontmatter；自动更新 `updated_at`；重建 page index。
+- 关键行为：支持 `append` 与 `create_if_missing`；修改前后均校验 frontmatter；自动更新 `updated_at`；重建 page index 与 search index。
 
-5. `kb_ensure_entry`
-- 作用：向 index/log 幂等写入条目。
-- 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；校验单行 entry 与安全 dedup key；重复调用返回 `already_exists`；支持 anchor heading 定位插入；写入后重建 page index。
+6. `kb_ensure_entry`
+- 作用：向 index 等页面幂等写入单行条目。
+- 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；校验单行 entry 与安全 dedup key；重复调用返回 `already_exists`；支持 anchor heading 定位插入；写入后重建 page index 与 search index。
+- 边界：保持单行约束；多行日志块使用 `kb_append_log_entry`。
 
-6. `kb_search_wiki`
-- 作用：基于 `page-index.json` 搜索。
-- 关键行为：关键词加权（title/alias/tag/heading/excerpt）、`type_filter`、全量 tag 命中、`resolve_link` 解析 `[[...]]`/`[[id|title]]`。
+7. `kb_append_log_entry`
+- 作用：向 `wiki/log.md` 写入结构化多行日志块，解决 query/lint/ingest 日志不能通过 `kb_ensure_entry` 写入的问题。
+- 关键行为：按 `kind/title/date/run_id/summary/changes/references/output` 生成标准日志；用 `dedup_key` 幂等；写入后重建 page index 与 search index。
 
-7. `kb_read_page`
+8. `kb_search_wiki`
+- 作用：基于 `page-index.json` 或 `search-index.json` 搜索。
+- 关键行为：默认 page mode 使用 title/alias/tag/heading/excerpt；chunk mode 使用全文 heading chunk；支持 `type_filter`、全量 tag 命中、`resolve_link` 解析 `[[...]]`/`[[id|title]]`。
+
+9. `kb_read_page`
 - 作用：按路径或 `page_id` 读取页面，返回 frontmatter 与 body。
 - 关键行为：`page_id` 通过 `page-index.json` 解析；拒绝读取 symlink。
 
-8. `kb_commit`
+10. `kb_commit`
 - 作用：在 git 仓库中对配置的 `kb_root` 路径执行 stage 后提交。
-- 关键行为：要求 `kb_root` 位于某个 git working tree 内；仅检查该路径的 staged 结果是否为空，再执行 commit。
-- 现状 caveat：若提交前已有非 `kb_root` 范围文件 staged，仍可能被同次 commit 带入。
+- 关键行为：要求 `kb_root` 位于某个 git working tree 内；提交前后都会拒绝已有非 `kb_root` 范围 staged files，避免把无关暂存内容带入同次 commit。
 
 ### 4.2 Maintenance tools（3 个）
 
-9. `kb_rebuild_index`
-- 作用：扫描 `kb/wiki/**/*.md`，确定性重建 `kb/state/cache/page-index.json`。
+11. `kb_rebuild_index`
+- 作用：扫描 `kb/wiki/**/*.md`，确定性重建 `kb/state/cache/page-index.json` 与 `kb/state/cache/search-index.json`。
 - 关键行为：忽略非 markdown 文件；遇到重复 `page_id` 会在写盘前失败；磁盘格式保持 root-compatible 的 `{ pages: [...] }`。
 
-10. `kb_run_lint`
+12. `kb_run_lint`
 - 作用：输出结构化 KB lint 报告，分离 deterministic findings 与 semantic warnings。
 - 关键行为：默认包含 semantic checks；支持 `include_semantic: false`；只读，不写 `kb/` 下任何文件。
 
-11. `kb_repair`
+13. `kb_repair`
 - 作用：仅修复结构性问题，并返回 fix 列表与 repair 后 lint 摘要。
-- 关键行为：支持 `dry_run`；写入范围仅限 `kb/wiki/index.md`、`kb/wiki/log.md`、`kb/state/cache/page-index.json`；不会改业务页内容，也不依赖 `kb/state/audit/*`。
+- 关键行为：支持 `dry_run`；写入范围仅限 `kb/wiki/index.md`、`kb/wiki/log.md`、`kb/state/cache/page-index.json`、`kb/state/cache/search-index.json`；不会改业务页内容，也不依赖 `kb/state/audit/*`。
 
 ## 5. Skills 角色（流程职责）
 
 - `kb_ingest`
-  - 面向“新增材料入库”，规定“注册源 -> 阅读 -> 规划 -> 写 source/entity/concept -> 更新 index/log -> commit”流程。
+  - 面向“新增材料入库”，规定“注册源 -> 阅读 -> 规划 -> 写 source/entity/concept -> 更新 index/log -> finalize -> commit”流程。
   - 强制关注：`kb_update_section` 默认 replace，追加必须显式 `append: true`。
 
 - `kb_query`
-  - 面向“wiki-first 问答”，要求先 `kb_search_wiki` 再 `kb_read_page`（通常 3-5 页）做综合回答。
+  - 面向“wiki-first 问答”，要求先 `kb_search_wiki` 再 `kb_read_page`（通常 3-5 页）做综合回答；召回不足时使用 `mode: "chunk"` 做全文 chunk 搜索。
   - 对高价值结果可回写 `wiki/analyses`，并写 query log（含 `run_id`）。
 
 - `kb_lint`
@@ -169,9 +183,9 @@ scripts/
 
 ### 6.3 幂等与去重
 - source 注册幂等：同内容在 `kb_source_add` 直接报 duplicate（返回已有 source_id 信息）。
-- index/log 幂等：`kb_ensure_entry` 依赖 `dedup_key` 防重复插入。
+- index/log 幂等：`kb_ensure_entry` 负责 index 等单行条目；`kb_append_log_entry` 负责 `wiki/log.md` 的结构化多行日志；二者都依赖 `dedup_key` 防重复插入。
 - e2e 驱动要求两轮 ingest 后：
-  - run2 的 ensure_entry 应全部 `already_exists`。
+  - run2 的 ensure_entry / append_log_entry 应全部 `already_exists`。
   - run2 相对 run1 文件内容应无变化（content idempotency）。
 
 ### 6.4 提交安全约束（脚本层）
@@ -189,7 +203,7 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 
 ### 7.2 端到端验证
 - `scripts/e2e_v2_ingest.ts`
-  - 覆盖 8 工具完整链路。
+  - 覆盖 10 个 workflow 工具的完整链路。
   - 执行两轮 ingest，并做读回验证、索引/日志校验、幂等校验。
   - 可选 commit（受强约束）。
 
@@ -207,8 +221,8 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 ## 8. 当前技术债 / 未完成项
 
 1. MarkItDown 仍是运行时外部依赖，尚未提供安装检测/集成测试 gate；转换失败需按错误提示安装 Python 与 markitdown extras。
-2. `kb_search_wiki` 基于索引字段做轻量打分检索，不是全文/语义检索，召回与排序能力有限。
-3. 手工编辑或删除 `kb/wiki/**/*.md` 后仍需通过 `kb_rebuild_index` / `kb_run_lint` 兜底确认 cache 一致性。
+2. `kb_search_wiki` 已支持 full-body chunk mode，但仍是轻量关键词/BM25 前阶段检索，不是向量/语义检索，复杂同义召回与排序能力有限。
+3. 手工编辑或删除 `kb/wiki/**/*.md` 后仍需通过 `kb_rebuild_index` / `kb_run_lint` 兜底确认 `page-index.json` 与 `search-index.json` 一致性。
 4. 历史样例未全部回填到 `kb/raw/inbox/` 与 `kb/state/manifests/`；已显式标记的缺 raw source 页面会被 lint 作为 unverified warning 处理。
 5. `kb_run_lint` / `kb_repair` 已成为独立 MCP 工具，但 README 与流程文档仍需持续保持与 tool surface 同步，避免再次出现“8 tools”类滞后描述。
 6. e2e ingest 驱动为测试目的使用文件名关键词和占位模板生成页面，不代表生产级内容理解质量。
