@@ -6,6 +6,7 @@
  */
 
 export { kbSourceAdd } from "./tools/kb_source_add";
+export { kbUrlAdd } from "./tools/kb_url_add";
 export { kbIngestFinalize } from "./tools/kb_ingest_finalize";
 export { kbReadSource } from "./tools/kb_read_source";
 export { kbWritePage } from "./tools/kb_write_page";
@@ -21,5 +22,8 @@ export { kbRepair } from "./tools/kb_repair";
 
 export { rebuildPageIndex, runKbLint, repairKb } from "./core/wiki-maintenance";
 export { rebuildSearchIndex, searchWikiChunks } from "./core/wiki-search-index";
+export * from "./core/url-source";
+export * from "./core/url-fetch";
+export * from "./core/defuddle-parser";
 
 export type * from "./types";

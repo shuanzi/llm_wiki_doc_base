@@ -4,7 +4,14 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-import { finalizeSourceIngest, registerSourceFile, readRegisteredSource } from "../src/core/source-registry";
+import {
+  finalizeSourceIngest,
+  listRegisteredManifests,
+  loadSourceManifest,
+  normalizeManifest,
+  readRegisteredSource,
+  registerSourceFile,
+} from "../src/core/source-registry";
 
 function makeWorkspace(prefix = "kb-source-registry-"): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -465,6 +472,33 @@ status: active
       ),
     /touched_pages|symlink/u
   );
+});
+
+test("registerSourceFile writes source_origin file and manifest readers normalize legacy manifests", () => {
+  const kbRoot = makeWorkspace();
+  const sourcePath = path.join(kbRoot, "input.md");
+  fs.writeFileSync(sourcePath, "# Title\n", "utf8");
+
+  const result = registerSourceFile({ file_path: sourcePath }, { kb_root: kbRoot });
+  assert.equal(result.manifest.source_origin, "file");
+  assert.equal(
+    loadSourceManifest(result.source_id, { kb_root: kbRoot }).source_origin,
+    "file"
+  );
+
+  const legacy = { ...result.manifest };
+  delete (legacy as { source_origin?: string }).source_origin;
+  assert.equal(normalizeManifest(legacy).source_origin, "file");
+  fs.writeFileSync(
+    path.join(kbRoot, "state", "manifests", `${result.source_id}.json`),
+    JSON.stringify(legacy, null, 2),
+    "utf8"
+  );
+  assert.equal(
+    loadSourceManifest(result.source_id, { kb_root: kbRoot }).source_origin,
+    "file"
+  );
+  assert.equal(listRegisteredManifests({ kb_root: kbRoot })[0]?.source_origin, "file");
 });
 
 test("readRegisteredSource supports byte pagination", () => {

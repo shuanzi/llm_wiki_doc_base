@@ -7,10 +7,33 @@
 export type SourceIngestStatus = "registered" | "ingested" | "failed";
 
 export type SourceKind = "markdown" | "plaintext" | "converted_markdown";
+export type SourceOrigin = "file" | "url";
+
+export interface UrlSourceMetadata {
+  original_url: string;
+  normalized_url: string;
+  final_url: string;
+  captured_at: string;
+  defuddle_version: string;
+  fetch_status: number;
+  content_type: string;
+  transport_content_encoding: string | null;
+  decoded_content_length: number;
+  title: string | null;
+  description: string | null;
+  site: string | null;
+  author: string | null;
+  published: string | null;
+  language: string | null;
+  image: string | null;
+  favicon: string | null;
+  word_count: number | null;
+  original_content_length: number | null;
+}
 
 export interface SourceConversionMetadata {
   required: boolean;
-  converter: "none" | "plaintext" | "markitdown";
+  converter: "none" | "plaintext" | "markitdown" | "defuddle";
   converter_version?: string;
   disabled_features: string[];
   warnings?: string[];
@@ -19,6 +42,7 @@ export interface SourceConversionMetadata {
 export interface Manifest {
   source_id: string;
   source_locator: string;
+  source_origin: SourceOrigin;
   source_kind: SourceKind;
   /** Hash of the original source bytes; kept as source identity across converter changes. */
   content_hash: string;
@@ -45,6 +69,9 @@ export interface Manifest {
   converted_path?: string;
   converted_content_hash?: string;
   conversion?: SourceConversionMetadata;
+  url_metadata?: UrlSourceMetadata;
+  extraction_path?: string;
+  extraction_content_hash?: string;
 }
 
 // --- Page Frontmatter ---

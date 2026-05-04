@@ -10,13 +10,19 @@
     ]
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npx tsx --tsconfig tsconfig.scripts.json scripts/copy_runtime_assets.ts",
     "typecheck": "tsc --noEmit",
     "validate:plugin-surface": "npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_plugin_surface.ts",
+    "validate:mcp-dist-surface": "npx tsx --tsconfig tsconfig.scripts.json scripts/validate_mcp_dist_surface.ts",
+    "validate:defuddle-dist": "npm run build && npm run validate:defuddle-dist-smoke",
+    "validate:defuddle-dist-smoke": "npx tsx --tsconfig tsconfig.scripts.json scripts/validate_defuddle_dist_smoke.ts",
+    "validate:url-real-ingest": "RUN_URL_REAL_INGEST=1 npx tsx --tsconfig tsconfig.scripts.json scripts/validate_url_real_ingest.ts",
+    "validate:url-real-ingest:skip-ok": "npx tsx --tsconfig tsconfig.scripts.json scripts/validate_url_real_ingest.ts",
     "start:mcp": "node dist/mcp_server.js",
     "start:openclaw-installer": "node dist/openclaw_installer.js",
     "test": "tsx --test tests/*.test.ts",
     "test:unit": "tsx --test tests/*.test.ts",
+    "test:url-ingest": "tsx --test tests/url-fetch.test.ts tests/defuddle-parser.test.ts tests/url-source.test.ts",
     "test:typecheck": "tsc --noEmit"
   },
   "bin": {
@@ -36,6 +42,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
+    "defuddle": "0.18.1",
+    "linkedom": "0.18.12",
     "yaml": "^2.8.3"
   }
 }

@@ -1,4 +1,4 @@
-export const KB_WORKFLOW_TOOL_DEFINITIONS = [
+export const VALIDATION_TOOL_DEFINITIONS = [
   {
     name: "kb_source_add",
     description:
@@ -299,9 +299,6 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
       required: ["message"],
     },
   },
-] as const;
-
-export const KB_MAINTENANCE_TOOL_DEFINITIONS = [
   {
     name: "kb_rebuild_index",
     description:
@@ -350,13 +347,6 @@ export const KB_MAINTENANCE_TOOL_DEFINITIONS = [
   },
 ] as const;
 
-export const KB_TOOL_DEFINITIONS = [
-  ...KB_WORKFLOW_TOOL_DEFINITIONS,
-  ...KB_MAINTENANCE_TOOL_DEFINITIONS,
-] as const;
-
-export type KbCanonicalToolName = (typeof KB_TOOL_DEFINITIONS)[number]["name"];
-
-export const KB_CANONICAL_TOOL_NAMES = KB_TOOL_DEFINITIONS.map(
+export const VALIDATION_CANONICAL_TOOL_NAMES = VALIDATION_TOOL_DEFINITIONS.map(
   (tool) => tool.name
-) as ReadonlyArray<KbCanonicalToolName>;
+);

@@ -11,6 +11,7 @@ import { kbRepair } from "../tools/kb_repair";
 import { kbRunLint } from "../tools/kb_run_lint";
 import { kbSearchWiki } from "../tools/kb_search_wiki";
 import { kbSourceAdd } from "../tools/kb_source_add";
+import { kbUrlAdd } from "../tools/kb_url_add";
 import { kbUpdateSection } from "../tools/kb_update_section";
 import { kbWritePage } from "../tools/kb_write_page";
 import {
@@ -35,6 +36,8 @@ type KbToolHandler = (
 const KB_TOOL_HANDLERS: Record<KbCanonicalToolName, KbToolHandler> = {
   kb_source_add: (args, workspace) =>
     kbSourceAdd(args as unknown as Parameters<typeof kbSourceAdd>[0], workspace),
+  kb_url_add: (args, workspace) =>
+    kbUrlAdd(args as unknown as Parameters<typeof kbUrlAdd>[0], workspace),
   kb_ingest_finalize: (args, workspace) =>
     kbIngestFinalize(args as unknown as Parameters<typeof kbIngestFinalize>[0], workspace),
   kb_read_source: (args, workspace) =>

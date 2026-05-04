@@ -9,8 +9,9 @@ import {
 
 const KB_TOOL_SUMMARIES: Record<(typeof EXPECTED_KB_TOOL_NAMES)[number], string> = {
   kb_source_add: "登记原始资料到 manifest（仅登记，不改写 raw 内容）。",
+  kb_url_add: "抓取公开 HTTP/HTTPS HTML URL，转换为 canonical Markdown source content。",
   kb_ingest_finalize: "完成 ingest lifecycle，标记 source 为 ingested/failed 并记录 touched pages。",
-  kb_read_source: "按 source_id 读取 raw 材料。",
+  kb_read_source: "按 source_id 读取 canonical Markdown source content。",
   kb_write_page: "整页写入/替换 wiki 页面，并校验 frontmatter。",
   kb_update_section: "按标题更新或追加 markdown section。",
   kb_ensure_entry: "以 dedup_key 幂等维护索引等单行条目。",
@@ -131,7 +132,7 @@ function buildToolsDocContent(): string {
   const lines: string[] = [
     "# TOOLS.md",
     "",
-    "## KB MCP Tools (13)",
+    `## KB MCP Tools (${EXPECTED_KB_TOOL_NAMES.length})`,
     "所有 canonical `kb_*` tools 都读写当前安装绑定的 external `KB_ROOT`，工具路径相对该目录解析。",
   ];
 
@@ -149,9 +150,12 @@ function buildToolsDocContent(): string {
 
   lines.push(
     "",
+    "## URL Ingest Contract",
+    "`kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB。Defuddle 输出写入 `raw/originals`、`raw/inbox`、`state/extractions`。",
+    "",
     "## 实战工作流",
     "1. 查询：优先 `kb_search_wiki` + `kb_read_page`；证据不足时再 `kb_read_source`。",
-    "2. ingest/写入：`kb_source_add` -> `kb_read_source` -> `kb_write_page`/`kb_update_section` -> `kb_append_log_entry` -> `kb_ingest_finalize`。",
+    "2. ingest/写入：`kb_source_add` 或 `kb_url_add` -> `kb_read_source` -> `kb_write_page`/`kb_update_section` -> `kb_append_log_entry` -> `kb_ingest_finalize`。",
     "3. 索引与日志：完成页面落盘后，用 `kb_ensure_entry` 维护 `wiki/index.md`；用 `kb_append_log_entry` 维护 `wiki/log.md`。",
     "4. 质量与修复：先 `kb_run_lint`，必要时 `kb_rebuild_index` 或 `kb_repair`，并保留 dry_run 审核。",
     "5. installer 生命周期：`install/check/repair/uninstall` 的主判据是 installer-configured OpenClaw agent 会话可见 canonical `kb_*`。",

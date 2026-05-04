@@ -8,7 +8,7 @@ Installer health evaluation SHALL treat session-visible KB tool availability as 
 
 Installer `install` and `check` SHALL validate both:
 
-- visibility of the canonical 13-tool KB surface through the official OpenClaw runtime/internal harness for the configured OpenClaw agent workspace
+- visibility of the canonical 14-tool KB surface through the official OpenClaw runtime/internal harness for the configured OpenClaw agent workspace
 - successful invocation of `kb_read_page` against `wiki/index.md`
 
 #### Scenario: Saved MCP config exists but session tools are absent
@@ -18,7 +18,7 @@ Installer `install` and `check` SHALL validate both:
 - **AND** the reported drift explains that session-visible KB tools are missing for the configured OpenClaw agent
 
 #### Scenario: Tool names are visible but live invocation fails
-- **WHEN** the official OpenClaw runtime/internal harness for the configured OpenClaw agent workspace can see the canonical 13 KB tools
+- **WHEN** the official OpenClaw runtime/internal harness for the configured OpenClaw agent workspace can see the canonical 14 KB tools
 - **AND** `kb_read_page("wiki/index.md")` does not succeed against the configured external `KB_ROOT`
 - **THEN** installer `install` and `check` report the integration as unhealthy
 - **AND** the failure explains that session-visible KB tooling is present but not operational
@@ -33,7 +33,7 @@ Installer `install` and `check` SHALL validate both:
 - **AND** installer ownership is still recognizable
 - **AND** the configured `agentId` is bound to the explicit `--workspace`
 - **THEN** install or repair upgrades the install in place
-- **AND** subsequent health checks validate the canonical 13-tool KB surface through the official OpenClaw runtime/internal harness for the configured agent
+- **AND** subsequent health checks validate the canonical 14-tool KB surface through the official OpenClaw runtime/internal harness for the configured agent
 
 ### Requirement: Repair and uninstall act only on recognizable installer-owned session integration
 Repair and uninstall SHALL mutate session-visible runtime artifacts only when installer ownership is recognizable from explicit metadata or an exact legacy artifact match for the explicit workspace and configured agent.
@@ -113,7 +113,7 @@ Ownership is recognizable when either:
 
 #### Scenario: 生成的 TOOLS guidance 定义工具流程与风险边界
 - **WHEN** installer 为目标 workspace 写入生成的 `TOOLS.md`
-- **THEN** `TOOLS.md` 列出真实 configured OpenClaw agent sessions 可用的 canonical 13 个 `kb_*` tools
+- **THEN** `TOOLS.md` 列出真实 configured OpenClaw agent sessions 可用的 canonical 14 个 `kb_*` tools
 - **AND** 它说明这些 tools 读写当前安装绑定的 external `KB_ROOT`
 - **AND** 它按 query、ingest/write、index/log maintenance、lint、repair 和 installer lifecycle checks 等实际 workflow 分组或解释工具
 - **AND** 它将 `kb_commit` 等高风险写操作标记为需要明确 user intent 或明确 workflow requirement
@@ -141,9 +141,10 @@ Ownership is recognizable when either:
 - **AND** tests 允许 docs 说明默认 `--agent-id` 是 `llmwiki`，但不允许 docs 将 `llmwiki` 表述为唯一支持 agent
 
 ### Requirement: Configured OpenClaw agent sessions expose canonical KB tools
-After a healthy OpenClaw KB install, the installer-configured OpenClaw agent session SHALL expose the canonical 13-tool KB surface directly:
+After a healthy OpenClaw KB install, the installer-configured OpenClaw agent session SHALL expose the canonical 14-tool KB surface directly:
 
 - `kb_source_add`
+- `kb_url_add`
 - `kb_ingest_finalize`
 - `kb_read_source`
 - `kb_write_page`
@@ -157,12 +158,14 @@ After a healthy OpenClaw KB install, the installer-configured OpenClaw agent ses
 - `kb_run_lint`
 - `kb_repair`
 
+`kb_read_source` SHALL read canonical Markdown source content. `kb_url_add({ url, accept_language? })` SHALL support only public http/https `text/html` URLs, with no credentials, cookies, or proxy use; private networks, JS-only SPA pages, and XHTML are unsupported. URL ingest SHALL follow at most 5 redirects, enforce wire 6MiB and decoded 5MiB limits, and write Defuddle-derived artifacts under `raw/originals`, `raw/inbox`, and `state/extractions`.
+
 #### Scenario: Healthy install exposes expected KB tools through the official runtime harness
 - **WHEN** an operator installs the OpenClaw KB integration for `--agent-id research` successfully
-- **THEN** the official OpenClaw runtime/internal harness for the targeted `research` workspace can see the canonical 13-tool KB surface
+- **THEN** the official OpenClaw runtime/internal harness for the targeted `research` workspace can see the canonical 14-tool KB surface
 
 #### Scenario: Install fails when session-visible KB tools cannot be materialized
-- **WHEN** installer setup reaches the point where the configured OpenClaw agent should receive the canonical 13 KB tools
+- **WHEN** installer setup reaches the point where the configured OpenClaw agent should receive the canonical 14 KB tools
 - **AND** the installer cannot materialize or enable that session-visible surface
 - **THEN** `install` fails with a non-success result
 - **AND** the failure explains that the configured OpenClaw agent does not have the canonical KB tools in-session

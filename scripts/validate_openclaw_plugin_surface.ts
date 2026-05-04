@@ -2,6 +2,11 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 
+import {
+  VALIDATION_CANONICAL_TOOL_NAMES,
+  VALIDATION_TOOL_DEFINITIONS,
+} from "./kb_tool_contract_baseline";
+
 interface RegisteredTool {
   name: string;
   description: string;
@@ -142,27 +147,26 @@ function loadBuiltRuntime(): {
 
 function main(): void {
   const { pluginEntry, canonicalToolNames, toolDefinitions } = loadBuiltRuntime();
-
-  const expectedCanonicalToolNames = [
-    "kb_source_add",
-    "kb_ingest_finalize",
-    "kb_read_source",
-    "kb_write_page",
-    "kb_update_section",
-    "kb_ensure_entry",
-    "kb_append_log_entry",
-    "kb_search_wiki",
-    "kb_read_page",
-    "kb_commit",
-    "kb_rebuild_index",
-    "kb_run_lint",
-    "kb_repair",
-  ] as const;
+  const expectedCanonicalToolNames = VALIDATION_CANONICAL_TOOL_NAMES;
 
   assertDeepEqual(
     canonicalToolNames,
     expectedCanonicalToolNames,
-    "Canonical KB tool names drifted from the expected 13-tool contract."
+    `Built KB canonical tool names drifted from the validation ${expectedCanonicalToolNames.length}-tool baseline.`
+  );
+  assertDeepEqual(
+    toolDefinitions.map((tool) => tool.name),
+    expectedCanonicalToolNames,
+    `Built KB tool definitions must preserve the validation ${expectedCanonicalToolNames.length}-tool canonical order.`
+  );
+  assertDeepEqual(
+    toolDefinitions.map(({ name, description, inputSchema }) => ({
+      name,
+      description,
+      inputSchema,
+    })),
+    VALIDATION_TOOL_DEFINITIONS,
+    "Built KB tool definitions must match validation tool surface snapshot."
   );
 
   assert(typeof pluginEntry.register === "function", "Built plugin must export a register(api) hook.");
@@ -217,7 +221,18 @@ function main(): void {
     "Plugin runtime surface does not preserve canonical kb_* tool names."
   );
 
-  const expectedByName = new Map(toolDefinitions.map((tool) => [tool.name, tool]));
+  const registeredSurface = registeredTools.map(({ name, description, parameters }) => ({
+    name,
+    description,
+    inputSchema: parameters,
+  }));
+  assertDeepEqual(
+    registeredSurface,
+    VALIDATION_TOOL_DEFINITIONS,
+    "Plugin registered tool surface must match validation tool surface snapshot."
+  );
+
+  const expectedByName = new Map(VALIDATION_TOOL_DEFINITIONS.map((tool) => [tool.name, tool]));
   for (const tool of registeredTools) {
     const expected = expectedByName.get(tool.name);
     assert(expected !== undefined, `Plugin registered unknown tool name: ${tool.name}`);

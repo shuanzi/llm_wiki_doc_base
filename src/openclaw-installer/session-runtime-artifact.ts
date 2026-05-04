@@ -329,7 +329,7 @@ function normalizeCanonicalToolNames(
     ? [...canonicalToolNames]
     : [...KB_CANONICAL_TOOL_NAMES];
 
-  return [...new Set(toolNames)].sort((left, right) => left.localeCompare(right));
+  return [...new Set(toolNames)];
 }
 
 function parseSourcePluginManifest(
