@@ -242,8 +242,11 @@ async function fetchPublicHtmlRedirect(
   const response = await requestUrl(parsed, normalized.canonical_host, pinned, options);
 
   if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
-    const location = response.headers.location;
     response.destroy();
+    if (redirectCount >= MAX_REDIRECTS) {
+      throw new Error(`Too many redirects; maximum is ${MAX_REDIRECTS}.`);
+    }
+    const location = response.headers.location;
     if (!location) {
       throw new Error(`Redirect response ${response.statusCode} did not include Location.`);
     }

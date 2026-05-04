@@ -501,6 +501,48 @@ test("fetchPublicHtml supports relative redirects and revalidates each hop", asy
   });
 });
 
+test("fetchPublicHtml allows five redirects and rejects the sixth before parsing Location", async () => {
+  await withServer((request, response) => {
+    const current = Number(request.url?.slice(1) || "0");
+    if (current < 5) {
+      response.writeHead(302, { location: `/${current + 1}` });
+      response.end();
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end("<!doctype html><html><body>Final</body></html>");
+  }, async (url) => {
+    const result = await fetchPublicHtml(
+      `${url.replace("127.0.0.1", "example.com")}/0`,
+      {
+        lookup: localLookup as typeof dns.lookup,
+        allow_private_for_tests: true,
+      }
+    );
+    assert.equal(result.final_url, `${url.replace("127.0.0.1", "example.com")}/5`);
+  });
+
+  await withServer((request, response) => {
+    const current = Number(request.url?.slice(1) || "0");
+    if (current < 5) {
+      response.writeHead(302, { location: `/${current + 1}` });
+      response.end();
+      return;
+    }
+    response.writeHead(302, { location: "http://[::1" });
+    response.end();
+  }, async (url) => {
+    await assert.rejects(
+      () =>
+        fetchPublicHtml(`${url.replace("127.0.0.1", "example.com")}/0`, {
+          lookup: localLookup as typeof dns.lookup,
+          allow_private_for_tests: true,
+        }),
+      /Too many redirects; maximum is 5/u
+    );
+  });
+});
+
 test("fetchPublicHtml rejects unsupported content encodings", async () => {
   await withServer((_request, response) => {
     response.writeHead(200, {
