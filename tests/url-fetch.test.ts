@@ -291,6 +291,27 @@ test("fetchPublicHtml tries alternate verified DNS candidates after connection f
   });
 });
 
+test("fetchPublicHtml times out stalled DNS lookups", async () => {
+  function stalledLookup(_hostname: string, _options: unknown, _callback: unknown): void {}
+
+  await assert.rejects(
+    () =>
+      Promise.race([
+        fetchPublicHtml("https://example.com/article", {
+          lookup: stalledLookup as typeof dns.lookup,
+          timeout_ms: 20,
+        }),
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error("test timed out waiting for DNS timeout")),
+            200
+          )
+        ),
+      ]),
+    /URL fetch timed out after 20ms/u
+  );
+});
+
 test("fetchPublicHtml rejects when any DNS candidate is non-public", async () => {
   function mixedLookup(
     hostname: string,

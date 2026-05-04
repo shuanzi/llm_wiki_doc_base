@@ -325,13 +325,37 @@ async function resolveAndValidateHost(
 
   const lookup = options.lookup ?? dns.lookup;
   const addresses = await new Promise<dns.LookupAddress[]>((resolve, reject) => {
-    lookup(hostname, { all: true }, (error, result) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      reject(new Error(`URL fetch timed out after ${getTimeoutMs(options)}ms.`));
+    }, getTimeoutMs(options));
+
+    try {
+      lookup(hostname, { all: true }, (error, result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      });
+    } catch (error: unknown) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
       if (error) {
         reject(error);
         return;
       }
-      resolve(result);
-    });
+      reject(new Error(`DNS lookup failed for ${hostname}.`));
+    }
   });
 
   if (addresses.length === 0) {
