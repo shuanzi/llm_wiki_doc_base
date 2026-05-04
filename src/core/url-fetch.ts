@@ -234,12 +234,13 @@ async function fetchPublicHtmlRedirect(
   const normalized = normalizePublicHttpUrl(currentUrl);
   const parsed = new URL(normalized.normalized_url);
   const addresses = await resolveAndValidateHost(normalized.canonical_host, options);
-  const pinned = addresses[0];
-  if (!pinned) {
-    throw new Error(`DNS lookup returned no addresses for ${normalized.canonical_host}.`);
-  }
 
-  const response = await requestUrl(parsed, normalized.canonical_host, pinned, options);
+  const response = await requestUrlFromAnyAddress(
+    parsed,
+    normalized.canonical_host,
+    addresses,
+    options
+  );
 
   if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
     response.destroy();
@@ -354,6 +355,27 @@ async function resolveAndValidateHost(
       family: candidate.family,
     };
   });
+}
+
+async function requestUrlFromAnyAddress(
+  parsed: URL,
+  canonicalHost: string,
+  addresses: VerifiedAddress[],
+  options: FetchPublicHtmlOptions
+): Promise<http.IncomingMessage> {
+  let lastError: unknown;
+  for (const pinned of addresses) {
+    try {
+      return await requestUrl(parsed, canonicalHost, pinned, options);
+    } catch (error: unknown) {
+      lastError = error;
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+  throw new Error(`DNS lookup returned no addresses for ${canonicalHost}.`);
 }
 
 function requestUrl(

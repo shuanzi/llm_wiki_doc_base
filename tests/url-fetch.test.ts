@@ -248,6 +248,49 @@ test("fetchPublicHtml rejects non html media types", async () => {
   });
 });
 
+test("fetchPublicHtml tries alternate verified DNS candidates after connection failure", async () => {
+  await withServer((request, response) => {
+    assert.equal(request.headers.host?.startsWith("example.com:"), true);
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end("<!doctype html><html><body>Fallback address</body></html>");
+  }, async (url) => {
+    function fallbackLookup(
+      hostname: string,
+      options: unknown,
+      callback: unknown
+    ): void {
+      const cb = typeof options === "function" ? options : callback;
+      const wantsAll =
+        typeof options === "object" &&
+        options !== null &&
+        "all" in options &&
+        (options as dns.LookupAllOptions).all === true;
+
+      if (wantsAll) {
+        (
+          cb as (
+            error: NodeJS.ErrnoException | null,
+            addresses: dns.LookupAddress[]
+          ) => void
+        )(null, [
+          { address: "127.0.0.2", family: 4 },
+          { address: "127.0.0.1", family: 4 },
+        ]);
+        return;
+      }
+
+      (cb as dns.LookupOneCallback)(null, "127.0.0.1", 4);
+    }
+
+    const result = await fetchPublicHtml(url.replace("127.0.0.1", "example.com"), {
+      lookup: fallbackLookup as typeof dns.lookup,
+      allow_private_for_tests: true,
+      timeout_ms: 50,
+    });
+    assert.match(result.decoded_html, /Fallback address/u);
+  });
+});
+
 test("fetchPublicHtml rejects when any DNS candidate is non-public", async () => {
   function mixedLookup(
     hostname: string,
