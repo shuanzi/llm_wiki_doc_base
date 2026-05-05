@@ -8,9 +8,10 @@ user-invocable: true
 
 ### 第 1 步：注册与阅读
 
-1. `kb_source_add(file_path)` → 获取 source_id、file_name
-2. `kb_read_source(source_id)` → 获取完整原文
-3. 仔细阅读原文，理解核心内容、关键实体和概念
+1. `kb_source_add(file_path)` → 注册本地文件，获取 source_id、file_name
+2. `kb_url_add({ url, accept_language? })` → 注册公开 HTTP/HTTPS HTML URL，获取 source_id、final_url
+3. `kb_read_source(source_id)` → 获取 canonical Markdown source content
+4. 仔细阅读 source content，理解核心内容、关键实体和概念
 
 ### 第 2 步：分析与规划（向用户报告）
 
@@ -110,3 +111,4 @@ Body 内容由你撰写——结构化摘要，包含：
 - 引用源文件使用 `[[source_id|显示标题]]`
 - ID 使用小写英文 + 下划线
 - 摘要应提炼关键洞见，不是原文截取
+- `kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`

@@ -99,11 +99,13 @@ export async function probeSessionRuntimeSurface(
     const duplicateToolNames = [...toolSurface.duplicateToolNames].sort((a, b) =>
       a.localeCompare(b)
     );
+    const orderDrift = hasToolOrderDrift(toolNames, expectedToolNames);
 
     const surfaceOk =
       missingToolNames.length === 0 &&
       unexpectedToolNames.length === 0 &&
-      duplicateToolNames.length === 0;
+      duplicateToolNames.length === 0 &&
+      !orderDrift;
 
     let invocationFailureReason: string | undefined;
     if (surfaceOk) {
@@ -132,6 +134,9 @@ export async function probeSessionRuntimeSurface(
             missingToolNames,
             unexpectedToolNames,
             duplicateToolNames,
+            orderDrift,
+            expectedToolNames,
+            actualToolNames: toolNames,
             invocationFailureReason,
           }),
     };
@@ -289,7 +294,7 @@ async function resolveOfficialToolSurface(options: {
     toolsByName.set(binding.name, binding.execute);
   }
 
-  const toolNames = [...seenToolNames].sort((left, right) => left.localeCompare(right));
+  const toolNames = [...seenToolNames];
   return {
     toolNames,
     toolNameSet: new Set(toolNames),
@@ -793,6 +798,9 @@ function buildFailureReason(options: {
   missingToolNames: string[];
   unexpectedToolNames: string[];
   duplicateToolNames: string[];
+  orderDrift: boolean;
+  expectedToolNames: string[];
+  actualToolNames: string[];
   invocationFailureReason?: string;
 }): string {
   return [
@@ -805,10 +813,30 @@ function buildFailureReason(options: {
     options.duplicateToolNames.length > 0
       ? `duplicate tools: ${options.duplicateToolNames.join(", ")}`
       : undefined,
+    options.orderDrift
+      ? `tool order drift: expected=${options.expectedToolNames.join(", ")} actual=${options.actualToolNames.join(", ")}`
+      : undefined,
     options.invocationFailureReason,
   ]
     .filter((line): line is string => Boolean(line))
     .join(" | ");
+}
+
+function hasToolOrderDrift(
+  actualToolNames: readonly string[],
+  expectedToolNames: readonly string[]
+): boolean {
+  if (actualToolNames.length !== expectedToolNames.length) {
+    return false;
+  }
+  const actualSet = new Set(actualToolNames);
+  if (actualSet.size !== actualToolNames.length) {
+    return false;
+  }
+  if (!expectedToolNames.every((name) => actualSet.has(name))) {
+    return false;
+  }
+  return actualToolNames.some((name, index) => name !== expectedToolNames[index]);
 }
 
 async function probeLiveKbReadPageInvocation(options: {
@@ -968,7 +996,7 @@ function parseKbReadPagePayload(value: unknown): {
 }
 
 function normalizeExpectedToolNames(toolNames: readonly string[]): string[] {
-  return [...new Set(toolNames)].sort((left, right) => left.localeCompare(right));
+  return [...new Set(toolNames)];
 }
 
 function isRegularFile(filePath: string): boolean {

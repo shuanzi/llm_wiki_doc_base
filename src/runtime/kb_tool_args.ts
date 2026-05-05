@@ -132,6 +132,10 @@ export function validateKbToolArgs(
     case "kb_source_add":
       requireString(args, "file_path", errors);
       break;
+    case "kb_url_add":
+      requireString(args, "url", errors);
+      optionalString(args, "accept_language", errors);
+      break;
     case "kb_ingest_finalize":
       requireString(args, "source_id", errors);
       requireString(args, "status", errors);

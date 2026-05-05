@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 /**
- * MCP stdio server exposing all 11 knowledge-base tools.
+ * MCP stdio server exposing all 14 knowledge-base tools.
+ * The canonical ingest surface starts with kb_source_add, kb_url_add,
+ * kb_ingest_finalize, and kb_read_source in that order. kb_url_add({
+ * url, accept_language? }) registers public HTTP/HTTPS text/html URLs as
+ * canonical Markdown source content via Defuddle.
+ *
+ * URL ingest limits: no credentials, cookies, or proxy use; private-network
+ * hosts, JS-only SPA pages, XHTML, and non-text/html responses are unsupported;
+ * redirects are capped at 5 hops; wire bytes are capped at 6 MiB and decoded
+ * HTML bytes at 5 MiB. Defuddle-derived artifacts are written under
+ * raw/originals, raw/inbox, and state/extractions inside KB_ROOT.
  *
  * KB_ROOT resolution order:
  *   1. process.env.KB_ROOT        → used as-is (absolute override for kb_root)

@@ -18,6 +18,8 @@ export interface ProbeKbMcpServerOptions {
 export interface ProbeKbMcpServerResult extends InstallerProbeSnapshot {
   expectedToolNames: string[];
   missingToolNames: string[];
+  unexpectedToolNames: string[];
+  duplicateToolNames: string[];
   stderr: string;
   serverVersion?: {
     name: string;
@@ -74,19 +76,36 @@ export async function probeKbMcpServer(
     await withTimeout(client.connect(transport), timeoutMs, "MCP initialize timed out");
 
     const listedTools = await withTimeout(client.listTools(), timeoutMs, "MCP tools/list timed out");
-    toolNames = listedTools.tools.map((tool) => tool.name).sort();
+    toolNames = listedTools.tools.map((tool) => tool.name);
 
     const missingToolNames = expectedToolNames.filter((name) => !toolNames.includes(name));
-    if (missingToolNames.length > 0) {
+    const unexpectedToolNames = toolNames.filter((name) => !expectedToolNames.includes(name));
+    const duplicateToolNames = findDuplicateToolNames(toolNames);
+    const orderDrift = hasToolOrderDrift(toolNames, expectedToolNames);
+    const surfaceOk =
+      missingToolNames.length === 0 &&
+      unexpectedToolNames.length === 0 &&
+      duplicateToolNames.length === 0 &&
+      !orderDrift;
+    if (!surfaceOk) {
       return {
         checkedAt,
         ok: false,
         toolNames,
         expectedToolNames,
         missingToolNames,
+        unexpectedToolNames,
+        duplicateToolNames,
         stderr: joinStderr(stderrChunks),
         serverVersion: normalizeServerVersion(client.getServerVersion()),
-        failureReason: `Missing expected MCP tools: ${missingToolNames.join(", ")}`,
+        failureReason: buildToolSurfaceFailureReason({
+          missingToolNames,
+          unexpectedToolNames,
+          duplicateToolNames,
+          orderDrift,
+          expectedToolNames,
+          actualToolNames: toolNames,
+        }),
       };
     }
 
@@ -96,6 +115,8 @@ export async function probeKbMcpServer(
       toolNames,
       expectedToolNames,
       missingToolNames: [],
+      unexpectedToolNames: [],
+      duplicateToolNames: [],
       stderr: joinStderr(stderrChunks),
       serverVersion: normalizeServerVersion(client.getServerVersion()),
     };
@@ -106,6 +127,8 @@ export async function probeKbMcpServer(
       toolNames,
       expectedToolNames,
       missingToolNames: expectedToolNames.filter((name) => !toolNames.includes(name)),
+      unexpectedToolNames: toolNames.filter((name) => !expectedToolNames.includes(name)),
+      duplicateToolNames: findDuplicateToolNames(toolNames),
       stderr: joinStderr(stderrChunks),
       failureReason: buildProbeFailureReason(error, stderrChunks),
       serverVersion: normalizeServerVersion(client.getServerVersion()),
@@ -113,6 +136,62 @@ export async function probeKbMcpServer(
   } finally {
     await safeClose(client);
   }
+}
+
+function findDuplicateToolNames(toolNames: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const name of toolNames) {
+    if (seen.has(name)) {
+      duplicates.add(name);
+      continue;
+    }
+    seen.add(name);
+  }
+  return [...duplicates].sort((left, right) => left.localeCompare(right));
+}
+
+function hasToolOrderDrift(
+  actualToolNames: readonly string[],
+  expectedToolNames: readonly string[]
+): boolean {
+  if (actualToolNames.length !== expectedToolNames.length) {
+    return false;
+  }
+  const actualSet = new Set(actualToolNames);
+  if (actualSet.size !== actualToolNames.length) {
+    return false;
+  }
+  if (!expectedToolNames.every((name) => actualSet.has(name))) {
+    return false;
+  }
+  return actualToolNames.some((name, index) => name !== expectedToolNames[index]);
+}
+
+function buildToolSurfaceFailureReason(options: {
+  missingToolNames: readonly string[];
+  unexpectedToolNames: readonly string[];
+  duplicateToolNames: readonly string[];
+  orderDrift: boolean;
+  expectedToolNames: readonly string[];
+  actualToolNames: readonly string[];
+}): string {
+  return [
+    options.missingToolNames.length > 0
+      ? `Missing expected MCP tools: ${options.missingToolNames.join(", ")}`
+      : undefined,
+    options.unexpectedToolNames.length > 0
+      ? `Unexpected MCP tools: ${options.unexpectedToolNames.join(", ")}`
+      : undefined,
+    options.duplicateToolNames.length > 0
+      ? `Duplicate MCP tools: ${options.duplicateToolNames.join(", ")}`
+      : undefined,
+    options.orderDrift
+      ? `MCP tool order drift: expected=${options.expectedToolNames.join(", ")} actual=${options.actualToolNames.join(", ")}`
+      : undefined,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join(" | ");
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {

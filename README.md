@@ -76,7 +76,10 @@ npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_search_wiki_resolve
 npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_rebuild_index.ts
 npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_run_lint.ts
 npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_repair.ts
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_plugin_surface.ts
+npm run validate:defuddle-dist-smoke
+npm run validate:mcp-dist-surface
+npm run validate:plugin-surface
+npm run validate:url-real-ingest
 npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_installer_install.ts
 npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_installer_repair_uninstall.ts
 ```
@@ -115,30 +118,32 @@ WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
 
 ## MCP 工具
 
-MCP server（`kb-mcp`）当前暴露 13 个工具。
+MCP server（`kb-mcp`）当前暴露 14 个工具。
 
 Workflow tools：
 
 1. `kb_source_add`：注册本地 source 文件，写入 raw source 与 manifest。
-2. `kb_ingest_finalize`：source 完成 wiki 集成后，将 manifest 标记为 `ingested` 或 `failed`，并记录摘要页、touched pages 或失败原因。
-3. `kb_read_source`：按 `source_id` 读取 canonical source，支持分页窗口。
-4. `kb_write_page`：创建或更新完整 wiki 页面，并校验 frontmatter。
-5. `kb_update_section`：替换或追加指定 heading section。
-6. `kb_ensure_entry`：向 index 等页面幂等插入单行条目。
-7. `kb_append_log_entry`：向 `wiki/log.md` 幂等追加结构化多行操作日志。
-8. `kb_search_wiki`：基于 `page-index.json` 或 `search-index.json` 搜索 wiki，支持 page/chunk mode、query、type/tag filter 与 wikilink 解析。
-9. `kb_read_page`：按路径或 `page_id` 读取 wiki 页面。
-10. `kb_commit`：仅 stage 配置的 `kb_root` 范围并创建 git commit。
+2. `kb_url_add({ url, accept_language? })`：抓取 public HTTP/HTTPS `text/html` URL，经 Defuddle 转为 canonical Markdown source，并写入 URL manifest。
+3. `kb_ingest_finalize`：source 完成 wiki 集成后，将 manifest 标记为 `ingested` 或 `failed`，并记录摘要页、touched pages 或失败原因。
+4. `kb_read_source`：按 `source_id` read canonical Markdown source content，支持分页窗口。
+5. `kb_write_page`：创建或更新完整 wiki 页面，并校验 frontmatter。
+6. `kb_update_section`：替换或追加指定 heading section。
+7. `kb_ensure_entry`：向 index 等页面幂等插入单行条目。
+8. `kb_append_log_entry`：向 `wiki/log.md` 幂等追加结构化多行操作日志。
+9. `kb_search_wiki`：基于 `page-index.json` 或 `search-index.json` 搜索 wiki，支持 page/chunk mode、query、type/tag filter 与 wikilink 解析。
+10. `kb_read_page`：按路径或 `page_id` 读取 wiki 页面。
+11. `kb_commit`：仅 stage 配置的 `kb_root` 范围并创建 git commit。
 
 Maintenance tools：
 
-11. `kb_rebuild_index`：从 `kb/wiki/**/*.md` 确定性重建 `kb/state/cache/page-index.json` 与 `kb/state/cache/search-index.json`。
-12. `kb_run_lint`：执行 deterministic 与 semantic KB lint，默认包含 semantic advisory checks。
-13. `kb_repair`：仅修复结构性 KB artifact（`index.md`、`log.md`、`page-index.json`、`search-index.json`），支持 `dry_run`。
+12. `kb_rebuild_index`：从 `kb/wiki/**/*.md` 确定性重建 `kb/state/cache/page-index.json` 与 `kb/state/cache/search-index.json`。
+13. `kb_run_lint`：执行 deterministic 与 semantic KB lint，默认包含 semantic advisory checks。
+14. `kb_repair`：仅修复结构性 KB artifact（`index.md`、`log.md`、`page-index.json`、`search-index.json`），支持 `dry_run`。
 
 当前实现注意点：
 
 - `kb_source_add` 原生支持 Markdown / plaintext；`.html/.htm/.csv/.json/.xml/.pdf/.docx/.pptx/.xlsx/.xls/.epub` 可在安装 Python MarkItDown 后转换为 canonical Markdown。
+- `kb_url_add` 仅支持 public HTTP/HTTPS `text/html`，不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 redirects，wire 6MiB and decoded 5MiB，并写入 `raw/originals`, `raw/inbox`, and `state/extractions`。
 - ZIP、OCR / 图片、音频转录、Outlook / email、YouTube URL、SVG 与 MarkItDown plugins 当前故意不支持。
 - `kb_commit` 会拒绝在已有 `kb_root` 范围外 staged files 的情况下提交，避免把无关暂存内容带入同一次 commit。
 
@@ -163,7 +168,7 @@ npm run build
 openclaw plugins install /absolute/path/to/this/repo
 ```
 
-运行 `openclaw agent --local` 时，OpenClaw 会预加载已安装的 local plugins，使 canonical 13 个 `kb_*` 工具在 session 内可用。
+运行 `openclaw agent --local` 时，OpenClaw 会预加载已安装的 local plugins，使 canonical 14 个 `kb_*` 工具在 session 内可用。
 
 ## OpenClaw Installer（External KB）
 
@@ -224,25 +229,25 @@ node dist/openclaw_installer.js uninstall \
 installer-managed flow 的健康标准：
 
 - 配置的 OpenClaw agent session 能直接看到 canonical `kb_*` 工具面。
+- `check` 和 `repair` 以 session-visible `kb_*` availability 作为主要健康契约；仅有已保存 MCP config 不足以证明 OpenClaw 可用。
 - 默认 `--agent-id` 是 `llmwiki`，但不是唯一支持目标。
-- 已保存的 MCP config 只是 secondary compatibility / debugging signal，不足以证明 OpenClaw 可用。
-- `check` 和 `repair` 以配置的 OpenClaw agent session 可见 canonical `kb_*` 工具面作为主要健康契约；仅有已保存 MCP config 不足以证明 OpenClaw 可用。
 - standalone MCP server 只是次要兼容 / 调试入口，不是 OpenClaw 成功标准。
-<!-- `check` and `repair` treat configured OpenClaw agent session-visible `kb_*` availability as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability. -->
+<!-- configured OpenClaw agent session-visible `kb_*` availability as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability. -->
 <!-- The standalone MCP server remains a secondary compatibility/debugging surface, not the OpenClaw success criterion. -->
 
 ### Installer 操作约束
 
-- `install/check/repair/uninstall` 都只作用于显式 `--workspace`。
+- `install/check/repair/uninstall` 都只作用于显式 `--workspace`，并使用显式或默认 `--agent-id` 选择配置的 OpenClaw agent；缺失或歧义绑定会 fail-closed。
 - `install` 要求显式 `--kb-root`；`repair` 可从 manifest / MCP config 推断，也可显式覆盖。
 - external `KB_ROOT` 是已安装 KB 目录本身：`<KB_ROOT>/raw`、`<KB_ROOT>/wiki`、`<KB_ROOT>/schema`、`<KB_ROOT>/state`，不是 `<KB_ROOT>/kb/...`。
 - 工具相对路径（例如 `wiki/index.md` 和 `wiki/log.md`）都在该 `KB_ROOT` 下解析。
-<!-- `KB_ROOT` is the installed `kb` directory itself (`<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state`), not `<KB_ROOT>/kb/...` and not workspace-local `kb/`. -->
-<!-- Tool-relative paths such as `wiki/index.md` and `wiki/log.md` are resolved under that `KB_ROOT`. -->
+<!-- `KB_ROOT` is the installed `kb` directory itself (`<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state`) -->
+<!-- Tool-relative paths such as `wiki/index.md` and `wiki/log.md` are resolved under that `KB_ROOT` -->
 - installer 会在 `<workspace>/skills/{kb_ingest|kb_query|kb_lint}` 写入 OpenClaw-adapted skills（`openclaw-adapted-v1`）。
 - installer 会在 `<workspace>/.openclaw/extensions/llmwiki-kb-tools` 写入 workspace-local native plugin shim，并把它固定到 external `KB_ROOT`。
-- installer 会配置 OpenClaw plugin load / allow / enabled 状态，并在绑定 agent 的 tool policy 中允许 `llmwiki-kb-tools` plugin group。
+- installer 会配置 OpenClaw plugin load / allow / enabled 状态，并在绑定 agent 的 tool policy 中允许 `llmwiki-kb-tools` plugin group，使选中的 agent session 获得 canonical 14 个 `kb_*` 工具。
 - `kb_commit` 仍在 MCP server surface 中可用，但不是默认 external-KB installer contract；adapted skills 不会自动执行 `kb_commit`。
+- installer ownership 与 repo 路径绑定，期望 MCP config 指向当前仓库的 `<repo>/dist/mcp_server.js` 与配置的 `KB_ROOT`。
 - 冲突处理默认 fail-closed；只有在明确理解 ownership / drift 后才使用 `--force`。
 
 更细的执行手册见 [docs/openclaw-installer-agent-guide.md](./docs/openclaw-installer-agent-guide.md)。

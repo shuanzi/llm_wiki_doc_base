@@ -3,6 +3,10 @@ import * as os from "os";
 import * as path from "path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import {
+  VALIDATION_CANONICAL_TOOL_NAMES,
+  VALIDATION_TOOL_DEFINITIONS,
+} from "./kb_tool_contract_baseline";
 import { kbCommit } from "../src/tools/kb_commit";
 import { kbEnsureEntry } from "../src/tools/kb_ensure_entry";
 import { kbReadPage } from "../src/tools/kb_read_page";
@@ -11,10 +15,13 @@ import { kbSearchWiki } from "../src/tools/kb_search_wiki";
 import { kbSourceAdd } from "../src/tools/kb_source_add";
 import { kbUpdateSection } from "../src/tools/kb_update_section";
 import { kbWritePage } from "../src/tools/kb_write_page";
-import { KB_WORKFLOW_TOOL_DEFINITIONS } from "../src/runtime/kb_tool_contract";
 import { writeWikiPage as coreWriteWikiPage, updateWikiSection } from "../src/core/wiki-pages";
 import { ensureWikiEntry as coreEnsureWikiEntry } from "../src/core/wiki-log";
 import { searchWiki as coreSearchWiki, readWikiPage as coreReadWikiPage } from "../src/core/wiki-search";
+import {
+  KB_CANONICAL_TOOL_NAMES,
+  KB_TOOL_DEFINITIONS,
+} from "../src/runtime/kb_tool_contract";
 import type { PageIndex, WorkspaceConfig } from "../src/types";
 
 function assert(condition: boolean, message: string): void {
@@ -118,28 +125,60 @@ async function testMcpServerSurfaceMatchesInventory(): Promise<void> {
         description,
         inputSchema,
       }));
-      const actualToolMap = new Map(actualTools.map((tool) => [tool.name, tool]));
-
-      const expectedWorkflowTools = KB_WORKFLOW_TOOL_DEFINITIONS.map(
-        ({ name, description, inputSchema }) => ({ name, description, inputSchema })
+      assertDeepEqual(
+        KB_CANONICAL_TOOL_NAMES,
+        VALIDATION_CANONICAL_TOOL_NAMES,
+        "Runtime canonical KB tool names must match validation baseline order"
+      );
+      assertDeepEqual(
+        KB_TOOL_DEFINITIONS.map((tool) => tool.name),
+        VALIDATION_CANONICAL_TOOL_NAMES,
+        "Runtime KB tool definitions must match validation baseline order"
+      );
+      assertDeepEqual(
+        KB_TOOL_DEFINITIONS.map(({ name, description, inputSchema }) => ({
+          name,
+          description,
+          inputSchema,
+        })),
+        VALIDATION_TOOL_DEFINITIONS,
+        "Runtime KB tool definitions must match validation tool surface snapshot"
+      );
+      assertDeepEqual(
+        actualTools.map((tool) => tool.name),
+        VALIDATION_CANONICAL_TOOL_NAMES,
+        "MCP tools/list surface must preserve validation baseline KB tool order"
+      );
+      assertDeepEqual(
+        actualTools,
+        VALIDATION_TOOL_DEFINITIONS,
+        "MCP tools/list surface must match validation tool surface snapshot"
       );
 
-      assert(
-        actualTools.length >= expectedWorkflowTools.length,
-        "MCP tools/list surface must include the canonical workflow tools"
+      const urlTool = assertDefined(
+        actualTools.find((tool) => tool.name === "kb_url_add"),
+        "MCP tools/list surface must include kb_url_add"
+      );
+      assertIncludes(
+        urlTool.description,
+        "canonical Markdown source content",
+        "kb_url_add description should document canonical Markdown output"
+      );
+      assertIncludes(
+        urlTool.description,
+        "public HTTP/HTTPS text/html URL",
+        "kb_url_add description should document public text/html URL scope"
       );
 
-      for (const expectedTool of expectedWorkflowTools) {
-        const actualTool = assertDefined(
-          actualToolMap.get(expectedTool.name),
-          `Missing expected workflow tool from MCP surface: ${expectedTool.name}`
-        );
-        assertDeepEqual(
-          actualTool,
-          expectedTool,
-          `Workflow tool contract drifted from runtime inventory for ${expectedTool.name}`
-        );
-      }
+      const readSourceTool = assertDefined(
+        actualTools.find((tool) => tool.name === "kb_read_source"),
+        "MCP tools/list surface must include kb_read_source"
+      );
+      assertIncludes(
+        readSourceTool.description,
+        "canonical Markdown source content",
+        "kb_read_source description should use canonical Markdown source content wording"
+      );
 
       const unknownToolResult = await client.callTool({
         name: "kb_not_a_real_tool",
@@ -385,7 +424,7 @@ status: active
   }
 }
 
-async function testUpdateSectionPreservesLegacySuccessPayloadPath(): Promise<void> {
+async function testUpdateSectionReportsNormalizedSuccessPayloadPath(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     const canonicalPath = path.join(kbRoot, "wiki", "concepts", "compat-path.md");
@@ -419,14 +458,14 @@ Old body.
 
     assert(result.success, `kb_update_section failed: ${result.error ?? "unknown error"}`);
     assert(
-      result.data?.path === inputPath,
-      "kb_update_section should preserve the legacy success payload path: input.path"
+      result.data?.path === "wiki/concepts/compat-path.md",
+      "kb_update_section should report the normalized success payload path"
     );
     assert(result.data?.action === "replaced", "kb_update_section should still report the section action");
     assertIncludes(
       readText(canonicalPath),
       "Updated body.",
-      "kb_update_section should still update the target file while preserving the legacy payload path"
+      "kb_update_section should still update the target file while reporting the normalized payload path"
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -511,7 +550,7 @@ async function testSearchWikiResolveLinkIsStable(): Promise<void> {
   }
 }
 
-async function testCommitNoOpMappingIsPreserved(): Promise<void> {
+async function testCommitNoOpErrorIsReported(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     const fakeBinDir = path.join(tempRoot, "fake-bin");
@@ -639,13 +678,16 @@ Fresh body.
   }
 }
 
-async function testCoreSearchablePageIndexRecoversMalformedEntries(): Promise<void> {
+async function testCoreSearchRecoversFromMalformedPageIndexEntries(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     writePageIndex(kbRoot, { pages: [{} as never] });
 
     const searchResults = coreSearchWiki({ query: "foo" }, config);
-    assert(searchResults.length === 0, "core searchWiki should recover malformed page-index entries by rebuilding");
+    assert(
+      Array.isArray(searchResults) && searchResults.length === 0,
+      "core searchWiki should rebuild malformed page-index entries and return no matches for an empty wiki"
+    );
 
     let readError: unknown;
     try {
@@ -654,11 +696,11 @@ async function testCoreSearchablePageIndexRecoversMalformedEntries(): Promise<vo
       readError = error;
     }
 
-    assert(readError instanceof Error, "core readWikiPage should report the missing page after rebuilding malformed page-index entries");
+    assert(readError instanceof Error, "core readWikiPage should fail after rebuilding a malformed page index when the page is absent");
     assertIncludes(
       readError instanceof Error ? readError.message : "",
-      "Page not found",
-      "core readWikiPage should rebuild malformed page-index entries before page_id lookup"
+      "Page not found with page_id: broken_page",
+      "core readWikiPage should report the absent page after malformed page-index recovery"
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -867,7 +909,7 @@ status: active
   }
 }
 
-async function testCoreWriteWikiPageRebuildsLegacyIndexEntries(): Promise<void> {
+async function testCoreWriteWikiPageRebuildsPageIndexFromWikiFiles(): Promise<void> {
   const { tempRoot, kbRoot, config } = createTempKbRoot();
   try {
     const legacyIndex = {
@@ -911,11 +953,11 @@ New body.
 
     assert(
       !writtenIndex.pages.some((page) => page.page_id === "legacy_page"),
-      "core writeWikiPage should deterministically rebuild page-index entries from wiki pages"
+      "core writeWikiPage should drop stale legacy page-index entries that do not exist in wiki"
     );
     assert(
       writtenIndex.pages.some((page) => page.page_id === "new_page"),
-      "core writeWikiPage should append the new page entry"
+      "core writeWikiPage should include the new page entry after rebuilding the page index"
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -1012,11 +1054,17 @@ Body.
       config
     );
 
-    assert(result.path === "wiki/concepts/shape-fail.md", "core writeWikiPage should succeed and rebuild malformed page-index shape");
-    const writtenIndex = JSON.parse(fs.readFileSync(indexPath, "utf8")) as { pages: Array<{ page_id: string }> };
     assert(
-      writtenIndex.pages.some((page) => page.page_id === "shape_fail"),
-      "core writeWikiPage should rewrite malformed page-index shape from wiki pages"
+      result.path === "wiki/concepts/shape-fail.md",
+      "core writeWikiPage should succeed after rebuilding a malformed top-level page-index shape"
+    );
+    const writtenIndex = JSON.parse(fs.readFileSync(indexPath, "utf8")) as {
+      pages?: Array<{ page_id?: string }>;
+    };
+    assert(
+      Array.isArray(writtenIndex.pages) &&
+        writtenIndex.pages.some((page) => page.page_id === "shape_fail"),
+      "core writeWikiPage should rewrite malformed page-index shape with rebuilt page entries"
     );
   } finally {
     fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -1030,15 +1078,15 @@ async function main(): Promise<void> {
   await testSourceAddHappyPathAndDuplicateContent();
   await testReadSourceHappyPathAndManifestErrors();
   await testEnsureEntryIsIdempotent();
-  await testUpdateSectionPreservesLegacySuccessPayloadPath();
+  await testUpdateSectionReportsNormalizedSuccessPayloadPath();
   await testSearchWikiResolveLinkIsStable();
-  await testCommitNoOpMappingIsPreserved();
+  await testCommitNoOpErrorIsReported();
   await testReadPageResolvesPageIdViaPageIndex();
   await testCoreWriteWikiPageAllowsFreshKbWithoutWikiDir();
-  await testCoreSearchablePageIndexRecoversMalformedEntries();
+  await testCoreSearchRecoversFromMalformedPageIndexEntries();
   await testCoreUpdateAndEnsureRejectSymlinkFileTargets();
   await testCoreRejectsSymlinkedParentDirectoryAliases();
-  await testCoreWriteWikiPageRebuildsLegacyIndexEntries();
+  await testCoreWriteWikiPageRebuildsPageIndexFromWikiFiles();
   await testCoreReadWikiPageByIdSupportsLegacyIndexEntry();
   await testCoreSearchWikiSupportsLegacyEntriesWithSafeDefaults();
   await testCoreWriteWikiPageRebuildsBadTopLevelIndexShape();

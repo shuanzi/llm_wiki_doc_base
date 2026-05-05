@@ -1,0 +1,19 @@
+# General public pages
+https://tinylab.org/riscv-uefi-part1/
+https://arxiv.org/html/2505.06120v1
+https://liduos.com/the-memeber-newsletter-54.html
+https://glama.ai/blog/2025-06-01-what-is-nlweb
+https://simonwillison.net/2025/May/25/claude-4-system-prompt/
+https://newsletter.pragmaticengineer.com/p/cursor?utm_source=substack&utm_medium=email
+https://zh-cn.extendoffice.com/excel/formulas/excel-extract-file-extension.html
+https://lilianweng.github.io/posts/2025-05-01-thinking/
+
+# WeChat / anti-bot / tokenized pages
+https://mp.weixin.qq.com/s/epFv8gp6zeCH-S8yh634vg?scene=1
+https://mp.weixin.qq.com/s/8QY-EDEw4nr-NGmNxv752A?clicktime=1753262534&enterid=1753262534&scene=90&subscene=236&xtrack=1
+https://mp.weixin.qq.com/s/6-jp5auGjdk7kQN-I0zRWQ
+https://mp.weixin.qq.com/s/2n2uMTUeOVZlwQuf4d5rSg
+https://mp.weixin.qq.com/s?__biz=MzkxNTY3OTEwNQ==&mid=2247498735&idx=1&sn=319585c2cbd54346d372830143ef1b16&chksm=c0e249b8dd6cd6af30761ad011e3677c980594440321941e8f77958f220e824a61c2c432599e#rd
+https://mp.weixin.qq.com/s?__biz=MjM5MDE0Mjc4MA==&mid=2651246577&idx=2&sn=e26bfdbfc2e5f423f9c1bcb9285e4dd6
+https://semianalysis.com/2025/06/11/the-new-ai-networks-ultra-ethernet-uec-ualink-vs-broadcom-scale-up-ethernet-sue/?access_token=[REDACTED]
+https://mp.weixin.qq.com/s/QtASVIfRJTkfi71Jdst-ZA?scene=1

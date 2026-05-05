@@ -9,6 +9,7 @@ import { buildExpectedMcpConfig, checkOpenClawInstallation } from "../src/opencl
 import * as workspaceBindingModule from "../src/openclaw-installer/llmwiki-binding";
 import {
   createInstallerManifest,
+  readInstallerManifest,
   resolveInstallerManifestPath,
   validateInstallerManifest,
   writeInstallerManifest,
@@ -21,10 +22,16 @@ import {
   hasSessionRuntimeAgentToolPolicy,
   removeSessionRuntimeAgentToolPolicy,
 } from "../src/openclaw-installer/session-runtime-agent-policy";
-import { EXPECTED_KB_TOOL_NAMES } from "../src/openclaw-installer/mcp-probe";
+import {
+  EXPECTED_KB_TOOL_NAMES,
+  probeKbMcpServer,
+} from "../src/openclaw-installer/mcp-probe";
+import { probeSessionRuntimeSurface } from "../src/openclaw-installer/session-runtime-probe";
 import { installOpenClawSkills } from "../src/openclaw-installer/skills";
 import { uninstallOpenClawIntegration } from "../src/openclaw-installer/uninstall";
 import { renderAllOpenClawWorkspaceDocs } from "../src/openclaw-installer/workspace-docs";
+import { KB_CANONICAL_TOOL_NAMES } from "../src/runtime/kb_tool_contract";
+import { VALIDATION_CANONICAL_TOOL_NAMES } from "../scripts/kb_tool_contract_baseline";
 
 const repoRoot = path.resolve(__dirname, "..");
 
@@ -256,6 +263,145 @@ test("generic binding resolves explicit non-llmwiki agent id with matching works
   assert.equal(result.agentId, "research");
   assert.equal(result.boundWorkspace, "/tmp/research-workspace");
   assert.equal(result.agentCount, 1);
+});
+
+test("installer expected KB tools follow runtime canonical order", () => {
+  assert.deepEqual(VALIDATION_CANONICAL_TOOL_NAMES, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(EXPECTED_KB_TOOL_NAMES, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(EXPECTED_KB_TOOL_NAMES.slice(0, 4), [
+    "kb_source_add",
+    "kb_url_add",
+    "kb_ingest_finalize",
+    "kb_read_source",
+  ]);
+});
+
+test("MCP probe fails on tool order drift", async () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-substrate-probe-"));
+  const kbRoot = path.join(tempRoot, "kb");
+  const fakeServer = path.join(tempRoot, "fake-mcp-server.cjs");
+  const driftedToolNames = [...KB_CANONICAL_TOOL_NAMES].reverse();
+  const fakeTools = driftedToolNames.map((name) => ({
+    name,
+    description: "",
+    inputSchema: { type: "object" },
+  }));
+  const sdkRoot = path.resolve(repoRoot, "node_modules", "@modelcontextprotocol", "sdk", "dist", "cjs");
+  fs.mkdirSync(kbRoot, { recursive: true });
+  fs.writeFileSync(
+    fakeServer,
+    [
+      "(async () => {",
+      `  const { Server } = require(${JSON.stringify(path.join(sdkRoot, "server", "index.js"))});`,
+      `  const { StdioServerTransport } = require(${JSON.stringify(path.join(sdkRoot, "server", "stdio.js"))});`,
+      `  const { ListToolsRequestSchema } = require(${JSON.stringify(path.join(sdkRoot, "types.js"))});`,
+      `  const tools = ${JSON.stringify(fakeTools)};`,
+      "  const server = new Server({ name: 'fake-kb-mcp', version: '0.1.0' }, { capabilities: { tools: {} } });",
+      "  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));",
+      "  await server.connect(new StdioServerTransport());",
+      "})().catch((error) => { console.error(error); process.exit(1); });",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const result = await probeKbMcpServer({
+    serverEntrypoint: fakeServer,
+    kbRoot,
+    nodeCommand: process.execPath,
+    expectedToolNames: KB_CANONICAL_TOOL_NAMES,
+  });
+
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.missingToolNames, []);
+  assert.deepEqual(result.unexpectedToolNames, []);
+  assert.deepEqual(result.duplicateToolNames, []);
+  assertContains(result.failureReason ?? "", "MCP tool order drift", "MCP probe");
+});
+
+test("session runtime probe fails on tool order drift", async () => {
+  const workspacePath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-substrate-workspace-")
+  );
+  const kbRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-substrate-kb-"));
+  const fakeOpenClawRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-substrate-openclaw-"));
+  const fakeEntrypoint = path.join(fakeOpenClawRoot, "resolve-plugin-tools.cjs");
+  fs.writeFileSync(
+    path.join(fakeOpenClawRoot, "package.json"),
+    JSON.stringify({ name: "openclaw" }, null, 2),
+    "utf8"
+  );
+  fs.writeFileSync(
+    fakeEntrypoint,
+    [
+      "exports.resolvePluginTools = async function resolvePluginTools() {",
+      "  const names = JSON.parse(process.env.FAKE_OPENCLAW_TOOL_NAMES || '[]');",
+      "  return names.map((name) => ({",
+      "    name,",
+      "    execute: async () => ({ path: 'wiki/index.md', frontmatter: {}, body: '' }),",
+      "  }));",
+      "};",
+      "",
+    ].join("\n"),
+    "utf8"
+  );
+
+  const sessionRuntime = materializeSessionRuntimeArtifacts({
+    workspacePath,
+    kbRoot,
+    sourcePluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
+    sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+    installedAt: new Date().toISOString(),
+  }).metadata;
+
+  const previousFakeToolNames = process.env.FAKE_OPENCLAW_TOOL_NAMES;
+  process.env.FAKE_OPENCLAW_TOOL_NAMES = JSON.stringify([...KB_CANONICAL_TOOL_NAMES].reverse());
+  try {
+    const result = await probeSessionRuntimeSurface({
+      sessionRuntime,
+      invocationKbRoot: kbRoot,
+      expectedToolNames: KB_CANONICAL_TOOL_NAMES,
+      openclawPackageRoot: fakeOpenClawRoot,
+      resolvePluginToolsEntrypoint: fakeEntrypoint,
+    });
+
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.missingToolNames, []);
+    assert.deepEqual(result.unexpectedToolNames, []);
+    assert.deepEqual(result.duplicateToolNames, []);
+    assertContains(result.failureReason ?? "", "tool order drift", "session runtime probe");
+  } finally {
+    if (previousFakeToolNames === undefined) {
+      delete process.env.FAKE_OPENCLAW_TOOL_NAMES;
+    } else {
+      process.env.FAKE_OPENCLAW_TOOL_NAMES = previousFakeToolNames;
+    }
+  }
+});
+
+test("generated ingest skill documents URL ingest and canonical source reads", () => {
+  const workspacePath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-substrate-workspace-")
+  );
+  const installedSkills = installOpenClawSkills({
+    workspacePath,
+    repoRoot,
+    installedAt: new Date().toISOString(),
+  });
+  const ingestSkill = installedSkills.find((skill) => skill.skillName === "kb_ingest");
+  assert.ok(ingestSkill, "kb_ingest skill should be installed");
+  const content = fs.readFileSync(ingestSkill.skillFile, "utf8");
+
+  assertContains(content, "`kb_source_add(file_path)`", "kb_ingest skill");
+  assertContains(content, "`kb_url_add({ url, accept_language? })`", "kb_ingest skill");
+  assertContains(content, "`kb_read_source(source_id)` 读取 canonical Markdown source content", "kb_ingest skill");
+  assertNotContains(content, "raw source content", "kb_ingest skill");
+  assertContains(content, "private networks", "kb_ingest skill");
+  assertContains(content, "JS-only SPA", "kb_ingest skill");
+  assertContains(content, "XHTML", "kb_ingest skill");
+  assertContains(content, "5 次 redirects", "kb_ingest skill");
+  assertContains(content, "wire 6MiB、decoded 5MiB", "kb_ingest skill");
+  assertContains(content, "`raw/originals`、`raw/inbox`、`state/extractions`", "kb_ingest skill");
 });
 
 test("generic binding fails closed when configured agent is missing", async () => {
@@ -616,6 +762,71 @@ test("manifest validation reports session runtime hash drift", () => {
     validation.driftItems.some((item) => item.kind === "session_runtime_hash_drift"),
     true
   );
+});
+
+test("manifest persistence preserves canonical tool declaration order", () => {
+  const fixture = createManifestFixture({ agentId: "research" });
+  assert.ok(fixture.manifest.sessionRuntime);
+  const manifest = createInstallerManifest({
+    installerVersion: "0.1.0",
+    repoRoot,
+    workspacePath: fixture.workspacePath,
+    kbRoot: fixture.kbRoot,
+    mcpName: "llm-kb",
+    installedAt: fixture.manifest.installedAt,
+    installedSkills: fixture.manifest.installedSkills,
+    installedWorkspaceDocs: fixture.manifest.installedWorkspaceDocs,
+    expectedMcpConfig: fixture.expectedMcpConfig,
+    sessionRuntime: {
+      ...fixture.manifest.sessionRuntime,
+      canonicalToolNames: [...KB_CANONICAL_TOOL_NAMES],
+    },
+    lastSuccessfulProbe: {
+      checkedAt: fixture.manifest.installedAt,
+      ok: true,
+      toolNames: [...KB_CANONICAL_TOOL_NAMES],
+    },
+    lastSuccessfulSessionProbe: {
+      checkedAt: fixture.manifest.installedAt,
+      ok: true,
+      toolNames: [...KB_CANONICAL_TOOL_NAMES],
+    },
+  });
+
+  assert.deepEqual(manifest.sessionRuntime?.canonicalToolNames, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(manifest.lastSuccessfulProbe?.toolNames, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(manifest.lastSuccessfulSessionProbe?.toolNames, KB_CANONICAL_TOOL_NAMES);
+  writeInstallerManifest(fixture.workspacePath, manifest);
+  const persistedManifest = readInstallerManifest(fixture.workspacePath);
+  assert.deepEqual(persistedManifest?.sessionRuntime?.canonicalToolNames, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(persistedManifest?.lastSuccessfulProbe?.toolNames, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(
+    persistedManifest?.lastSuccessfulSessionProbe?.toolNames,
+    KB_CANONICAL_TOOL_NAMES
+  );
+});
+
+test("session runtime artifact metadata preserves canonical tool declaration order", () => {
+  const workspacePath = fs.mkdtempSync(
+    path.join(os.tmpdir(), "openclaw-substrate-workspace-")
+  );
+  const kbRoot = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-substrate-kb-"));
+
+  const sessionRuntime = materializeSessionRuntimeArtifacts({
+    workspacePath,
+    kbRoot,
+    sourcePluginEntrypoint: path.resolve(repoRoot, "dist", "openclaw_plugin.js"),
+    sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+    installedAt: new Date().toISOString(),
+  }).metadata;
+
+  assert.deepEqual(sessionRuntime.canonicalToolNames, KB_CANONICAL_TOOL_NAMES);
+  assert.deepEqual(sessionRuntime.canonicalToolNames.slice(0, 4), [
+    "kb_source_add",
+    "kb_url_add",
+    "kb_ingest_finalize",
+    "kb_read_source",
+  ]);
 });
 
 test("session runtime tool policy targets configured agent id", async () => {
@@ -1092,7 +1303,11 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
 
   assertContains(tools, "installer-configured OpenClaw agent", "TOOLS.md");
   assertNotContains(tools, "`llmwiki` 会话可见", "TOOLS.md");
-  assertContains(tools, "## KB MCP Tools (13)", "TOOLS.md");
+  assertContains(
+    tools,
+    `## KB MCP Tools (${EXPECTED_KB_TOOL_NAMES.length})`,
+    "TOOLS.md"
+  );
   assertContains(
     tools,
     "所有 canonical `kb_*` tools 都读写当前安装绑定的 external `KB_ROOT`，工具路径相对该目录解析。",
@@ -1101,6 +1316,21 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
   for (const toolName of EXPECTED_KB_TOOL_NAMES) {
     assertContains(tools, `\`${toolName}\``, "TOOLS.md");
   }
+  assertContains(tools, "`kb_url_add`", "TOOLS.md");
+  assertContains(tools, "公开 HTTP/HTTPS HTML URL", "TOOLS.md");
+  assertContains(
+    tools,
+    "`kb_url_add({ url, accept_language? })`",
+    "TOOLS.md"
+  );
+  assertContains(tools, "canonical Markdown source content", "TOOLS.md");
+  assertNotContains(tools, "raw source content", "TOOLS.md");
+  assertContains(tools, "private networks", "TOOLS.md");
+  assertContains(tools, "JS-only SPA", "TOOLS.md");
+  assertContains(tools, "XHTML", "TOOLS.md");
+  assertContains(tools, "5 次 redirects", "TOOLS.md");
+  assertContains(tools, "wire 6MiB、decoded 5MiB", "TOOLS.md");
+  assertContains(tools, "`raw/originals`、`raw/inbox`、`state/extractions`", "TOOLS.md");
   assertContains(
     tools,
     "`kb_commit` 属于高风险动作：仅在用户显式要求提交、且当前 workflow 明确需要时执行。",
@@ -1214,9 +1444,51 @@ test("operator-facing docs encode the OpenClaw installer success contract", () =
     "OpenClaw 可用性成功判据是 configured OpenClaw agent 会话可见 canonical `kb_*`；仅保存 MCP 配置不足以代表可用。standalone MCP 只作为兼容/调试路径。",
     "docs/technical.md"
   );
+  assertNotContains(technical, "覆盖 8 工具", "docs/technical.md");
+  assertNotContains(technical, "8 tools", "docs/technical.md");
+  assertNotContains(technical, "仍可能被同次 commit 带入", "docs/technical.md");
+  assertContains(
+    technical,
+    "提交前和 `git add -A -- <kb_root scope>` 后都会拒绝已 staged 的 `kb_root` scope 外文件",
+    "docs/technical.md"
+  );
   assertNotContains(
     technical,
     "成功判据是 `llmwiki` 会话可见 canonical `kb_*`",
+    "docs/technical.md"
+  );
+  assertContains(
+    readme,
+    "`kb_url_add({ url, accept_language? })`",
+    "README.md"
+  );
+  assertContains(readme, "read canonical Markdown source content", "README.md");
+  assertNotContains(readme, "raw source content", "README.md");
+  assertContains(readme, "private networks", "README.md");
+  assertContains(readme, "JS-only SPA", "README.md");
+  assertContains(readme, "XHTML", "README.md");
+  assertContains(readme, "5 redirects", "README.md");
+  assertContains(readme, "wire 6MiB and decoded 5MiB", "README.md");
+  assertContains(readme, "`raw/originals`, `raw/inbox`, and `state/extractions`", "README.md");
+  assertContains(
+    technical,
+    "`kb_url_add({ url, accept_language? })`",
+    "docs/technical.md"
+  );
+  assertContains(
+    technical,
+    "canonical Markdown source content",
+    "docs/technical.md"
+  );
+  assertNotContains(technical, "raw source content", "docs/technical.md");
+  assertContains(technical, "private networks", "docs/technical.md");
+  assertContains(technical, "JS-only SPA", "docs/technical.md");
+  assertContains(technical, "XHTML", "docs/technical.md");
+  assertContains(technical, "5 次 redirects", "docs/technical.md");
+  assertContains(technical, "wire 6MiB、decoded 5MiB", "docs/technical.md");
+  assertContains(
+    technical,
+    "`raw/originals`、`raw/inbox`、`state/extractions`",
     "docs/technical.md"
   );
 });

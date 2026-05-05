@@ -171,9 +171,7 @@ function validateSessionRuntimeMetadata(
   }
 
   const expectedPaths = resolveSessionRuntimeArtifactPaths(manifest.workspacePath);
-  const expectedCanonicalTools = [...KB_CANONICAL_TOOL_NAMES].sort((a, b) =>
-    a.localeCompare(b)
-  );
+  const expectedCanonicalTools = [...KB_CANONICAL_TOOL_NAMES];
 
   if (runtime.runtimeKind !== "workspace-openclaw-native-plugin-shim-v1") {
     driftItems.push({
@@ -1247,9 +1245,7 @@ function parseSessionRuntimeMetadata(
     value.canonicalToolNames === undefined
       ? [...KB_CANONICAL_TOOL_NAMES]
       : readStringArray(value.canonicalToolNames, `${label}.canonicalToolNames`);
-  const normalizedToolNames = [...new Set(canonicalToolNames)].sort((a, b) =>
-    a.localeCompare(b)
-  );
+  const normalizedToolNames = [...new Set(canonicalToolNames)];
 
   const pluginIndexContentHash = readOptionalSha256String(
     value.pluginIndexContentHash,
@@ -1412,9 +1408,7 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
       ? {
           checkedAt: manifest.lastSuccessfulProbe.checkedAt,
           ok: manifest.lastSuccessfulProbe.ok,
-          toolNames: [...manifest.lastSuccessfulProbe.toolNames].sort((a, b) =>
-            a.localeCompare(b)
-          ),
+          toolNames: [...manifest.lastSuccessfulProbe.toolNames],
           failureReason: manifest.lastSuccessfulProbe.failureReason,
         }
       : undefined,
@@ -1422,9 +1416,7 @@ function normalizeInstallerManifest(manifest: InstallerManifest): InstallerManif
       ? {
           checkedAt: manifest.lastSuccessfulSessionProbe.checkedAt,
           ok: manifest.lastSuccessfulSessionProbe.ok,
-          toolNames: [...manifest.lastSuccessfulSessionProbe.toolNames].sort((a, b) =>
-            a.localeCompare(b)
-          ),
+          toolNames: [...manifest.lastSuccessfulSessionProbe.toolNames],
           failureReason: manifest.lastSuccessfulSessionProbe.failureReason,
         }
       : undefined,
@@ -1450,9 +1442,7 @@ function normalizeSessionRuntimeMetadata(
     sourcePluginEntrypointHash: metadata.sourcePluginEntrypointHash,
     sourcePluginManifestPath: path.resolve(metadata.sourcePluginManifestPath),
     sourcePluginManifestHash: metadata.sourcePluginManifestHash,
-    canonicalToolNames: [...metadata.canonicalToolNames].sort((a, b) =>
-      a.localeCompare(b)
-    ),
+    canonicalToolNames: [...metadata.canonicalToolNames],
     installedAt: metadata.installedAt,
   };
 }

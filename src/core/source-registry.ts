@@ -58,6 +58,10 @@ const CANONICAL_SOURCE_EXTENSION = ".md";
 
 type WorkspaceLike = string | WorkspaceConfig;
 
+type PersistedManifest = Omit<Manifest, "source_origin"> & {
+  source_origin?: Manifest["source_origin"];
+};
+
 function getKbRoot(workspace: WorkspaceLike): string {
   return typeof workspace === "string" ? workspace : workspace.kb_root;
 }
@@ -99,6 +103,13 @@ function originalFileName(sourceId: string, extension: string): string {
   return `${sourceId}${extension || ".bin"}`;
 }
 
+export function normalizeManifest(manifest: PersistedManifest): Manifest {
+  return {
+    ...manifest,
+    source_origin: manifest.source_origin ?? "file",
+  };
+}
+
 export function listRegisteredManifests(workspace: WorkspaceLike): Manifest[] {
   const dir = manifestsDir(workspace);
   if (!fs.existsSync(dir)) {
@@ -112,9 +123,10 @@ export function listRegisteredManifests(workspace: WorkspaceLike): Manifest[] {
     }
 
     try {
-      manifests.push(
-        JSON.parse(fs.readFileSync(path.join(dir, fileName), "utf8")) as Manifest
-      );
+      const parsed = JSON.parse(
+        fs.readFileSync(path.join(dir, fileName), "utf8")
+      ) as PersistedManifest;
+      manifests.push(normalizeManifest(parsed));
     } catch {
       // Malformed manifests are skipped to preserve current registration behavior.
     }
@@ -135,7 +147,8 @@ export function loadSourceManifest(sourceId: string, workspace: WorkspaceLike): 
   }
 
   try {
-    return JSON.parse(fs.readFileSync(manifestPath, "utf8")) as Manifest;
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as PersistedManifest;
+    return normalizeManifest(parsed);
   } catch {
     throw new Error(`Malformed manifest for source_id: ${sourceId}`);
   }
@@ -375,6 +388,7 @@ export function registerSourceFile(
   const manifest: Manifest = {
     source_id,
     source_locator: buildSourceLocator(input.file_path),
+    source_origin: "file",
     source_kind: conversion.source_kind,
     content_hash,
     canonical_path,
