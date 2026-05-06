@@ -132,15 +132,39 @@ export function renderSessionRuntimePluginManifest(options: {
   canonicalToolNames?: readonly string[];
 }): RenderedSessionRuntimeArtifact {
   const normalizedSourceManifestPath = path.resolve(options.sourcePluginManifestPath);
-  const sourceManifest = parseSourcePluginManifest(
-    normalizedSourceManifestPath,
-    fs.readFileSync(normalizedSourceManifestPath, "utf8")
+  const sourceManifest = withCanonicalToolContracts(
+    parseSourcePluginManifest(
+      normalizedSourceManifestPath,
+      fs.readFileSync(normalizedSourceManifestPath, "utf8")
+    ),
+    options.canonicalToolNames
   );
   const content = `${JSON.stringify(sourceManifest, null, 2)}\n`;
 
   return {
     content,
     contentHash: sha256(content),
+  };
+}
+
+function withCanonicalToolContracts(
+  sourceManifest: Record<string, unknown>,
+  canonicalToolNames: readonly string[] | undefined
+): Record<string, unknown> {
+  if (!canonicalToolNames) {
+    return sourceManifest;
+  }
+
+  const contracts = isRecord(sourceManifest.contracts)
+    ? sourceManifest.contracts
+    : {};
+
+  return {
+    ...sourceManifest,
+    contracts: {
+      ...contracts,
+      tools: normalizeCanonicalToolNames(canonicalToolNames),
+    },
   };
 }
 
