@@ -16,6 +16,7 @@ import {
 } from "../src/openclaw-installer/manifest";
 import {
   materializeSessionRuntimeArtifacts,
+  renderSessionRuntimePluginManifest,
 } from "../src/openclaw-installer/session-runtime-artifact";
 import {
   ensureSessionRuntimeAgentToolPolicy,
@@ -827,6 +828,18 @@ test("session runtime artifact metadata preserves canonical tool declaration ord
     "kb_ingest_finalize",
     "kb_read_source",
   ]);
+});
+
+test("session runtime plugin manifest declares canonical tool contracts", () => {
+  const rendered = renderSessionRuntimePluginManifest({
+    sourcePluginManifestPath: path.resolve(repoRoot, "openclaw.plugin.json"),
+    canonicalToolNames: KB_CANONICAL_TOOL_NAMES,
+  });
+  const parsed = JSON.parse(rendered.content) as {
+    contracts?: { tools?: string[] };
+  };
+
+  assert.deepEqual(parsed.contracts?.tools, KB_CANONICAL_TOOL_NAMES);
 });
 
 test("session runtime tool policy targets configured agent id", async () => {
