@@ -403,6 +403,9 @@ test("generated ingest skill documents URL ingest and canonical source reads", (
   assertContains(content, "5 次 redirects", "kb_ingest skill");
   assertContains(content, "wire 6MiB、decoded 5MiB", "kb_ingest skill");
   assertContains(content, "`raw/originals`、`raw/inbox`、`state/extractions`", "kb_ingest skill");
+  assertContains(content, "wikilink 目标必须优先使用目标页 frontmatter `id`", "kb_ingest skill");
+  assertContains(content, "`references` 只传 wiki page_id 或已有 manifest 的 source_id", "kb_ingest skill");
+  assertContains(content, "若 DNS 返回 198.18.0.0/15", "kb_ingest skill");
 });
 
 test("generic binding fails closed when configured agent is missing", async () => {
@@ -1344,6 +1347,26 @@ test("workspace doc rendering is deterministic and follows installed-agent seman
   assertContains(tools, "5 次 redirects", "TOOLS.md");
   assertContains(tools, "wire 6MiB、decoded 5MiB", "TOOLS.md");
   assertContains(tools, "`raw/originals`、`raw/inbox`、`state/extractions`", "TOOLS.md");
+  assertContains(
+    tools,
+    "`kb_write_page` 内容必须包含完整 YAML frontmatter：`id`、`type`、`title`、`updated_at`、`status`。",
+    "TOOLS.md"
+  );
+  assertContains(
+    tools,
+    "`kb_ensure_entry.entry` 不要包含 `<!-- dedup:... -->`",
+    "TOOLS.md"
+  );
+  assertContains(
+    tools,
+    "`kb_append_log_entry.references` 只传可解析的 wiki page_id/wikilink 或已有 manifest 的 source_id",
+    "TOOLS.md"
+  );
+  assertContains(
+    tools,
+    "DNS 返回 198.18.0.0/15",
+    "TOOLS.md"
+  );
   assertContains(
     tools,
     "`kb_commit` 属于高风险动作：仅在用户显式要求提交、且当前 workflow 明确需要时执行。",

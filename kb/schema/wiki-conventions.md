@@ -53,7 +53,10 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 ## 链接约定
 
 - 页面间引用使用 `[[wikilinks]]` 格式
-- 引用源文件使用 `[[source_id|显示标题]]` 管道语法
+- wikilink 的 canonical target 是目标页 frontmatter `id`，不是文件名 stem；当文件路径与 `id` 不一致时必须使用 `id`
+- `kb_search_wiki.resolve_link` 与 lint 使用同一解析优先级：page_id 优先，其次显式 path-like target（如 `wiki/concepts/vibe_coding.md`），最后才是唯一的标题或别名；标题/别名多候选会 fail-closed
+- `[[target|label]]` 的 label 不能包含 `[[`、`]]` 或 `|`
+- 引用源文件时优先链接 source summary page 的 `id`；如需显示原始 `source_id`，使用 `[[source_summary_page_id|source_id]]`
 - Entity/concept 页面 **首次提到** 其他 entity/concept 时建立链接
 - 不要过度链接——同一页面内对同一目标只链接第一次出现
 
@@ -61,10 +64,10 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 
 ## ID 命名约定
 
-- 使用小写英文 + 下划线：`risc_v`、`secure_boot`、`docker`
-- 源页面 ID 使用 source_id 原值：`src_sha256_xxxxxxxx`
+- `id` 必须匹配 `[a-z0-9_-]+`，在整个 wiki 中全局唯一
+- 使用小写英文，复合词可用连字符或下划线：`vibe-coding`、`risc_v`、`secure_boot`
+- 源页面 ID 可以使用 source_id 原值（如 `src_sha256_xxxxxxxx`），也可以使用更可读的 source summary page id；若两者不同，frontmatter `source_ids` 必须记录原始 source_id
 - 避免过长的 ID，保持简洁可读
-- 复合概念用下划线连接：`trusted_execution_environment`
 
 ---
 
@@ -97,8 +100,8 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 - [[Concept B]] — 关系说明
 
 ## 来源
-- 基于 [[src_sha256_xxx|Source Title]]
-- 基于 [[src_sha256_yyy|Another Source]]
+- 基于 [[source-summary-page-id|Source Title]]
+- 基于 [[another-source-summary-page-id|Another Source]]
 ```
 
 ### Analysis 页面
@@ -123,7 +126,7 @@ related: [U-Boot, TEE]              # 相关页面（wikilink 目标）
 
 ```markdown
 ## Sources
-- [[src_sha256_xxx|Docker on RISC-V]] — RISC-V 上运行 Docker 容器的实践指南
+- [[docker-riscv-source|Docker on RISC-V]] — RISC-V 上运行 Docker 容器的实践指南
 
 ## Entities
 - [[risc_v|RISC-V]] — 开源指令集架构（5 sources）
@@ -163,7 +166,7 @@ meaningful query 的可执行判定（需同时满足）：
 
 ```markdown
 ## [2026-04-12] ingest | Docker Containers on RISC-V Architecture
-- 新建: [[src_sha256_xxx|Source Summary]]
+- 新建: [[docker-riscv-source|Source Summary]]
 - 新建: [[risc_v|RISC-V]] (entity)
 - 更新: [[docker|Docker]] — 新增 RISC-V 相关段落
 - 更新: index.md — 3 entries added

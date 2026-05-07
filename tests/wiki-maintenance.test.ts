@@ -344,6 +344,112 @@ status: active
   assert.equal(report.deterministic.errors, 0);
 });
 
+test("runKbLint reports bare wikilinks that only match file stems", () => {
+  const kbRoot = makeWorkspace("kb-lint-bare-stem-");
+
+  writeFile(
+    kbRoot,
+    "wiki/index.md",
+    `---
+id: wiki_index
+type: index
+title: Knowledge Base Index
+updated_at: 2026-04-28
+status: active
+---
+
+# Knowledge Base Index
+
+## Concepts
+- [[foo]]
+`
+  );
+  writeFile(kbRoot, "wiki/log.md", VALID_LOG);
+  writeFile(
+    kbRoot,
+    "wiki/foo.md",
+    `---
+id: bar
+type: concept
+title: Bar
+updated_at: 2026-04-28
+status: active
+---
+
+# Bar
+`
+  );
+
+  rebuildPageIndex({ kb_root: kbRoot });
+  const report = runKbLint({ kb_root: kbRoot }, { include_semantic: false });
+
+  const brokenLinks = report.deterministic.issues.filter(
+    (issue) => issue.rule === "broken-wikilink"
+  );
+  assert.equal(brokenLinks.length, 1);
+  assert.equal(report.deterministic.errors, 1);
+});
+
+test("runKbLint reports ambiguous title or alias wikilinks", () => {
+  const kbRoot = makeWorkspace("kb-lint-ambiguous-title-");
+
+  writeFile(
+    kbRoot,
+    "wiki/index.md",
+    `---
+id: wiki_index
+type: index
+title: Knowledge Base Index
+updated_at: 2026-04-28
+status: active
+---
+
+# Knowledge Base Index
+
+## Concepts
+- [[Shared Title]]
+`
+  );
+  writeFile(kbRoot, "wiki/log.md", VALID_LOG);
+  writeFile(
+    kbRoot,
+    "wiki/concepts/alpha.md",
+    `---
+id: alpha
+type: concept
+title: Shared Title
+updated_at: 2026-04-28
+status: active
+---
+
+# Shared Title
+`
+  );
+  writeFile(
+    kbRoot,
+    "wiki/concepts/beta.md",
+    `---
+id: beta
+type: concept
+title: Shared Title
+updated_at: 2026-04-28
+status: active
+---
+
+# Shared Title
+`
+  );
+
+  rebuildPageIndex({ kb_root: kbRoot });
+  const report = runKbLint({ kb_root: kbRoot }, { include_semantic: false });
+
+  const ambiguousLinks = report.deterministic.issues.filter(
+    (issue) => issue.rule === "ambiguous-wikilink"
+  );
+  assert.equal(ambiguousLinks.length, 1);
+  assert.equal(report.deterministic.errors, 1);
+});
+
 test("runKbLint accepts Chinese uncertainty sections on analysis pages", () => {
   const kbRoot = makeWorkspace("kb-lint-analysis-cn-");
 

@@ -37,6 +37,7 @@ user-invocable: true
 - 无 analysis 落盘时，也要记录：
   - 先生成本次 query 的唯一 `run_id`（建议 `YYYYMMDDTHHMMSS`，如 `20260419T141530`）
   - `kb_append_log_entry({ kind: "query", title: "{topic}", run_id, summary: "{一句话结论}", references: ["page_a", "page_b"], dedup_key: "log_query_{topic}_{run_id}" })`
+  - `references` 只传可解析的 wiki page_id/wikilink 或已有 manifest 的 source_id；wikilink label 不得包含 `[[`、`]]` 或 `|`，避免写入 broken wikilink
 
 ### 结果回写（当回答有长期价值时）
 
@@ -75,5 +76,5 @@ Body 包含：
 ### 内容约定
 
 - 遵守 `kb/schema/wiki-conventions.md` 中的所有约定
-- 使用 `[[wikilinks]]` 引用 wiki 页面
+- 使用 `[[wikilinks]]` 引用 wiki 页面；wikilink 目标必须优先使用目标页 frontmatter `id`，文件名可以不同，不要把文件名 stem 当作 page_id
 - Analysis 页面应明确标注分析依据和局限性

@@ -22,7 +22,7 @@ user-invocable: true
 
 **幽灵链接**：
 - 页面中 `[[wikilink]]` 指向不存在的页面
-- 使用 `kb_search_wiki(resolve_link: "[[target]]")` 检查链接目标是否存在
+- 使用 `kb_search_wiki(resolve_link: "[[target]]")` 检查链接目标是否存在；解析优先级为 page_id、显式 path-like target、唯一标题/别名，标题/别名歧义时视为未收敛
 - 修复建议：创建缺失页面（stub）或修正链接
 
 **缺失页面**：
