@@ -1,0 +1,7 @@
+https://simonwillison.net/2026/May/6/vibe-coding-and-agentic-engineering/
+https://adaptivesoftware.substack.com/p/the-wrapper-and-the-code
+https://mp.weixin.qq.com/s/Lwx4aoFpYSybj9ksq_G_9g
+https://mp.weixin.qq.com/s/7jTB8kjg2K80QfU1WVpT2w
+https://github.com/BuilderPulse/BuilderPulse/blob/main/zh/2026/2026-04-27.md
+https://claude.com/blog/building-agents-that-reach-production-systems-with-mcp
+https://www.cnblogs.com/rioka/p/19670535
