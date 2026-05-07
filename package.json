@@ -22,6 +22,8 @@
     "start:openclaw-installer": "node dist/openclaw_installer.js",
     "test": "tsx --test tests/*.test.ts",
     "test:unit": "tsx --test tests/*.test.ts",
+    "test:real-data-e2e": "tsx --test tests/real-data-e2e.test.ts",
+    "test:real-data-e2e:urls": "RUN_REAL_DATA_E2E_URLS=1 tsx --test tests/real-data-e2e.test.ts",
     "test:url-ingest": "tsx --test tests/url-fetch.test.ts tests/defuddle-parser.test.ts tests/url-source.test.ts",
     "test:typecheck": "tsc --noEmit"
   },
