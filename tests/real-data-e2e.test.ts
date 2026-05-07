@@ -21,6 +21,7 @@ const pluginEntry = require("../src/openclaw_plugin");
 const REPO_ROOT = path.resolve(__dirname, "..");
 const TEST_DATE = "2026-05-07";
 const TITLE_MAX_LENGTH = 120;
+const TSX_BIN_NAME = process.platform === "win32" ? "tsx.cmd" : "tsx";
 
 type SourceInputType = "markdown" | "url";
 
@@ -110,6 +111,10 @@ interface RunSourceWorkflowOptions {
 
 function yamlString(value: unknown): string {
   return JSON.stringify(value);
+}
+
+function sourceMcpServerCommand(): string {
+  return path.join(REPO_ROOT, "node_modules", ".bin", TSX_BIN_NAME);
 }
 
 function buildSourcePage(input: {
@@ -687,7 +692,7 @@ test("MCP 与 OpenClaw plugin 暴露同一套 canonical KB tool contract", async
 
   try {
     mcp = await startKbMcpClient({
-      serverCommand: path.join(REPO_ROOT, "node_modules", ".bin", "tsx"),
+      serverCommand: sourceMcpServerCommand(),
       serverArgs: ["--tsconfig", "tsconfig.scripts.json", "src/mcp_server.ts"],
       kbRoot: mcpFixture.kbRoot,
       cwd: REPO_ROOT,
@@ -776,7 +781,7 @@ test("真实 Markdown source 可通过 MCP 完成 TOOLS.md 工作流", async (t)
 
       try {
         mcp = await startKbMcpClient({
-          serverCommand: path.join(REPO_ROOT, "node_modules", ".bin", "tsx"),
+          serverCommand: sourceMcpServerCommand(),
           serverArgs: ["--tsconfig", "tsconfig.scripts.json", "src/mcp_server.ts"],
           kbRoot: fixture.kbRoot,
           cwd: REPO_ROOT,
@@ -828,7 +833,7 @@ test("真实 URL source 在显式启用时可通过 MCP 完成 TOOLS.md 工作�
 
       try {
         mcp = await startKbMcpClient({
-          serverCommand: path.join(REPO_ROOT, "node_modules", ".bin", "tsx"),
+          serverCommand: sourceMcpServerCommand(),
           serverArgs: ["--tsconfig", "tsconfig.scripts.json", "src/mcp_server.ts"],
           kbRoot: fixture.kbRoot,
           cwd: REPO_ROOT,

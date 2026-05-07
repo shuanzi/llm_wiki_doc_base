@@ -10,7 +10,7 @@
 
 1. 测试数据发现：读取 `tests/test-source/markdown/*.md` 和 `tests/test-source/url.txt`。
 2. 干净 KB 初始化器：为每个 source 子测试创建全新的临时 KB。
-3. MCP 测试客户端：通过本地 `node_modules/.bin/tsx --tsconfig tsconfig.scripts.json src/mcp_server.ts` 启动源码 MCP server，通过 MCP SDK 调用 `tools/list` 和 `tools/call`。这样新增测试被默认 `npm test` 收入时不会依赖预先存在或最新的 `dist/`。
+3. MCP 测试客户端：通过本地 `node_modules/.bin/tsx`（Windows 下为 `node_modules/.bin/tsx.cmd`）加 `--tsconfig tsconfig.scripts.json src/mcp_server.ts` 启动源码 MCP server，通过 MCP SDK 调用 `tools/list` 和 `tools/call`。这样新增测试被默认 `npm test` 收入时不会依赖预先存在或最新的 `dist/`。
 4. 工作流驱动器：按 `TOOLS.md`「实战工作流」执行 ingest、wiki 写入、index/log、finalize、lint、search/read 验证。
 
 建议新增文件：
