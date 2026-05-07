@@ -6,6 +6,7 @@ import {
   extractHeadings,
   parseFrontmatter,
   resolveKbPath,
+  resolveWikiLinkTarget,
   validateFrontmatter,
 } from "../utils";
 import { rebuildSearchIndex } from "./wiki-search-index";
@@ -352,50 +353,20 @@ function extractWikilinks(body: string): string[] {
   });
 }
 
-function normalizeWikiPathLikeTarget(target: string): string | null {
-  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
-  if (!normalized) {
-    return null;
-  }
-
-  normalized = normalized.replace(/^\/+/, "").replace(/\/+/g, "/");
-  if (normalized.startsWith("./")) {
-    normalized = normalized.slice(2);
-  }
-  if (normalized.startsWith("wiki/")) {
-    normalized = normalized.slice("wiki/".length);
-  }
-  if (normalized.endsWith(".md")) {
-    normalized = normalized.slice(0, -3);
-  }
-  normalized = normalized.replace(/^\/+|\/+$/g, "");
-
-  return normalized.length > 0 ? normalized : null;
-}
-
-function hasWikilinkTarget(
+function resolveLintWikilinkTarget(
   target: string,
   pages: ScannedWikiPage[]
-): boolean {
-  const needle = target.toLowerCase();
-  const normalizedPathTarget = normalizeWikiPathLikeTarget(target);
-  return pages.some((page) => {
-    const id = typeof page.frontmatter.id === "string" ? page.frontmatter.id.toLowerCase() : "";
-    const title =
-      typeof page.frontmatter.title === "string" ? page.frontmatter.title.toLowerCase() : "";
-    const aliases = normalizeStringArray(page.frontmatter.aliases).map((alias) =>
-      alias.toLowerCase()
-    );
-    if (id === needle || title === needle || aliases.includes(needle)) {
-      return true;
-    }
-
-    if (!normalizedPathTarget) {
-      return false;
-    }
-
-    return normalizeWikiPathLikeTarget(page.path) === normalizedPathTarget;
-  });
+) {
+  return resolveWikiLinkTarget(
+    target,
+    pages.map((page) => ({
+      pageId: typeof page.frontmatter.id === "string" ? page.frontmatter.id : "",
+      path: page.path,
+      title: typeof page.frontmatter.title === "string" ? page.frontmatter.title : "",
+      aliases: normalizeStringArray(page.frontmatter.aliases),
+      page,
+    }))
+  );
 }
 
 function daysBetween(dayIso: string, now: Date): number | null {
@@ -851,11 +822,21 @@ export function runKbLint(
     }
 
     for (const linkTarget of extractWikilinks(page.body)) {
-      if (!hasWikilinkTarget(linkTarget, scannedPages)) {
+      const linkResolution = resolveLintWikilinkTarget(linkTarget, scannedPages);
+      if (linkResolution.status === "unresolved") {
         pushIssue(deterministicIssues, {
           severity: "error",
           rule: "broken-wikilink",
           detail: `Unresolved wikilink [[${linkTarget}]].`,
+          page: page.path,
+        });
+      } else if (linkResolution.status === "ambiguous") {
+        pushIssue(deterministicIssues, {
+          severity: "error",
+          rule: "ambiguous-wikilink",
+          detail: `Ambiguous wikilink [[${linkTarget}]] matches multiple pages: ${linkResolution.pages
+            .map((candidatePage) => candidatePage.pageId)
+            .join(", ")}.`,
           page: page.path,
         });
       }

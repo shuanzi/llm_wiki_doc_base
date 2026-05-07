@@ -52,6 +52,8 @@ const QUERY_CREDENTIAL_SUBSTRINGS = [
   "credential",
   "bearer",
 ] as const;
+const NON_PUBLIC_DNS_HINT =
+  " Check the DNS resolver or proxy configuration if this is a public hostname; DNS redirection to special-use ranges such as 198.18.0.0/15 is blocked.";
 export type SupportedCharset =
   | "utf-8"
   | "us-ascii"
@@ -364,7 +366,7 @@ async function resolveAndValidateHost(
   for (const candidate of addresses) {
     if (!options.allow_private_for_tests && !isPublicIpAddress(candidate.address)) {
       throw new Error(
-        `DNS candidate ${candidate.address} for ${hostname} is a non-public IP address.`
+        `DNS candidate ${candidate.address} for ${hostname} is a non-public IP address.${NON_PUBLIC_DNS_HINT}`
       );
     }
   }

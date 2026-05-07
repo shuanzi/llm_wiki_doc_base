@@ -100,6 +100,7 @@ scripts/
 2. `kb_url_add({ url, accept_language? })`
 - 作用：抓取 public http/https `text/html` URL，通过 Defuddle 转为 canonical Markdown source content 并写 manifest。
 - 关键行为：不使用 credentials、cookies、proxy；拒绝 private networks、XHTML；不支持/不保证可提取 JS-only SPA；最多 5 次 redirects；限制 wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`。
+- DNS 诊断：如果公开域名解析到 198.18.0.0/15、private 或 special-use IP，说明运行环境 DNS resolver/proxy 链路不可信；工具保持 fail-closed，应修环境而不是放宽校验。
 
 3. `kb_ingest_finalize`
 - 作用：在 source 完成 wiki 集成后更新 manifest lifecycle。
@@ -112,6 +113,7 @@ scripts/
 5. `kb_write_page`
 - 作用：创建/更新 wiki 页面，并重建 `page-index.json` 与 `search-index.json`。
 - 关键行为：frontmatter 校验、通过扫描 `kb/wiki/**/*.md` 做 ID 全局唯一性校验、`create_only` 支持、返回 `warnings[]`。
+- frontmatter 必填字段：`id`、`type`、`title`、`updated_at`（YYYY-MM-DD）、`status`（active/stub/deprecated）。
 
 6. `kb_update_section`
 - 作用：替换或追加某个 heading section 内容。
@@ -119,16 +121,17 @@ scripts/
 
 7. `kb_ensure_entry`
 - 作用：向 index 等页面幂等写入单行条目。
-- 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；校验单行 entry 与安全 dedup key；重复调用返回 `already_exists`；支持 anchor heading 定位插入；写入后重建 page index 与 search index。
+- 关键行为：`dedup_key` 对应 `<!-- dedup:... -->` 标记；校验单行 entry 与安全 dedup key；重复调用返回 `already_exists`；支持 anchor heading 定位插入；`anchor: null` 或 `anchor: ""` 追加到文件末尾；写入后重建 page index 与 search index。
 - 边界：保持单行约束；多行日志块使用 `kb_append_log_entry`。
+- `entry` 本身不能包含 dedup 注释；工具会自动追加。
 
 8. `kb_append_log_entry`
 - 作用：向 `wiki/log.md` 写入结构化多行日志块，解决 query/lint/ingest 日志不能通过 `kb_ensure_entry` 写入的问题。
-- 关键行为：按 `kind/title/date/run_id/summary/changes/references/output` 生成标准日志；用 `dedup_key` 幂等；写入后重建 page index 与 search index。
+- 关键行为：按 `kind/title/date/run_id/summary/changes/references/output` 生成标准日志；用 `dedup_key` 幂等；`references` 只接受可解析的 wiki page_id/wikilink 或已有 manifest 的 source_id（映射到 source summary page，pending manifest 可通过 source summary page fallback）；wikilink label 不能包含 `[[`、`]]` 或 `|`；写入后重建 page index 与 search index。
 
 9. `kb_search_wiki`
 - 作用：基于 `page-index.json` 或 `search-index.json` 搜索。
-- 关键行为：默认 page mode 使用 title/alias/tag/heading/excerpt；chunk mode 使用全文 heading chunk；支持 `type_filter`、全量 tag 命中、`resolve_link` 解析 `[[...]]`/`[[id|title]]`。
+- 关键行为：默认 page mode 使用 title/alias/tag/heading/excerpt；chunk mode 使用全文 heading chunk；支持 `type_filter`、全量 tag 命中、`resolve_link` 解析 `[[...]]`/`[[id|title]]`。链接解析优先级为 page_id、显式 path-like target、唯一 title/alias；title/alias 多候选 fail-closed。
 
 10. `kb_read_page`
 - 作用：按路径或 `page_id` 读取页面，返回 frontmatter 与 body。
@@ -188,6 +191,8 @@ scripts/
 ### 6.3 幂等与去重
 - source 注册幂等：同内容在 `kb_source_add` 直接报 duplicate（返回已有 source_id 信息）。
 - index/log 幂等：`kb_ensure_entry` 负责 index 等单行条目；`kb_append_log_entry` 负责 `wiki/log.md` 的结构化多行日志；二者都依赖 `dedup_key` 防重复插入。
+- `kb_ensure_entry.entry` 不携带 `<!-- dedup:... -->`；dedup 注释由工具根据 `dedup_key` 自动维护。
+- `[[wikilinks]]` 的 canonical target 是目标页 frontmatter `id`；文件路径和文件名 stem 不是 page_id 的替代品，除非显式使用完整 path-like target。
 - e2e 驱动要求两轮 ingest 后：
   - run2 的 ensure_entry / append_log_entry 应全部 `already_exists`。
   - run2 相对 run1 文件内容应无变化（content idempotency）。
@@ -219,7 +224,7 @@ MCP 启动方式在本轮重构后没有变化，仍然是先 build 再 `npm run
 
 - `scripts/validate_kb_search_wiki_resolve_link.ts`
   - 验证 `resolve_link` 行为，包括：
-    - `[[id]]`、`[[title]]`、`[[ id | label ]]` 解析；
+    - `[[id]]`、`[[title]]`、`[[ id | label ]]` 解析，且 page_id 优先于 title/alias；
     - `[[id|display]]` 取 pipe 左侧目标，避免误解 display text。
 
 ## 8. 当前技术债 / 未完成项

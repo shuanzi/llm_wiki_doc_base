@@ -8,7 +8,7 @@ import type {
   SearchResult,
   WorkspaceConfig,
 } from "../types";
-import { parseFrontmatter, resolveKbPath } from "../utils";
+import { parseFrontmatter, resolveKbPath, resolveWikiLinkTarget } from "../utils";
 import { rebuildPageIndex } from "./wiki-maintenance";
 import { searchWikiChunks } from "./wiki-search-index";
 
@@ -299,27 +299,6 @@ export function resolveWikiPagePathOrId(
   return resolveWikiScopedPath(relativePath, workspace).relativePath;
 }
 
-function normalizeWikiPathLikeTarget(target: string): string | null {
-  let normalized = target.trim().toLowerCase().replace(/\\/g, "/");
-  if (!normalized) {
-    return null;
-  }
-
-  normalized = normalized.replace(/^\/+/, "").replace(/\/+/g, "/");
-  if (normalized.startsWith("./")) {
-    normalized = normalized.slice(2);
-  }
-  if (normalized.startsWith("wiki/")) {
-    normalized = normalized.slice("wiki/".length);
-  }
-  if (normalized.endsWith(".md")) {
-    normalized = normalized.slice(0, -3);
-  }
-  normalized = normalized.replace(/^\/+|\/+$/g, "");
-
-  return normalized.length > 0 ? normalized : null;
-}
-
 export function resolveWikiLink(
   link: string,
   workspace: WorkspaceLike
@@ -328,32 +307,29 @@ export function resolveWikiLink(
   const raw = normalizedLink.replace(/^\[\[/, "").replace(/\]\]$/, "").trim();
   const pipeIndex = raw.indexOf("|");
   const linkTarget = (pipeIndex >= 0 ? raw.slice(0, pipeIndex) : raw).trim();
-  const needle = linkTarget.toLowerCase();
-  const normalizedPathTarget = normalizeWikiPathLikeTarget(linkTarget);
-
-  for (const page of loadSearchablePageIndex(workspace).pages) {
-    const titleMatch = page.title.toLowerCase() === needle;
-    const idMatch = page.page_id.toLowerCase() === needle;
-    const aliasMatch = page.aliases.some((alias) => alias.toLowerCase() === needle);
-    const pathMatch =
-      normalizedPathTarget !== null &&
-      normalizeWikiPathLikeTarget(page.path) === normalizedPathTarget;
-
-    if (titleMatch || idMatch || aliasMatch || pathMatch) {
-      return [
-        {
-          page_id: page.page_id,
-          path: page.path,
-          title: page.title,
-          type: page.type,
-          score: 1,
-          excerpt: page.body_excerpt,
-        },
-      ];
-    }
+  const candidates = loadSearchablePageIndex(workspace).pages.map((page) => ({
+    pageId: page.page_id,
+    path: page.path,
+    title: page.title,
+    aliases: page.aliases,
+    page,
+  }));
+  const resolution = resolveWikiLinkTarget(linkTarget, candidates);
+  if (resolution.status !== "resolved") {
+    return [];
   }
 
-  return [];
+  const page = resolution.page.page;
+  return [
+    {
+      page_id: page.page_id,
+      path: page.path,
+      title: page.title,
+      type: page.type,
+      score: 1,
+      excerpt: page.body_excerpt,
+    },
+  ];
 }
 
 export function searchWiki(

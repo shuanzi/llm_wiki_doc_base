@@ -72,6 +72,121 @@ status: active
   assert.equal(results[0].path, "wiki/reports/index.md");
 });
 
+test("searchWiki does not resolve bare links through file stems", () => {
+  const kbRoot = makeWorkspace("kb-wiki-search-bare-stem-");
+  const stemPagePath = path.join(kbRoot, "wiki", "foo.md");
+  const titlePagePath = path.join(kbRoot, "wiki", "concepts", "baz.md");
+  fs.writeFileSync(
+    stemPagePath,
+    `---
+id: bar
+type: concept
+title: Bar
+updated_at: 2026-04-28
+status: active
+---
+
+# Bar
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    titlePagePath,
+    `---
+id: baz
+type: concept
+title: foo
+updated_at: 2026-04-28
+status: active
+---
+
+# foo
+`,
+    "utf8"
+  );
+  rebuildPageIndex({ kb_root: kbRoot });
+
+  const results = searchWiki({ resolve_link: "foo" }, { kb_root: kbRoot });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].page_id, "baz");
+});
+
+test("searchWiki resolves page ids before title matches", () => {
+  const kbRoot = makeWorkspace("kb-wiki-search-id-priority-");
+  fs.writeFileSync(
+    path.join(kbRoot, "wiki", "concepts", "alpha.md"),
+    `---
+id: alpha
+type: concept
+title: beta
+updated_at: 2026-04-28
+status: active
+---
+
+# beta
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(kbRoot, "wiki", "concepts", "beta.md"),
+    `---
+id: beta
+type: concept
+title: Actual Beta
+updated_at: 2026-04-28
+status: active
+---
+
+# Actual Beta
+`,
+    "utf8"
+  );
+  rebuildPageIndex({ kb_root: kbRoot });
+
+  const results = searchWiki({ resolve_link: "beta" }, { kb_root: kbRoot });
+
+  assert.equal(results.length, 1);
+  assert.equal(results[0].page_id, "beta");
+});
+
+test("searchWiki fails closed on ambiguous title matches", () => {
+  const kbRoot = makeWorkspace("kb-wiki-search-ambiguous-title-");
+  fs.writeFileSync(
+    path.join(kbRoot, "wiki", "concepts", "alpha.md"),
+    `---
+id: alpha
+type: concept
+title: Shared Title
+updated_at: 2026-04-28
+status: active
+---
+
+# Shared Title
+`,
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(kbRoot, "wiki", "concepts", "beta.md"),
+    `---
+id: beta
+type: concept
+title: Shared Title
+updated_at: 2026-04-28
+status: active
+---
+
+# Shared Title
+`,
+    "utf8"
+  );
+  rebuildPageIndex({ kb_root: kbRoot });
+
+  const results = searchWiki({ resolve_link: "Shared Title" }, { kb_root: kbRoot });
+
+  assert.equal(results.length, 0);
+});
+
 test("searchWiki chunk mode searches full page body beyond page excerpt", () => {
   const kbRoot = makeWorkspace();
   const pagePath = path.join(kbRoot, "wiki", "concepts", "deep.md");

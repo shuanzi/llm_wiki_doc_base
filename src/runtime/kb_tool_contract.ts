@@ -17,7 +17,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_url_add",
     description:
-      "Register a public HTTP/HTTPS text/html URL into the knowledge base as canonical Markdown source content via Defuddle. Authenticated pages, JavaScript-only pages, private-network hosts, and async third-party extraction are disabled.",
+      "Register a public HTTP/HTTPS text/html URL into the knowledge base as canonical Markdown source content via Defuddle. Authenticated pages, JavaScript-only pages, private-network hosts, and async third-party extraction are disabled. If a public hostname resolves to private/special-use IPs such as 198.18.0.0/15, fix the runtime DNS/proxy chain; the safety check remains fail-closed.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -102,7 +102,8 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
         },
         content: {
           type: "string",
-          description: "Full Markdown content including YAML frontmatter block.",
+          description:
+            "Full Markdown content including YAML frontmatter block. Required frontmatter fields: id, type, title, updated_at (YYYY-MM-DD), status (active|stub|deprecated).",
         },
         create_only: {
           type: "boolean",
@@ -157,12 +158,13 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
         },
         entry: {
           type: "string",
-          description: "The line content to insert.",
+          description:
+            "The single-line content to insert, without dedup markers; the tool appends <!-- dedup:{dedup_key} --> automatically.",
         },
         anchor: {
           type: ["string", "null"],
           description:
-            "Exact anchor line after which to insert the entry. Pass null to append at end of file.",
+            "Exact anchor line after which to insert the entry. Pass null or an empty string to append at end of file.",
         },
         dedup_key: {
           type: "string",
@@ -212,15 +214,16 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
         references: {
           type: "array",
           items: { type: "string" },
-          description: "Optional page ids or wikilinks referenced by this entry.",
+          description:
+            "Optional references. Entries must resolve to existing wiki page ids/wikilinks, or to existing source_ids with source manifests that can be mapped to source summary pages. Wikilink labels must not contain [[, ]], or |.",
         },
         output_page_id: {
           type: "string",
-          description: "Optional output page id.",
+          description: "Optional output page id. Must not contain wikilink delimiters [[, ]], or |.",
         },
         output_label: {
           type: "string",
-          description: "Optional display label for output_page_id.",
+          description: "Optional display label for output_page_id. Must not contain wikilink delimiters [[, ]], or |.",
         },
         dedup_key: {
           type: "string",
@@ -262,7 +265,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
         resolve_link: {
           type: "string",
           description:
-            "If set, resolve this wikilink (e.g. '[[Foo]]' or 'Foo') and return the matching page (ignores query).",
+            "If set, resolve this wikilink and return the matching page (ignores query). Resolution priority is page_id, explicit path-like target, then unique title/alias; ambiguous title/alias returns no match.",
         },
       },
       required: [],

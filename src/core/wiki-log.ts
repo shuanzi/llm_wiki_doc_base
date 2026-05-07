@@ -1,6 +1,14 @@
 import * as fs from "fs";
-import type { WorkspaceConfig } from "../types";
-import { parseFrontmatter, serializeFrontmatter, validateFrontmatter } from "../utils";
+import * as path from "path";
+import type { PageFrontmatter, WorkspaceConfig } from "../types";
+import {
+  parseFrontmatter,
+  resolveKbPath,
+  serializeFrontmatter,
+  validateFrontmatter,
+  validateSafeId,
+  resolveWikiLinkTarget,
+} from "../utils";
 import { assertWikiRebuildable, rebuildPageIndex } from "./wiki-maintenance";
 import { assertNotSymlinkWriteTarget, resolveWikiScopedPath } from "./wiki-search";
 
@@ -40,6 +48,28 @@ export interface AppendWikiLogEntryResult {
 type WorkspaceLike = string | WorkspaceConfig;
 
 const DEFAULT_LOG_PATH = "wiki/log.md";
+
+interface WikiReferencePage {
+  pageId: string;
+  path: string;
+  type: string;
+  title: string;
+  aliases: string[];
+  sourceIds: string[];
+}
+
+interface ParsedReference {
+  target: string;
+  label?: string;
+}
+
+type SourceManifestLookup =
+  | { status: "missing" }
+  | { status: "present"; ingestStatus: string; summaryPageId: string | null };
+
+function getKbRoot(workspace: WorkspaceLike): string {
+  return typeof workspace === "string" ? workspace : workspace.kb_root;
+}
 
 function assertSingleLine(value: string, label: string): void {
   if (/\r|\n/u.test(value)) {
@@ -84,9 +114,251 @@ function assertSafeLogText(value: string, label: string): void {
   }
 }
 
-function normalizeReference(value: string): string {
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function listWikiMarkdownPaths(workspace: WorkspaceLike): string[] {
+  const kbRoot = getKbRoot(workspace);
+  const wikiRoot = resolveKbPath("wiki", kbRoot);
+  if (!fs.existsSync(wikiRoot) || !fs.statSync(wikiRoot).isDirectory()) {
+    return [];
+  }
+
+  const relativePaths: string[] = [];
+  const stack = [wikiRoot];
+  while (stack.length > 0) {
+    const currentPath = stack.pop() as string;
+    const entries = fs
+      .readdirSync(currentPath, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const absolutePath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(absolutePath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        relativePaths.push(path.relative(kbRoot, absolutePath).replace(/\\/g, "/"));
+      }
+    }
+  }
+
+  return relativePaths.sort((left, right) => left.localeCompare(right));
+}
+
+function listWikiReferencePages(workspace: WorkspaceLike): WikiReferencePage[] {
+  const kbRoot = getKbRoot(workspace);
+  return listWikiMarkdownPaths(workspace).map((relativePath) => {
+    const content = fs.readFileSync(resolveKbPath(relativePath, kbRoot), "utf8");
+    let parsed: ReturnType<typeof parseFrontmatter>;
+    try {
+      parsed = parseFrontmatter(content);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Cannot resolve log references because ${relativePath} has invalid frontmatter: ${message}`
+      );
+    }
+
+    const validation = validateFrontmatter(parsed.frontmatter);
+    if (!validation.valid) {
+      throw new Error(
+        `Cannot resolve log references because ${relativePath} has invalid frontmatter: ${validation.errors.join("; ")}`
+      );
+    }
+
+    const frontmatter = parsed.frontmatter as Partial<PageFrontmatter>;
+    return {
+      pageId: frontmatter.id as string,
+      path: relativePath,
+      type: typeof frontmatter.type === "string" ? frontmatter.type : "",
+      title: typeof frontmatter.title === "string" ? frontmatter.title : "",
+      aliases: normalizeStringArray(frontmatter.aliases),
+      sourceIds: normalizeStringArray(frontmatter.source_ids),
+    };
+  });
+}
+
+function parseReference(value: string): ParsedReference {
   const trimmed = value.trim();
-  return trimmed.startsWith("[[") && trimmed.endsWith("]]") ? trimmed : `[[${trimmed}]]`;
+  const raw =
+    trimmed.startsWith("[[") && trimmed.endsWith("]]")
+      ? trimmed.slice(2, -2).trim()
+      : trimmed;
+  const pipeIndex = raw.indexOf("|");
+  const target = (pipeIndex >= 0 ? raw.slice(0, pipeIndex) : raw).trim();
+  const label = pipeIndex >= 0 ? raw.slice(pipeIndex + 1).trim() : undefined;
+  return { target, label: label || undefined };
+}
+
+function assertSafeWikilinkLabel(label: string, fieldName: string): void {
+  if (label.includes("[[") || label.includes("]]") || label.includes("|")) {
+    throw new Error(`${fieldName} must not contain wikilink delimiters.`);
+  }
+}
+
+function isSourceIdLike(value: string): boolean {
+  return /^src_[A-Za-z0-9._:-]+$/u.test(value);
+}
+
+function pageReferencesSourceId(page: WikiReferencePage, sourceId: string): boolean {
+  const needle = sourceId.toLowerCase();
+  return (
+    page.pageId.toLowerCase() === needle ||
+    page.sourceIds.some((candidateSourceId) => candidateSourceId.toLowerCase() === needle)
+  );
+}
+
+function findSourceSummaryPage(
+  sourceId: string,
+  workspace: WorkspaceLike,
+  pages: WikiReferencePage[]
+): WikiReferencePage | undefined {
+  const manifestLookup = readSourceManifestSummaryPageId(sourceId, workspace);
+  if (manifestLookup.status === "missing") {
+    throw new Error(
+      `references[] source_id ${sourceId} must resolve to an existing source manifest.`
+    );
+  }
+
+  if (manifestLookup.summaryPageId !== null) {
+    const manifestPage = pages.find((page) => page.pageId === manifestLookup.summaryPageId);
+    if (!manifestPage) {
+      return undefined;
+    }
+    if (manifestPage.type !== "source") {
+      throw new Error(
+        `references[] source_id ${sourceId} manifest summary_page_id ${manifestLookup.summaryPageId} is not a source page.`
+      );
+    }
+    if (!pageReferencesSourceId(manifestPage, sourceId)) {
+      throw new Error(
+        `references[] source_id ${sourceId} manifest summary_page_id ${manifestLookup.summaryPageId} does not reference source_id ${sourceId}.`
+      );
+    }
+    return manifestPage;
+  }
+  if (manifestLookup.ingestStatus !== "registered") {
+    throw new Error(
+      `references[] source_id ${sourceId} manifest ingest_status ${manifestLookup.ingestStatus} cannot use source summary fallback.`
+    );
+  }
+
+  const candidates = pages.filter(
+    (page) =>
+      page.type === "source" &&
+      pageReferencesSourceId(page, sourceId)
+  );
+  if (candidates.length > 1) {
+    throw new Error(
+      `references[] source_id ${sourceId} resolves to multiple source summary pages: ${candidates
+        .map((page) => page.pageId)
+        .join(", ")}`
+    );
+  }
+
+  return candidates[0];
+}
+
+function readSourceManifestSummaryPageId(
+  sourceId: string,
+  workspace: WorkspaceLike
+): SourceManifestLookup {
+  validateSafeId(sourceId, "references[] source_id");
+  const manifestPath = resolveKbPath(`state/manifests/${sourceId}.json`, getKbRoot(workspace));
+  if (!fs.existsSync(manifestPath)) {
+    return { status: "missing" };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch {
+    throw new Error(`references[] source_id ${sourceId} has a malformed manifest.`);
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    typeof (parsed as { source_id?: unknown }).source_id !== "string" ||
+    typeof (parsed as { ingest_status?: unknown }).ingest_status !== "string"
+  ) {
+    throw new Error(
+      `references[] source_id ${sourceId} manifest must contain source_id and ingest_status.`
+    );
+  }
+
+  const manifestSourceId = (parsed as { source_id: string }).source_id;
+  if (manifestSourceId !== sourceId) {
+    throw new Error(
+      `references[] source_id ${sourceId} manifest source_id ${manifestSourceId} does not match ${sourceId}.`
+    );
+  }
+
+  if (
+    typeof (parsed as { ingest_summary_page_id?: unknown }).ingest_summary_page_id === "string" &&
+    (parsed as { ingest_summary_page_id: string }).ingest_summary_page_id.length > 0
+  ) {
+    return {
+      status: "present",
+      ingestStatus: (parsed as { ingest_status: string }).ingest_status,
+      summaryPageId: (parsed as { ingest_summary_page_id: string }).ingest_summary_page_id,
+    };
+  }
+
+  return {
+    status: "present",
+    ingestStatus: (parsed as { ingest_status: string }).ingest_status,
+    summaryPageId: null,
+  };
+}
+
+function formatReference(target: string, label?: string): string {
+  return label ? `[[${target}|${label}]]` : `[[${target}]]`;
+}
+
+function normalizeReferences(values: readonly string[], workspace: WorkspaceLike): string[] {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const pages = listWikiReferencePages(workspace);
+  return values.map((value) => {
+    const parsed = parseReference(value);
+    if (!parsed.target) {
+      throw new Error("references[] entries must not be empty.");
+    }
+    if (parsed.label) {
+      assertSafeWikilinkLabel(parsed.label, "references[] label");
+    }
+
+    if (isSourceIdLike(parsed.target)) {
+      const summaryPage = findSourceSummaryPage(parsed.target, workspace, pages);
+      if (summaryPage) {
+        return formatReference(summaryPage.pageId, parsed.label ?? parsed.target);
+      }
+      throw new Error(
+        `references[] source_id ${parsed.target} must resolve to an existing source summary page before log entry append.`
+      );
+    }
+
+    const pageResolution = resolveWikiLinkTarget(parsed.target, pages);
+    if (pageResolution.status === "resolved") {
+      return formatReference(pageResolution.page.pageId, parsed.label);
+    }
+    if (pageResolution.status === "ambiguous") {
+      throw new Error(
+        `references[] target ${parsed.target} resolves to multiple wiki pages: ${pageResolution.pages
+          .map((page) => page.pageId)
+          .join(", ")}`
+      );
+    }
+
+    throw new Error(`references[] must resolve to an existing wiki page: ${parsed.target}`);
+  });
 }
 
 function summaryLabel(kind: WikiLogEntryKind): string {
@@ -95,7 +367,12 @@ function summaryLabel(kind: WikiLogEntryKind): string {
   return "摘要";
 }
 
-function buildLogEntryBlock(input: AppendWikiLogEntryInput, date: string, dedupMarker: string): string {
+function buildLogEntryBlock(
+  input: AppendWikiLogEntryInput,
+  date: string,
+  dedupMarker: string,
+  references: string[]
+): string {
   const lines = [`## [${date}] ${input.kind} | ${input.title}`];
   if (input.run_id) {
     lines.push(`- run_id: ${input.run_id}`);
@@ -108,11 +385,13 @@ function buildLogEntryBlock(input: AppendWikiLogEntryInput, date: string, dedupM
 
   if (input.output_page_id) {
     const label = input.output_label ?? input.output_page_id;
+    assertSafeWikilinkLabel(input.output_page_id, "output_page_id");
+    assertSafeWikilinkLabel(label, input.output_label ? "output_label" : "output_page_id");
     lines.push(`- 产出: [[${input.output_page_id}|${label}]]`);
   }
 
-  if (input.references && input.references.length > 0) {
-    lines.push(`- 参考: ${input.references.map(normalizeReference).join(", ")}`);
+  if (references.length > 0) {
+    lines.push(`- 参考: ${references.join(", ")}`);
   }
 
   lines.push(dedupMarker);
@@ -142,7 +421,7 @@ function insertEntryAtAnchor(
   anchor: string | null,
   relativePath: string
 ): string {
-  if (anchor === null) {
+  if (anchor === null || anchor.trim().length === 0) {
     return content.trimEnd() + "\n" + entryLine + "\n";
   }
 
@@ -270,7 +549,8 @@ export function appendWikiLogEntry(
   }
 
   const date = input.date ?? todayIso();
-  const block = buildLogEntryBlock(input, date, dedupMarker);
+  const references = normalizeReferences(input.references ?? [], workspace);
+  const block = buildLogEntryBlock(input, date, dedupMarker, references);
   const appendedContent = content.trimEnd() + "\n\n" + block + "\n";
   const { frontmatter, body } = parseFrontmatter(appendedContent);
   let newContent = appendedContent;

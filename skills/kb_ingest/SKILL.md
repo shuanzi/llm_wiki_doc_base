@@ -13,6 +13,8 @@ user-invocable: true
 3. `kb_read_source(source_id)` → 获取 canonical Markdown source content
 4. 仔细阅读 source content，理解核心内容、关键实体和概念
 
+如果 `kb_url_add` 因 DNS 返回 198.18.0.0/15、private 或 special-use IP 而失败，优先检查运行环境的 DNS resolver/proxy 链路；安全检查应保持 fail-closed，不要绕过 private network 防护。
+
 ### 第 2 步：分析与规划（向用户报告）
 
 阅读完原文后，告诉用户你的分析结果：
@@ -46,6 +48,8 @@ Body 内容由你撰写——结构化摘要，包含：
 - 核心论断和结论
 - 与其他 wiki 页面的关联（使用 `[[wikilinks]]`）
 
+`kb_write_page` 内容必须包含完整 YAML frontmatter：`id`、`type`、`title`、`updated_at`、`status`。
+
 ### 第 4 步：创建/更新 Entity 页面
 
 对每个识别出的关键实体（技术、产品、组织、人物等）：
@@ -53,7 +57,7 @@ Body 内容由你撰写——结构化摘要，包含：
 1. `kb_search_wiki(query)` 检查是否已有页面
 2. **已有页面** → `kb_read_page` 读取，使用 `kb_update_section` **追加** 新源信息
    - **必须传 `append: true`**——默认是 replace，会静默覆盖原 section 内容
-   - 向 `## 来源` section append: `- 基于 [[{source_id}|{title}]]`
+   - 向 `## 来源` section append: `- 基于 [[{source_summary_page_id}|{title}]]`；若 source summary page `id` 等于 `source_id` 才可直接使用 `source_id`
    - 向 `## 关键特性` 等内容 section append 新源带来的补充信息
    - 不要重写已有内容，只追加
 3. **新实体** → `kb_write_page` 创建 `wiki/entities/{id}.md`
@@ -84,6 +88,7 @@ Body 内容由你撰写——结构化摘要，包含：
    - `kind`: `"ingest"`
    - `dedup_key`: `"log_ingest_{source_id}"`（每次 ingest 一条，重跑不重复）
    - `summary` / `changes` / `references`: 按本次写入结果填写
+   - `references` 只传 wiki page_id 或已有 manifest 的 source_id；source_id 会解析到带 `source_ids` 或 manifest summary 的 source summary page；wikilink label 不得包含 `[[`、`]]` 或 `|`；无法解析时先修页面或 manifest
 
 3. 使用 `kb_ingest_finalize` 将 source manifest 标记为 `ingested`，记录 `summary_page_id` 和本次 touched wiki pages。若整合失败，标记为 `failed` 并写明 `error`。
 
@@ -107,8 +112,9 @@ Body 内容由你撰写——结构化摘要，包含：
 ### 内容约定
 
 - 遵守 `kb/schema/wiki-conventions.md` 中的所有约定
-- 使用 `[[wikilinks]]` 建立页面间引用
-- 引用源文件使用 `[[source_id|显示标题]]`
-- ID 使用小写英文 + 下划线
+- 使用 `[[wikilinks]]` 建立页面间引用；wikilink 目标必须优先使用目标页 frontmatter `id`，文件名可以不同，不要把文件名 stem 当作 page_id
+- 引用源文件使用 source summary page 的 `id`，格式为 `[[source_summary_page_id|显示标题]]`；不要假设 source summary page `id` 一定等于原始 `source_id`
+- ID 必须匹配 `[a-z0-9_-]+`；复合词优先使用连字符，兼容已有下划线 ID
 - 摘要应提炼关键洞见，不是原文截取
 - `kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`
+- `kb_ensure_entry.entry` 不要包含 `<!-- dedup:... -->`；工具会根据 `dedup_key` 自动追加 dedup 注释。`anchor: null` 或 `anchor: ""` 都表示追加到文件末尾。

@@ -346,7 +346,7 @@ test("fetchPublicHtml rejects when any DNS candidate is non-public", async () =>
       fetchPublicHtml("https://example.com/article", {
         lookup: mixedLookup as typeof dns.lookup,
       }),
-    /non-public IP address/u
+    /non-public IP address.*DNS resolver or proxy/u
   );
 });
 
