@@ -116,5 +116,5 @@ Body 内容由你撰写——结构化摘要，包含：
 - 引用源文件使用 source summary page 的 `id`，格式为 `[[source_summary_page_id|显示标题]]`；不要假设 source summary page `id` 一定等于原始 `source_id`
 - ID 必须匹配 `[a-z0-9_-]+`；复合词优先使用连字符，兼容已有下划线 ID
 - 摘要应提炼关键洞见，不是原文截取
-- `kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`
+- `kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies；默认不访问 private networks。显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验；不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`
 - `kb_ensure_entry.entry` 不要包含 `<!-- dedup:... -->`；工具会根据 `dedup_key` 自动追加 dedup 注释。`anchor: null` 或 `anchor: ""` 都表示追加到文件末尾。

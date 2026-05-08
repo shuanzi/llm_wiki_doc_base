@@ -143,7 +143,7 @@ Maintenance tools：
 当前实现注意点：
 
 - `kb_source_add` 原生支持 Markdown / plaintext；`.html/.htm/.csv/.json/.xml/.pdf/.docx/.pptx/.xlsx/.xls/.epub` 可在安装 Python MarkItDown 后转换为 canonical Markdown。
-- `kb_url_add` 仅支持 public HTTP/HTTPS `text/html`，不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 redirects，wire 6MiB and decoded 5MiB，并写入 `raw/originals`, `raw/inbox`, and `state/extractions`。如果公开域名被 DNS 解析到 198.18.0.0/15、private 或 special-use IP，应检查运行环境的 DNS resolver/proxy 链路，安全检查会保持 fail-closed。
+- `kb_url_add` 仅支持 public HTTP/HTTPS `text/html`；不使用 credentials、cookies；默认不访问 private networks。显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验；最多 5 redirects，wire 6MiB and decoded 5MiB，并写入 `raw/originals`, `raw/inbox`, and `state/extractions`。
 - `kb_write_page` 内容必须包含完整 YAML frontmatter：`id`、`type`、`title`、`updated_at`、`status`。
 - `[[wikilinks]]` 优先使用目标页 frontmatter `id`，不要把文件名 stem 当作 page_id；`kb_append_log_entry.references` 只接受可解析的 wiki page_id/wikilink 或已有 manifest 的 source_id，wikilink label 不得包含 `[[`、`]]` 或 `|`，避免生成 broken wikilink。
 - `kb_ensure_entry.entry` 不要包含 `<!-- dedup:... -->`；工具会根据 `dedup_key` 自动追加 dedup 注释。`anchor: null` 或 `anchor: ""` 都表示追加到文件末尾。

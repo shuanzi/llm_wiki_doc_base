@@ -151,8 +151,7 @@ function buildToolsDocContent(): string {
   lines.push(
     "",
     "## URL Ingest Contract",
-    "`kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB。Defuddle 输出写入 `raw/originals`、`raw/inbox`、`state/extractions`。",
-    "DNS 返回 198.18.0.0/15、private 或 special-use IP 时，说明当前 DNS resolver/proxy 链路把公开域名解析到了非公网地址；安全检查会 fail-closed，应修运行环境而不是绕过校验。",
+    "`kb_url_add({ url, accept_language? })` 仅支持 public http/https `text/html`；不使用 credentials、cookies；默认不访问 private networks。显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验；不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB。Defuddle 输出写入 `raw/originals`、`raw/inbox`、`state/extractions`。",
     "",
     "## Wiki Write Contract",
     "`kb_write_page` 内容必须包含完整 YAML frontmatter：`id`、`type`、`title`、`updated_at`、`status`。",

@@ -6,11 +6,14 @@
  * url, accept_language? }) registers public HTTP/HTTPS text/html URLs as
  * canonical Markdown source content via Defuddle.
  *
- * URL ingest limits: no credentials, cookies, or proxy use; private-network
- * hosts, JS-only SPA pages, XHTML, and non-text/html responses are unsupported;
- * redirects are capped at 5 hops; wire bytes are capped at 6 MiB and decoded
- * HTML bytes at 5 MiB. Defuddle-derived artifacts are written under
- * raw/originals, raw/inbox, and state/extractions inside KB_ROOT.
+ * URL ingest limits: no credentials or cookies; private-network DNS/address
+ * targets are blocked by default. If trusted fake-ip proxy DNS mode is
+ * explicitly enabled, only trusted fake-ip CIDR candidates are allowed and
+ * must pass external public DNS verification. JS-only SPA pages, XHTML, and
+ * non-text/html responses are unsupported; redirects are capped at 5 hops;
+ * wire bytes are capped at 6 MiB and decoded HTML bytes at 5 MiB.
+ * Defuddle-derived artifacts are written under raw/originals, raw/inbox, and
+ * state/extractions inside KB_ROOT.
  *
  * KB_ROOT resolution order:
  *   1. process.env.KB_ROOT        → used as-is (absolute override for kb_root)

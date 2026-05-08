@@ -17,7 +17,7 @@ export const KB_WORKFLOW_TOOL_DEFINITIONS = [
   {
     name: "kb_url_add",
     description:
-      "Register a public HTTP/HTTPS text/html URL into the knowledge base as canonical Markdown source content via Defuddle. Authenticated pages, JavaScript-only pages, private-network hosts, and async third-party extraction are disabled. If a public hostname resolves to private/special-use IPs such as 198.18.0.0/15, fix the runtime DNS/proxy chain; the safety check remains fail-closed.",
+      "Register a public HTTP/HTTPS text/html URL into the knowledge base as canonical Markdown source content via Defuddle. Authenticated pages, JavaScript-only pages, and async third-party extraction are disabled. Private-network DNS/address targets are blocked by default; trusted fake-ip proxy DNS mode may be explicitly enabled to allow only trusted fake-ip CIDRs after external public DNS verification.",
     inputSchema: {
       type: "object" as const,
       properties: {
