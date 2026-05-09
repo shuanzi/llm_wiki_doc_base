@@ -514,7 +514,9 @@ async function assertHostnameResolvesToPublicIp(
   options: FetchPublicHtmlOptions
 ): Promise<void> {
   const publicLookup =
-    options.public_dns_lookup_for_tests ?? lookupPublicDnsAddressesViaDoh;
+    options.public_dns_lookup_for_tests ??
+    ((targetHostname: string) =>
+      lookupPublicDnsAddressesViaDoh(targetHostname, getPublicDnsLookupTimeoutMs(options)));
   let externalAddresses: dns.LookupAddress[];
   try {
     externalAddresses = await publicLookup(hostname);
@@ -537,7 +539,8 @@ async function assertHostnameResolvesToPublicIp(
 }
 
 async function lookupPublicDnsAddressesViaDoh(
-  hostname: string
+  hostname: string,
+  timeoutMs: number
 ): Promise<dns.LookupAddress[]> {
   const providers = [
     `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
@@ -546,9 +549,17 @@ async function lookupPublicDnsAddressesViaDoh(
     `https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=AAAA`,
   ];
   const dedup = new Map<string, dns.LookupAddress>();
+  const errors: string[] = [];
 
-  for (const endpoint of providers) {
-    const addresses = await dohLookupSingleEndpoint(endpoint);
+  const results = await Promise.allSettled(
+    providers.map((endpoint) => dohLookupSingleEndpoint(endpoint, timeoutMs))
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      continue;
+    }
+    const addresses = result.value;
     for (const address of addresses) {
       dedup.set(`${address.family}:${address.address}`, address);
     }
@@ -558,11 +569,17 @@ async function lookupPublicDnsAddressesViaDoh(
   if (resolved.length > 0) {
     return resolved;
   }
+  if (errors.length > 0) {
+    throw new Error(
+      `public DNS lookup returned no addresses for ${hostname}; provider errors: ${errors.join("; ")}`
+    );
+  }
   throw new Error(`public DNS lookup returned no addresses for ${hostname}.`);
 }
 
 async function dohLookupSingleEndpoint(
-  endpoint: string
+  endpoint: string,
+  timeoutMs: number
 ): Promise<dns.LookupAddress[]> {
   const body = await new Promise<string>((resolve, reject) => {
     const request = https.request(
@@ -588,7 +605,7 @@ async function dohLookupSingleEndpoint(
         });
       }
     );
-    request.setTimeout(PUBLIC_DNS_LOOKUP_TIMEOUT_MS, () => {
+    request.setTimeout(timeoutMs, () => {
       request.destroy(new Error("DoH request timed out."));
     });
     request.on("error", reject);
@@ -860,6 +877,10 @@ function readDecodedEntityBytesPreferringWireLimit(
 
 function getTimeoutMs(options: FetchPublicHtmlOptions): number {
   return options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+}
+
+function getPublicDnsLookupTimeoutMs(options: FetchPublicHtmlOptions): number {
+  return Math.max(1, Math.min(PUBLIC_DNS_LOOKUP_TIMEOUT_MS, getTimeoutMs(options)));
 }
 
 class ByteLimitTransform extends Transform {
