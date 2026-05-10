@@ -810,20 +810,51 @@ test("fetchPublicHtml revalidates redirect targets", async () => {
   });
 });
 
-test("fetchPublicHtml rejects redirects to credential query parameters", async () => {
-  await withServer((_request, response) => {
-    response.writeHead(302, { location: "https://example.com/secret?accessToken=secret" });
-    response.end();
+test("fetchPublicHtml allows WeChat-style signed redirects and preserves final_url", async () => {
+  await withServer((request, response) => {
+    if (request.url === "/") {
+      response.writeHead(302, { location: "/secret?sig=abc&chksm=def" });
+      response.end();
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end("<!doctype html><html><body>Redirected</body></html>");
   }, async (url) => {
-    await assert.rejects(
-      () =>
-        fetchPublicHtml(url.replace("127.0.0.1", "example.com"), {
-          lookup: localLookup as typeof dns.lookup,
-          allow_private_for_tests: true,
-        }),
-      /URL query credentials are not supported/u
+    const result = await fetchPublicHtml(url.replace("127.0.0.1", "example.com"), {
+      lookup: localLookup as typeof dns.lookup,
+      allow_private_for_tests: true,
+    });
+    assert.equal(
+      result.final_url,
+      `${url.replace("127.0.0.1", "example.com")}/secret?sig=abc&chksm=def`
     );
+    assert.match(result.decoded_html, /Redirected/u);
   });
+});
+
+test("fetchPublicHtml rejects redirects to non-signature credential query parameters", async () => {
+  for (const location of [
+    "/secret?accessToken=secret",
+    "/secret?client_secret=secret",
+    "/secret?code=secret",
+    "/secret?sig=abc&accessToken=secret",
+    "/secret?s-ig=abc",
+  ]) {
+    await withServer((_request, response) => {
+      response.writeHead(302, { location });
+      response.end();
+    }, async (url) => {
+      await assert.rejects(
+        () =>
+          fetchPublicHtml(url.replace("127.0.0.1", "example.com"), {
+            lookup: localLookup as typeof dns.lookup,
+            allow_private_for_tests: true,
+          }),
+        /URL query credentials are not supported/u,
+        location
+      );
+    });
+  }
 });
 
 test("fetchPublicHtml rejects redirects to local hostnames and special-use IP literals", async () => {
