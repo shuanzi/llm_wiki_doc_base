@@ -43,6 +43,7 @@ const QUERY_CREDENTIAL_PARAMS = new Set([
   "awsaccesskeyid",
   "code",
 ]);
+const REDIRECT_SIGNED_QUERY_PARAMS = new Set(["sig", "chksm"]);
 const QUERY_CREDENTIAL_SUBSTRINGS = [
   "token",
   "secret",
@@ -115,7 +116,20 @@ interface Ipv4CidrRange {
   mask: number;
 }
 
+interface NormalizePublicHttpUrlPolicy {
+  allowRedirectSignedQueryParams: boolean;
+}
+
 export function normalizePublicHttpUrl(input: string): NormalizedPublicUrl {
+  return normalizePublicHttpUrlWithPolicy(input, {
+    allowRedirectSignedQueryParams: false,
+  });
+}
+
+function normalizePublicHttpUrlWithPolicy(
+  input: string,
+  policy: NormalizePublicHttpUrlPolicy
+): NormalizedPublicUrl {
   const parsed = new URL(input);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("Only http and https URLs are supported.");
@@ -124,7 +138,13 @@ export function normalizePublicHttpUrl(input: string): NormalizedPublicUrl {
     throw new Error("URL credentials are not supported.");
   }
   for (const param of parsed.searchParams.keys()) {
-    if (isCredentialQueryParam(param)) {
+    if (
+      isCredentialQueryParam(param) &&
+      !(
+        policy.allowRedirectSignedQueryParams &&
+        isAllowedRedirectSignedQueryParam(param)
+      )
+    ) {
       throw new Error("URL query credentials are not supported.");
     }
   }
@@ -166,6 +186,10 @@ function isCredentialQueryParam(param: string): boolean {
         compact.includes(pattern)
     )
   );
+}
+
+function isAllowedRedirectSignedQueryParam(param: string): boolean {
+  return REDIRECT_SIGNED_QUERY_PARAMS.has(param.toLowerCase());
 }
 
 export function isPublicIpAddress(address: string): boolean {
@@ -255,7 +279,9 @@ async function fetchPublicHtmlRedirect(
     throw new Error(`Too many redirects; maximum is ${MAX_REDIRECTS}.`);
   }
 
-  const normalized = normalizePublicHttpUrl(currentUrl);
+  const normalized = normalizePublicHttpUrlWithPolicy(currentUrl, {
+    allowRedirectSignedQueryParams: redirectCount > 0,
+  });
   const parsed = new URL(normalized.normalized_url);
   const addresses = await resolveAndValidateHost(normalized.canonical_host, options);
 
