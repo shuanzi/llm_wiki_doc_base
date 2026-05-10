@@ -11,7 +11,7 @@
 - [x] 冲突保守策略已落实：manifest ownership、MCP 配置、skill 目录/内容冲突默认拒绝覆盖并 fail-closed，需显式 `--force` 才覆盖。
 - [x] repo-path coupling 已落实：installer manifest 记录 `repoRoot`，期望 MCP 指向 `<repoRoot>/dist/mcp_server.js` + `KB_ROOT`，路径/产物漂移可被 check/repair 检出。
 - [x] V2 MCP 工具层已完成：当前 canonical surface 为 14 tools（11 个 workflow tool + 3 个 maintenance tool），顺序由 `KB_CANONICAL_TOOL_NAMES` 定义；`kb_url_add({ url, accept_language? })` 位于 `kb_source_add` 后，`kb_ingest_finalize` 位于 `kb_url_add` 后，`kb_read_source` 位于其后。
-- [x] URL ingest 工具契约已同步：`kb_url_add` 仅支持 public http/https `text/html`，不使用 credentials、cookies、proxy，不访问 private networks，不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`，`kb_read_source` 读取 canonical Markdown source content。
+- [x] URL ingest 工具契约已同步：`kb_url_add` 仅支持 public http/https `text/html`，不使用 credentials、cookies；默认不访问 private networks。显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验；不支持 JS-only SPA 或 XHTML；最多 5 次 redirects，wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`，`kb_read_source` 读取 canonical Markdown source content。
 - [x] maintenance 工具已完成：`kb_rebuild_index`、`kb_run_lint`、`kb_repair` 已接入主 MCP surface，并有独立验证脚本。
 - [x] skills / conventions 已完成：`kb_ingest`、`kb_query`、`kb_lint` 与 `kb/schema/wiki-conventions.md` 已落地并被 README 声明为当前流程。
 - [x] E2E 安全化已完成：`e2e_v2_ingest.ts` 默认安全模式（临时 KB）、显式 `--kb-root`、`--commit` 目标保护与幂等性校验；安全验证脚本已提供（`scripts/validate_e2e_v2_ingest_safety.ts`）。

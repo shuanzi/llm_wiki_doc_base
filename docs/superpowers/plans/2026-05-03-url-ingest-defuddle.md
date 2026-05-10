@@ -13,7 +13,7 @@
 ## 设计边界
 
 - `kb_source_add` 继续拒绝 URL，并只处理本地文件。
-- `kb_url_add` 只支持公开 `http` / `https` 的 `text/html`，不支持内网地址、登录态、cookie、代理、JS-only SPA、XHTML、第三方 async fallback。
+- `kb_url_add` 只支持公开 `http` / `https` 的 `text/html`，不支持登录态、cookie、JS-only SPA、XHTML、第三方 async fallback；默认拒绝 private networks。显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1` 或大小写不敏感的 `true`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验。
 - `raw/originals/{source_id}.html` 保存 HTTP content-coding 解码后的 HTML entity bytes；`raw/inbox/{source_id}.md` 保存 provenance block 加 Defuddle `contentMarkdown`。
 - `Manifest.content_hash` 和 `original_content_hash` 都基于 decoded HTML entity bytes 的 sha256。
 - `state/extractions/{source_id}.defuddle.json` 保存裁剪后的 Defuddle 派生结果，不是 source identity。
@@ -1239,7 +1239,7 @@ Requirements:
 Document:
 
 - `kb_url_add({ url, accept_language? })` registers public URL as canonical Markdown source.
-- URL limits: public `http/https`, `text/html`, no credentials/cookies/proxy, no private networks, no JS-only SPA, no XHTML, 5 redirects, decoded 5 MiB, wire 6 MiB.
+- URL limits: public `http/https`, `text/html`, no credentials/cookies; private-network DNS/address targets are blocked by default. When trusted fake-ip proxy DNS mode is explicitly enabled (`KB_URL_FETCH_TRUSTED_PROXY_DNS=1` or case-insensitive `true`), only trusted fake-ip CIDR candidates are allowed and must pass external public DNS verification; no JS-only SPA, no XHTML, 5 redirects, decoded 5 MiB, wire 6 MiB.
 - Defuddle conversion writes original decoded HTML under `raw/originals`, canonical Markdown under `raw/inbox`, extraction JSON under `state/extractions`.
 
 - [ ] **Step 5: 验证 Task 5**

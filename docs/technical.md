@@ -99,8 +99,7 @@ scripts/
 
 2. `kb_url_add({ url, accept_language? })`
 - 作用：抓取 public http/https `text/html` URL，通过 Defuddle 转为 canonical Markdown source content 并写 manifest。
-- 关键行为：不使用 credentials、cookies、proxy；拒绝 private networks、XHTML；不支持/不保证可提取 JS-only SPA；最多 5 次 redirects；限制 wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`。
-- DNS 诊断：如果公开域名解析到 198.18.0.0/15、private 或 special-use IP，说明运行环境 DNS resolver/proxy 链路不可信；工具保持 fail-closed，应修环境而不是放宽校验。
+- 关键行为：不使用 credentials、cookies；默认拒绝 private networks 与 XHTML；显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验；不支持/不保证可提取 JS-only SPA；最多 5 次 redirects；限制 wire 6MiB、decoded 5MiB；Defuddle 写入 `raw/originals`、`raw/inbox`、`state/extractions`。
 
 3. `kb_ingest_finalize`
 - 作用：在 source 完成 wiki 集成后更新 manifest lifecycle。

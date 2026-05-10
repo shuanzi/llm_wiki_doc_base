@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import * as dns from "node:dns";
 import * as http from "node:http";
+import * as https from "node:https";
+import { EventEmitter } from "node:events";
+import { createRequire } from "node:module";
+import { PassThrough } from "node:stream";
 import * as zlib from "node:zlib";
 
 import {
@@ -10,6 +14,9 @@ import {
   MAX_WIRE_BYTES,
   normalizePublicHttpUrl,
 } from "../src/core/url-fetch";
+
+const requireForTests = createRequire(import.meta.url);
+const httpsCjs = requireForTests("node:https") as typeof https;
 
 test("normalizePublicHttpUrl canonicalizes host and removes fragment", () => {
   const result = normalizePublicHttpUrl("https://Example.COM./Path?q=1#frag");
@@ -199,6 +206,109 @@ function localLookup(hostname: string, options: unknown, callback: unknown): voi
   (cb as dns.LookupOneCallback)(null, "127.0.0.1", 4);
 }
 
+function lookupReturning(addresses: dns.LookupAddress[]): typeof dns.lookup {
+  return (hostname: string, options: unknown, callback: unknown): void => {
+    const cb = typeof options === "function" ? options : callback;
+    const wantsAll =
+      typeof options === "object" &&
+      options !== null &&
+      "all" in options &&
+      (options as dns.LookupAllOptions).all === true;
+
+    if (wantsAll) {
+      (
+        cb as (
+          error: NodeJS.ErrnoException | null,
+          result: dns.LookupAddress[]
+        ) => void
+      )(null, addresses);
+      return;
+    }
+
+    const first = addresses[0];
+    assert.ok(first, `lookupReturning(${hostname}) requires at least one address`);
+    (cb as dns.LookupOneCallback)(null, first.address, first.family);
+  };
+}
+
+type FetchPublicHtmlOptionsForTests = NonNullable<Parameters<typeof fetchPublicHtml>[1]>;
+
+type MockDohResult =
+  | { kind: "response"; statusCode: number; body: string }
+  | { kind: "request_error"; message: string };
+
+async function withMockedDohRequest(
+  resolveDohResult: (endpoint: URL) => MockDohResult,
+  fn: () => Promise<void>,
+  observeTimeout?: (timeoutMs: number, endpoint: URL) => void
+): Promise<void> {
+  const originalRequest = httpsCjs.request;
+  const forwardRequest = originalRequest as unknown as (...args: unknown[]) => http.ClientRequest;
+
+  const patchedRequest = ((...args: unknown[]): http.ClientRequest => {
+    const first = args[0];
+    const second = args[1];
+    const third = args[2];
+    const callback =
+      typeof second === "function"
+        ? (second as (response: http.IncomingMessage) => void)
+        : typeof third === "function"
+          ? (third as (response: http.IncomingMessage) => void)
+          : undefined;
+
+    let endpoint: URL | null = null;
+    if (typeof first === "string" || first instanceof URL) {
+      endpoint = new URL(first.toString());
+    }
+
+    const isDohEndpoint =
+      endpoint !== null &&
+      (endpoint.hostname === "cloudflare-dns.com" || endpoint.hostname === "dns.google");
+    if (!isDohEndpoint || endpoint === null) {
+      return forwardRequest(...args);
+    }
+
+    let timeoutHandler: (() => void) | undefined;
+    const request = new EventEmitter() as EventEmitter &
+      Pick<http.ClientRequest, "setTimeout" | "destroy" | "end">;
+    request.setTimeout = (timeoutMs: number, onTimeout?: () => void) => {
+      observeTimeout?.(timeoutMs, endpoint);
+      timeoutHandler = onTimeout;
+      return request as unknown as http.ClientRequest;
+    };
+    request.destroy = (error?: Error) => {
+      if (error) {
+        request.emit("error", error);
+      } else if (timeoutHandler) {
+        timeoutHandler();
+      }
+      return request as unknown as http.ClientRequest;
+    };
+    request.end = () => {
+      const result = resolveDohResult(endpoint);
+      process.nextTick(() => {
+        if (result.kind === "request_error") {
+          request.emit("error", new Error(result.message));
+          return;
+        }
+        const response = new PassThrough() as PassThrough & { statusCode?: number };
+        response.statusCode = result.statusCode;
+        callback?.(response as unknown as http.IncomingMessage);
+        response.end(result.body);
+      });
+      return request as unknown as http.ClientRequest;
+    };
+    return request as unknown as http.ClientRequest;
+  }) as typeof https.request;
+
+  httpsCjs.request = patchedRequest;
+  try {
+    await fn();
+  } finally {
+    httpsCjs.request = originalRequest;
+  }
+}
+
 test("fetchPublicHtml accepts text/html, decodes gzip, and returns decoded entity bytes", async () => {
   await withServer((request, response) => {
     assert.equal(request.headers.cookie, undefined);
@@ -348,6 +458,236 @@ test("fetchPublicHtml rejects when any DNS candidate is non-public", async () =>
       }),
     /non-public IP address.*DNS resolver or proxy/u
   );
+});
+
+test("fetchPublicHtml default mode still rejects trusted-proxy fake-ip DNS candidates", async () => {
+  const fakeIpLookup = lookupReturning([{ address: "198.18.0.10", family: 4 }]);
+
+  await assert.rejects(
+    () =>
+      fetchPublicHtml("https://example.com/article", {
+        lookup: fakeIpLookup,
+      }),
+    /non-public IP address/u
+  );
+});
+
+test("fetchPublicHtml default mode ignores invalid trusted CIDR env when trusted proxy DNS is disabled", async () => {
+  const previousEnabled = process.env.KB_URL_FETCH_TRUSTED_PROXY_DNS;
+  const previousCidrs = process.env.KB_URL_FETCH_TRUSTED_PROXY_CIDRS;
+  process.env.KB_URL_FETCH_TRUSTED_PROXY_DNS = "0";
+  process.env.KB_URL_FETCH_TRUSTED_PROXY_CIDRS = "not-a-cidr";
+  try {
+    await assert.rejects(
+      () =>
+        fetchPublicHtml("https://example.com/article", {
+          lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /non-public IP address/u);
+        assert.doesNotMatch(error.message, /Invalid trusted proxy CIDR/u);
+        return true;
+      }
+    );
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.KB_URL_FETCH_TRUSTED_PROXY_DNS;
+    } else {
+      process.env.KB_URL_FETCH_TRUSTED_PROXY_DNS = previousEnabled;
+    }
+    if (previousCidrs === undefined) {
+      delete process.env.KB_URL_FETCH_TRUSTED_PROXY_CIDRS;
+    } else {
+      process.env.KB_URL_FETCH_TRUSTED_PROXY_CIDRS = previousCidrs;
+    }
+  }
+});
+
+test("fetchPublicHtml trusted proxy DNS mode accepts fake-ip after external public DNS verification", async () => {
+  await withServer((request, response) => {
+    assert.equal(request.headers.host?.startsWith("example.com:"), true);
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end("<!doctype html><html><body>Trusted proxy DNS fake-ip</body></html>");
+  }, async (url) => {
+    let publicLookupCalls = 0;
+    let pinnedFakeIpLookupObserved = false;
+    const options: FetchPublicHtmlOptionsForTests = {
+      lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+      trusted_proxy_dns_for_tests: {
+        enabled: true,
+        trusted_cidrs: ["198.18.0.0/15"],
+      },
+      public_dns_lookup_for_tests: async (hostname: string) => {
+        publicLookupCalls += 1;
+        assert.equal(hostname, "example.com");
+        return [{ address: "93.184.216.34", family: 4 }];
+      },
+      request_lookup_for_tests: localLookup as typeof dns.lookup,
+      request_pinned_address_observer_for_tests: (address: dns.LookupAddress) => {
+        assert.deepEqual(address, { address: "198.18.0.10", family: 4 });
+        pinnedFakeIpLookupObserved = true;
+      },
+    };
+    const result = await fetchPublicHtml(
+      url.replace("127.0.0.1", "example.com"),
+      options
+    );
+    assert.match(result.decoded_html, /Trusted proxy DNS fake-ip/u);
+    assert.equal(publicLookupCalls, 1);
+    assert.equal(pinnedFakeIpLookupObserved, true);
+  });
+});
+
+test("fetchPublicHtml trusted proxy DNS DoH production lookup tolerates endpoint failures after public verification", async () => {
+  await withServer((request, response) => {
+    assert.equal(request.headers.host?.startsWith("example.com:"), true);
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end("<!doctype html><html><body>Fetched through trusted proxy DNS</body></html>");
+  }, async (url) => {
+    await withMockedDohRequest(
+      (endpoint: URL): MockDohResult =>
+        endpoint.hostname === "cloudflare-dns.com"
+          ? { kind: "request_error", message: "cloudflare blocked" }
+          : {
+              kind: "response",
+              statusCode: 200,
+              body: JSON.stringify({
+                Status: 0,
+                Answer: [{ data: "93.184.216.34" }],
+              }),
+            },
+      async () => {
+        const result = await fetchPublicHtml(url.replace("127.0.0.1", "example.com"), {
+          lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+          trusted_proxy_dns_for_tests: {
+            enabled: true,
+            trusted_cidrs: ["198.18.0.0/15"],
+          },
+          request_lookup_for_tests: localLookup as typeof dns.lookup,
+        });
+        assert.match(result.decoded_html, /Fetched through trusted proxy DNS/u);
+      }
+    );
+  });
+});
+
+test("fetchPublicHtml trusted proxy DNS DoH production lookup rejects any non-public external answer", async () => {
+  await withMockedDohRequest(
+    (endpoint: URL): MockDohResult =>
+      endpoint.hostname === "cloudflare-dns.com" && endpoint.searchParams.get("type") === "A"
+        ? {
+            kind: "response",
+            statusCode: 200,
+            body: JSON.stringify({
+              Status: 0,
+              Answer: [{ data: "10.0.0.9" }],
+            }),
+          }
+        : {
+            kind: "response",
+            statusCode: 200,
+            body: JSON.stringify({
+              Status: 0,
+              Answer: [{ data: "93.184.216.34" }],
+            }),
+          },
+    async () => {
+      await assert.rejects(
+        () =>
+          fetchPublicHtml("https://example.com/article", {
+            lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+            trusted_proxy_dns_for_tests: {
+              enabled: true,
+              trusted_cidrs: ["198.18.0.0/15"],
+            },
+          }),
+        /non-public DNS address/u
+      );
+    }
+  );
+});
+
+test("fetchPublicHtml trusted proxy DNS DoH production lookup uses caller timeout budget", async () => {
+  const observedTimeouts: number[] = [];
+  await withMockedDohRequest(
+    (): MockDohResult => ({ kind: "request_error", message: "provider blocked" }),
+    async () => {
+      await assert.rejects(
+        () =>
+          fetchPublicHtml("https://example.com/article", {
+            lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+            trusted_proxy_dns_for_tests: {
+              enabled: true,
+              trusted_cidrs: ["198.18.0.0/15"],
+            },
+            timeout_ms: 123,
+          }),
+        /trusted proxy DNS external public DNS verification failed/u
+      );
+    },
+    (timeoutMs: number) => observedTimeouts.push(timeoutMs)
+  );
+  assert.ok(observedTimeouts.length > 0);
+  assert.deepEqual([...new Set(observedTimeouts)], [123]);
+});
+
+test("fetchPublicHtml trusted proxy DNS mode rejects fake-ip when external verification is non-public or empty", async () => {
+  for (const [label, externalAddresses] of [
+    ["non-public", [{ address: "10.0.0.9", family: 4 }] satisfies dns.LookupAddress[]],
+    [
+      "mixed public and private",
+      [
+        { address: "93.184.216.34", family: 4 },
+        { address: "10.0.0.9", family: 4 },
+      ] satisfies dns.LookupAddress[],
+    ],
+    ["empty", [] satisfies dns.LookupAddress[]],
+  ] as const) {
+    let publicLookupCalls = 0;
+    const options: FetchPublicHtmlOptionsForTests = {
+      lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+      trusted_proxy_dns_for_tests: {
+        enabled: true,
+        trusted_cidrs: ["198.18.0.0/15"],
+      },
+      public_dns_lookup_for_tests: async () => {
+        publicLookupCalls += 1;
+        return externalAddresses;
+      },
+    };
+
+    await assert.rejects(
+      () => fetchPublicHtml("https://example.com/article", options),
+      /external public DNS verification|verified public DNS|trusted proxy DNS|non-public IP address/u,
+      label
+    );
+    assert.equal(publicLookupCalls, 1, label);
+  }
+});
+
+test("fetchPublicHtml rejects non-public IP literal even when trusted proxy DNS mode is enabled", async () => {
+  let publicLookupCalls = 0;
+  const options: FetchPublicHtmlOptionsForTests = {
+    lookup: lookupReturning([{ address: "198.18.0.10", family: 4 }]),
+    trusted_proxy_dns_for_tests: {
+      enabled: true,
+      trusted_cidrs: ["198.18.0.0/15"],
+    },
+    public_dns_lookup_for_tests: async () => {
+      publicLookupCalls += 1;
+      return [{ address: "93.184.216.34", family: 4 }];
+    },
+  };
+
+  for (const literalUrl of ["http://192.168.1.10/", "http://198.18.0.10/"]) {
+    await assert.rejects(
+      () => fetchPublicHtml(literalUrl, options),
+      /non-public IP address/u,
+      literalUrl
+    );
+  }
+  assert.equal(publicLookupCalls, 0, "IP literal path should skip external DNS verification");
 });
 
 test("fetchPublicHtml rejects newly covered special-use DNS candidates", async () => {

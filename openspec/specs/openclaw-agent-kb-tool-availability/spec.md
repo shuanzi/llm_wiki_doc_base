@@ -158,7 +158,7 @@ After a healthy OpenClaw KB install, the installer-configured OpenClaw agent ses
 - `kb_run_lint`
 - `kb_repair`
 
-`kb_read_source` SHALL read canonical Markdown source content. `kb_url_add({ url, accept_language? })` SHALL support only public http/https `text/html` URLs, with no credentials, cookies, or proxy use; private networks, JS-only SPA pages, and XHTML are unsupported. URL ingest SHALL follow at most 5 redirects, enforce wire 6MiB and decoded 5MiB limits, and write Defuddle-derived artifacts under `raw/originals`, `raw/inbox`, and `state/extractions`.
+`kb_read_source` SHALL read canonical Markdown source content. `kb_url_add({ url, accept_language? })` SHALL support only public http/https `text/html` URLs, with no credentials or cookies. Private-network DNS/address targets SHALL be blocked by default. When trusted fake-ip proxy DNS mode is explicitly enabled, only trusted fake-ip CIDR candidates MAY be allowed and they SHALL pass external public DNS verification. JS-only SPA pages and XHTML are unsupported. URL ingest SHALL follow at most 5 redirects, enforce wire 6MiB and decoded 5MiB limits, and write Defuddle-derived artifacts under `raw/originals`, `raw/inbox`, and `state/extractions`.
 
 #### Scenario: Healthy install exposes expected KB tools through the official runtime harness
 - **WHEN** an operator installs the OpenClaw KB integration for `--agent-id research` successfully

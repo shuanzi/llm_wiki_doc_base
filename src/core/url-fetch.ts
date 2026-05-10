@@ -1,15 +1,19 @@
 import * as dns from "node:dns";
-import * as http from "node:http";
-import * as https from "node:https";
 import * as net from "node:net";
 import { Transform } from "node:stream";
 import * as zlib from "node:zlib";
 import { domainToASCII } from "node:url";
+import http = require("node:http");
+import https = require("node:https");
 
 export const MAX_WIRE_BYTES = 6 * 1024 * 1024;
 export const MAX_DECODED_BYTES = 5 * 1024 * 1024;
 export const MAX_REDIRECTS = 5;
 export const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TRUSTED_PROXY_DNS_CIDRS = ["198.18.0.0/15"] as const;
+const TRUSTED_PROXY_DNS_ENABLED_ENV = "KB_URL_FETCH_TRUSTED_PROXY_DNS";
+const TRUSTED_PROXY_DNS_CIDRS_ENV = "KB_URL_FETCH_TRUSTED_PROXY_CIDRS";
+const PUBLIC_DNS_LOOKUP_TIMEOUT_MS = 4_000;
 const QUERY_CREDENTIAL_PARAMS = new Set([
   "access_token",
   "accesstoken",
@@ -71,6 +75,13 @@ export interface FetchPublicHtmlOptions {
   allow_private_for_tests?: boolean;
   accept_language?: string;
   timeout_ms?: number;
+  trusted_proxy_dns_for_tests?: {
+    enabled: boolean;
+    trusted_cidrs?: string[];
+  };
+  public_dns_lookup_for_tests?: (hostname: string) => Promise<dns.LookupAddress[]>;
+  request_lookup_for_tests?: typeof dns.lookup;
+  request_pinned_address_observer_for_tests?: (address: dns.LookupAddress) => void;
 }
 
 export interface FetchedPublicHtml {
@@ -91,6 +102,17 @@ export interface FetchedPublicHtml {
 interface VerifiedAddress {
   address: string;
   family: 4 | 6;
+}
+
+interface TrustedProxyDnsConfig {
+  enabled: boolean;
+  trustedCidrs: Ipv4CidrRange[];
+}
+
+interface Ipv4CidrRange {
+  cidr: string;
+  network: number;
+  mask: number;
 }
 
 export function normalizePublicHttpUrl(input: string): NormalizedPublicUrl {
@@ -363,13 +385,34 @@ async function resolveAndValidateHost(
   if (addresses.length === 0) {
     throw new Error(`DNS lookup returned no addresses for ${hostname}.`);
   }
+  const trustedProxyDns = resolveTrustedProxyDnsConfig(options);
+  let needsExternalPublicDnsVerification = false;
+
   for (const candidate of addresses) {
-    if (!options.allow_private_for_tests && !isPublicIpAddress(candidate.address)) {
+    if (candidate.family !== 4 && candidate.family !== 6) {
       throw new Error(
-        `DNS candidate ${candidate.address} for ${hostname} is a non-public IP address.${NON_PUBLIC_DNS_HINT}`
+        `DNS candidate ${candidate.address} returned unsupported IP family ${candidate.family}.`
       );
     }
+    if (options.allow_private_for_tests || isPublicIpAddress(candidate.address)) {
+      continue;
+    }
+    if (
+      trustedProxyDns.enabled &&
+      isTrustedProxyDnsCandidate(candidate.address, trustedProxyDns.trustedCidrs)
+    ) {
+      needsExternalPublicDnsVerification = true;
+      continue;
+    }
+    throw new Error(
+      `DNS candidate ${candidate.address} for ${hostname} is a non-public IP address.`
+    );
   }
+
+  if (needsExternalPublicDnsVerification) {
+    await assertHostnameResolvesToPublicIp(hostname, options);
+  }
+
   return addresses.map((candidate) => {
     if (candidate.family !== 4 && candidate.family !== 6) {
       throw new Error(
@@ -381,6 +424,230 @@ async function resolveAndValidateHost(
       family: candidate.family,
     };
   });
+}
+
+function resolveTrustedProxyDnsConfig(
+  options: FetchPublicHtmlOptions
+): TrustedProxyDnsConfig {
+  const enabledForTests = options.trusted_proxy_dns_for_tests?.enabled;
+  const envEnabled =
+    process.env[TRUSTED_PROXY_DNS_ENABLED_ENV] === "1" ||
+    process.env[TRUSTED_PROXY_DNS_ENABLED_ENV]?.toLowerCase() === "true";
+  const enabled = enabledForTests ?? envEnabled;
+  if (!enabled) {
+    return {
+      enabled: false,
+      trustedCidrs: [],
+    };
+  }
+  const configuredCidrs =
+    options.trusted_proxy_dns_for_tests?.trusted_cidrs ??
+    parseCidrsFromEnv(process.env[TRUSTED_PROXY_DNS_CIDRS_ENV]);
+  const cidrs = configuredCidrs ?? [...DEFAULT_TRUSTED_PROXY_DNS_CIDRS];
+  const trustedCidrs = cidrs.map(parseIpv4Cidr);
+  return {
+    enabled,
+    trustedCidrs,
+  };
+}
+
+function parseCidrsFromEnv(value: string | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const entries = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return entries.length > 0 ? entries : undefined;
+}
+
+function parseIpv4Cidr(cidr: string): Ipv4CidrRange {
+  const match = /^(\d{1,3}(?:\.\d{1,3}){3})\/(\d|[12]\d|3[0-2])$/u.exec(cidr);
+  if (!match) {
+    throw new Error(`Invalid trusted proxy CIDR: ${cidr}.`);
+  }
+  const base = ipv4ToInt(match[1] ?? "");
+  const bits = Number(match[2]);
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return {
+    cidr,
+    network: base & mask,
+    mask,
+  };
+}
+
+function ipv4ToInt(address: string): number {
+  const octets = address.split(".").map((part) => Number(part));
+  if (
+    octets.length !== 4 ||
+    octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
+    throw new Error(`Invalid IPv4 address: ${address}.`);
+  }
+  return (
+    ((octets[0] ?? 0) << 24) |
+    ((octets[1] ?? 0) << 16) |
+    ((octets[2] ?? 0) << 8) |
+    (octets[3] ?? 0)
+  ) >>> 0;
+}
+
+function isTrustedProxyDnsCandidate(
+  candidateAddress: string,
+  trustedCidrs: Ipv4CidrRange[]
+): boolean {
+  if (net.isIP(candidateAddress) !== 4) {
+    return false;
+  }
+  const value = ipv4ToInt(candidateAddress);
+  for (const cidr of trustedCidrs) {
+    if ((value & cidr.mask) === cidr.network) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function assertHostnameResolvesToPublicIp(
+  hostname: string,
+  options: FetchPublicHtmlOptions
+): Promise<void> {
+  const publicLookup =
+    options.public_dns_lookup_for_tests ??
+    ((targetHostname: string) =>
+      lookupPublicDnsAddressesViaDoh(targetHostname, getPublicDnsLookupTimeoutMs(options)));
+  let externalAddresses: dns.LookupAddress[];
+  try {
+    externalAddresses = await publicLookup(hostname);
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `trusted proxy DNS external public DNS verification failed for ${hostname}: ${reason}`
+    );
+  }
+  if (externalAddresses.length === 0) {
+    throw new Error(
+      `trusted proxy DNS external public DNS verification returned no addresses for ${hostname}.`
+    );
+  }
+  if (!externalAddresses.every((address) => isPublicIpAddress(address.address))) {
+    throw new Error(
+      `trusted proxy DNS external public DNS verification found non-public DNS address for ${hostname}.`
+    );
+  }
+}
+
+async function lookupPublicDnsAddressesViaDoh(
+  hostname: string,
+  timeoutMs: number
+): Promise<dns.LookupAddress[]> {
+  const providers = [
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=A`,
+    `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(hostname)}&type=AAAA`,
+    `https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=A`,
+    `https://dns.google/resolve?name=${encodeURIComponent(hostname)}&type=AAAA`,
+  ];
+  const dedup = new Map<string, dns.LookupAddress>();
+  const errors: string[] = [];
+
+  const results = await Promise.allSettled(
+    providers.map((endpoint) => dohLookupSingleEndpoint(endpoint, timeoutMs))
+  );
+  for (const result of results) {
+    if (result.status === "rejected") {
+      errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      continue;
+    }
+    const addresses = result.value;
+    for (const address of addresses) {
+      dedup.set(`${address.family}:${address.address}`, address);
+    }
+  }
+
+  const resolved = [...dedup.values()];
+  if (resolved.length > 0) {
+    return resolved;
+  }
+  if (errors.length > 0) {
+    throw new Error(
+      `public DNS lookup returned no addresses for ${hostname}; provider errors: ${errors.join("; ")}`
+    );
+  }
+  throw new Error(`public DNS lookup returned no addresses for ${hostname}.`);
+}
+
+async function dohLookupSingleEndpoint(
+  endpoint: string,
+  timeoutMs: number
+): Promise<dns.LookupAddress[]> {
+  const body = await new Promise<string>((resolve, reject) => {
+    const request = https.request(
+      endpoint,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/dns-json",
+          "User-Agent": "@openclaw/kb-url-fetch/0.1",
+        },
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer | string) =>
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+        );
+        response.on("end", () => {
+          if (!response.statusCode || response.statusCode < 200 || response.statusCode > 299) {
+            reject(new Error(`DoH request failed with HTTP ${response.statusCode ?? "unknown"}.`));
+            return;
+          }
+          resolve(Buffer.concat(chunks).toString("utf8"));
+        });
+      }
+    );
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error("DoH request timed out."));
+    });
+    request.on("error", reject);
+    request.end();
+  });
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    throw new Error("DoH response was not valid JSON.");
+  }
+
+  const status = (payload as { Status?: unknown }).Status;
+  if (typeof status !== "number" || !Number.isInteger(status)) {
+    throw new Error("DoH response missing DNS Status.");
+  }
+  if (status !== 0) {
+    throw new Error(`DoH response returned DNS Status ${status}.`);
+  }
+
+  const answers = (
+    payload as {
+      Answer?: Array<{ data?: string }>;
+    }
+  ).Answer;
+  if (!Array.isArray(answers)) {
+    return [];
+  }
+
+  const addresses: dns.LookupAddress[] = [];
+  for (const answer of answers) {
+    const raw = answer?.data?.trim();
+    const family = net.isIP(raw ?? "");
+    if (family === 4 || family === 6) {
+      addresses.push({
+        address: raw as string,
+        family,
+      });
+    }
+  }
+  return addresses;
 }
 
 async function requestUrlFromAnyAddress(
@@ -441,6 +708,15 @@ function requestUrl(
         servername:
           parsed.protocol === "https:" && !isIpLiteral ? canonicalHost : undefined,
         lookup: (_hostname, lookupOptions, callback) => {
+          options.request_pinned_address_observer_for_tests?.(pinned);
+          if (options.request_lookup_for_tests) {
+            options.request_lookup_for_tests(
+              canonicalHost,
+              lookupOptions as never,
+              callback as never
+            );
+            return;
+          }
           if (
             typeof lookupOptions === "object" &&
             lookupOptions !== null &&
@@ -601,6 +877,10 @@ function readDecodedEntityBytesPreferringWireLimit(
 
 function getTimeoutMs(options: FetchPublicHtmlOptions): number {
   return options.timeout_ms ?? DEFAULT_TIMEOUT_MS;
+}
+
+function getPublicDnsLookupTimeoutMs(options: FetchPublicHtmlOptions): number {
+  return Math.max(1, Math.min(PUBLIC_DNS_LOOKUP_TIMEOUT_MS, getTimeoutMs(options)));
 }
 
 class ByteLimitTransform extends Transform {
