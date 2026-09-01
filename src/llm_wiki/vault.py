@@ -25,19 +25,23 @@ from .utils import (
 )
 
 VAULT_SCHEMA_VERSION = 1
-REQUIRED_VAULT_PATHS = (
+REQUIRED_VAULT_FILES = (
     "VAULT.md",
     "profile/vault.json",
     "profile/VAULT_PROFILE.md",
     "profile/CONVENTIONS.md",
     "profile/PERSISTENCE_POLICY.md",
     "sources/README.md",
-    "sources/inbox",
-    "sources/library",
-    "sources/assets",
     "wiki/INDEX.md",
     "wiki/OVERVIEW.md",
     "wiki/maps/Knowledge Map.md",
+    "evidence/README.md",
+    "logs/operations.md",
+)
+REQUIRED_VAULT_DIRECTORIES = (
+    "sources/inbox",
+    "sources/library",
+    "sources/assets",
     "wiki/sources",
     "wiki/concepts",
     "wiki/entities",
@@ -45,9 +49,8 @@ REQUIRED_VAULT_PATHS = (
     "wiki/questions",
     "wiki/decisions",
     "wiki/_templates",
-    "evidence/README.md",
-    "logs/operations.md",
 )
+REQUIRED_VAULT_PATHS = REQUIRED_VAULT_FILES + REQUIRED_VAULT_DIRECTORIES
 
 
 def _vault_template_root():
@@ -71,11 +74,8 @@ def _populate_vault(path: Path, name: str, language: str) -> tuple[str, str]:
     copy_traversable(_vault_template_root(), path)
     # Package formats may omit empty/hidden paths, so create structural directories
     # and minimal Obsidian JSON deterministically after copying templates.
-    for relative in REQUIRED_VAULT_PATHS:
-        target = path / relative
-        if Path(relative).suffix:
-            continue
-        target.mkdir(parents=True, exist_ok=True)
+    for relative in REQUIRED_VAULT_DIRECTORIES:
+        (path / relative).mkdir(parents=True, exist_ok=True)
     obsidian = path / ".obsidian"
     obsidian.mkdir(parents=True, exist_ok=True)
     atomic_write_json(

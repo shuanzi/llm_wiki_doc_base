@@ -162,6 +162,28 @@ class VaultTests(unittest.TestCase):
         self.assertIn("vault.link-broken", codes)
         self.assertIn("vault.link-escape", codes)
 
+    def test_markdown_links_allow_balanced_parentheses_in_targets(self) -> None:
+        concepts = self.vault / "wiki/concepts"
+        for name in ("foo_(bar).md", "nested_(a_(b)).md", "angle_(ok).md"):
+            (concepts / name).write_text(f"# {name}\n", encoding="utf-8")
+        page = concepts / "Balanced Links.md"
+        page.write_text(
+            "# Balanced Links\n\n"
+            "[one](foo_(bar).md)\n\n"
+            "[nested](nested_(a_(b)).md)\n\n"
+            "[angle](<angle_(ok).md>)\n\n"
+            "[missing](missing_(target).md)\n",
+            encoding="utf-8",
+        )
+
+        broken = [
+            item
+            for item in validate_vault(self.vault)
+            if item.level == "error" and item.code == "vault.link-broken"
+        ]
+        self.assertEqual(len(broken), 1, broken)
+        self.assertIn("missing_(target).md", broken[0].message)
+
     def test_shipped_demo_vault_is_valid_and_synthesized(self) -> None:
         demo = Path(__file__).resolve().parents[1] / "examples" / "demo-vault"
         self.assertEqual(errors(validate_vault(demo)), [])

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,6 +36,31 @@ class DoctorTests(unittest.TestCase):
             (vault / ".obsidian/app.json").write_text("{", encoding="utf-8")
             codes = {item.code for item in validate_vault(vault) if item.level == "error"}
             self.assertIn("vault.obsidian-json", codes)
+
+    def test_required_vault_paths_must_have_the_declared_type(self) -> None:
+        replacements = {
+            "sources/inbox": "file",
+            "logs/operations.md": "directory",
+        }
+        for relative, replacement in replacements.items():
+            with self.subTest(relative=relative):
+                with tempfile.TemporaryDirectory() as temp:
+                    vault = Path(temp) / "vault"
+                    init_vault(vault, "Wrong required type")
+                    target = vault / relative
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+                    if replacement == "file":
+                        target.write_text("not a directory", encoding="utf-8")
+                    else:
+                        target.mkdir()
+
+                    codes = {
+                        item.code for item in validate_vault(vault) if item.level == "error"
+                    }
+                    self.assertIn("vault.required-type", codes)
 
     def test_source_path_escape_is_detected(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Iterator
 from urllib.parse import unquote, urlsplit
 
 from .binding import (
@@ -26,7 +27,11 @@ from .utils import (
     read_json,
     sha256_file,
 )
-from .vault import REQUIRED_VAULT_PATHS, VAULT_SCHEMA_VERSION
+from .vault import (
+    REQUIRED_VAULT_FILES,
+    REQUIRED_VAULT_PATHS,
+    VAULT_SCHEMA_VERSION,
+)
 
 FORBIDDEN_VAULT_ROOTS = (
     ".agents",
@@ -48,7 +53,7 @@ REQUIRED_SKILL_REFS = (
     "repository-ingest.md",
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
-LOCAL_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+LOCAL_LINK_START_PATTERN = re.compile(r"!?\[[^\]\n]*\]\(")
 
 
 def _finding(level: str, code: str, message: str, path: Path | None = None) -> Finding:
@@ -187,6 +192,26 @@ def _read_markdown(vault: Path, findings: list[Finding]) -> dict[Path, str]:
     return markdown_texts
 
 
+def _iter_markdown_link_targets(text: str) -> Iterator[str]:
+    for match in LOCAL_LINK_START_PATTERN.finditer(text):
+        start = match.end()
+        depth = 0
+        index = start
+        while index < len(text):
+            character = text[index]
+            if character == "\\":
+                index += 2
+                continue
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                if depth == 0:
+                    yield text[start:index]
+                    break
+                depth -= 1
+            index += 1
+
+
 def _validate_markdown_links(
     vault: Path,
     markdown_texts: dict[Path, str],
@@ -201,7 +226,7 @@ def _validate_markdown_links(
             # belong to the source's original context (for example, a repository)
             # and are not Vault navigation links.
             continue
-        for raw_target in LOCAL_LINK_PATTERN.findall(text):
+        for raw_target in _iter_markdown_link_targets(text):
             raw_target = raw_target.strip().strip("<>")
             if not raw_target or raw_target.startswith("#"):
                 continue
@@ -430,6 +455,18 @@ def validate_vault(vault: Path) -> list[Finding]:
         if not is_relative_to(resolved, vault):
             findings.append(
                 _finding("error", "vault.required-escape", f"Required path escapes the Vault: {relative}", target)
+            )
+            continue
+        expected = "file" if relative in REQUIRED_VAULT_FILES else "directory"
+        valid_type = target.is_file() if relative in REQUIRED_VAULT_FILES else target.is_dir()
+        if not valid_type:
+            findings.append(
+                _finding(
+                    "error",
+                    "vault.required-type",
+                    f"Required path must be a {expected}: {relative}",
+                    target,
+                )
             )
 
     _validate_profile(vault, findings)
