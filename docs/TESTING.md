@@ -16,7 +16,7 @@
 
 ### Packaging
 
-在临时虚拟环境中使用 `pip --no-deps --no-build-isolation` 安装项目，再调用安装后的 `llm-wiki` 完成 init/attach/doctor/detach。
+在临时虚拟环境中使用 `pip --no-deps --no-build-isolation` 安装项目，再调用安装后的 `llm-wiki` 完成 init/attach/update/doctor/detach。
 
 ### Agent Eval Contract
 
@@ -45,6 +45,8 @@
 - Doctor 对干净 Kit、Vault、Binding 无 error/warning；
 - Source 改写必须被检测；
 - 非托管 Skill 不能被默认覆盖或删除；
+- update 的多 Harness 替换、托管文档与 Binding metadata 具备失败回滚和重复幂等；
+- 仓库注册不持久化源码，且重复 identity 不访问网络；
 - 完整 detach 后 Vault fingerprint 不变；
 - 复制后的 Vault 无需 Binding 即可通过 Doctor；
 - 安装包不下载第三方运行依赖。

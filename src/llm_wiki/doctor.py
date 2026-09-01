@@ -11,7 +11,9 @@ from .binding import (
     BINDING_SCHEMA_VERSION,
     INSTRUCTION_FILES,
     MARKER_FILE,
+    SKILL_FINGERPRINT_IGNORE,
     SKILL_TARGETS,
+    canonical_skill_fingerprint,
     canonical_skill_root,
     load_binding,
 )
@@ -23,7 +25,6 @@ from .utils import (
     parse_frontmatter,
     read_json,
     sha256_file,
-    traversable_fingerprint,
 )
 from .vault import REQUIRED_VAULT_PATHS, VAULT_SCHEMA_VERSION
 
@@ -44,6 +45,7 @@ REQUIRED_SKILL_REFS = (
     "change-policy.md",
     "harness-boundaries.md",
     "obsidian.md",
+    "repository-ingest.md",
 )
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 LOCAL_LINK_PATTERN = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
@@ -89,9 +91,19 @@ def validate_skill_dir(path: Path, compare_canonical: bool = False) -> list[Find
                     ref_path,
                 )
             )
+    repository_script = path / "scripts" / "register_repository.py"
+    if not repository_script.is_file():
+        findings.append(
+            _finding(
+                "error",
+                "skill.script-missing",
+                "Missing repository registration script",
+                repository_script,
+            )
+        )
     if compare_canonical and not path.is_symlink() and path.is_dir():
-        expected = traversable_fingerprint(canonical_skill_root(), {MARKER_FILE})
-        actual = directory_fingerprint(path, {MARKER_FILE})
+        expected = canonical_skill_fingerprint()
+        actual = directory_fingerprint(path, SKILL_FINGERPRINT_IGNORE)
         if expected != actual:
             findings.append(
                 _finding(
@@ -183,6 +195,12 @@ def _validate_markdown_links(
     # Check ordinary local Markdown links. Wikilinks remain Agent/Obsidian-managed
     # because their resolution can depend on aliases and Vault settings.
     for markdown, text in markdown_texts.items():
+        relative = markdown.relative_to(vault)
+        if relative.parts[:2] == ("sources", "library"):
+            # Registered Markdown is immutable source evidence. Its relative links
+            # belong to the source's original context (for example, a repository)
+            # and are not Vault navigation links.
+            continue
         for raw_target in LOCAL_LINK_PATTERN.findall(text):
             raw_target = raw_target.strip().strip("<>")
             if not raw_target or raw_target.startswith("#"):
@@ -266,6 +284,7 @@ def _validate_source_records(
         return
     seen_hashes: dict[str, Path] = {}
     seen_ids: dict[str, Path] = {}
+    seen_repository_identities: dict[str, Path] = {}
     for record in records_dir.glob("*.md"):
         text = markdown_texts.get(record)
         if text is None:
@@ -279,6 +298,38 @@ def _validate_source_records(
         relative = metadata.get("source_path")
         digest = metadata.get("sha256")
         source_id = metadata.get("source_id")
+        if metadata.get("source_kind") == "repository":
+            required_repository = (
+                "repository_identity",
+                "repository_url",
+                "repository_name",
+                "readme_path",
+            )
+            missing_repository = [
+                field for field in required_repository if not metadata.get(field)
+            ]
+            if missing_repository:
+                findings.append(
+                    _finding(
+                        "error",
+                        "source.repository-metadata",
+                        "Repository Source Record lacks: " + ", ".join(missing_repository),
+                        record,
+                    )
+                )
+            identity = metadata.get("repository_identity")
+            if identity:
+                if identity in seen_repository_identities:
+                    findings.append(
+                        _finding(
+                            "error",
+                            "source.repository-identity-duplicate",
+                            f"Repository identity also appears in {seen_repository_identities[identity]}",
+                            record,
+                        )
+                    )
+                else:
+                    seen_repository_identities[identity] = record
         if not relative or not digest:
             findings.append(
                 _finding("error", "source.metadata", "Source record lacks source_path or sha256", record)
@@ -429,6 +480,23 @@ def _validate_copy_marker(target: Path, findings: list[Finding]) -> None:
         findings.append(
             _finding("error", "binding.skill-marker", "Skill marker is not owned by llm-wiki", marker)
         )
+        return
+    fingerprint = payload.get("skill_fingerprint")
+    if fingerprint is not None:
+        actual = directory_fingerprint(target, SKILL_FINGERPRINT_IGNORE)
+        if not isinstance(fingerprint, str) or not SHA256_PATTERN.fullmatch(fingerprint):
+            findings.append(
+                _finding("error", "binding.skill-fingerprint", "Skill marker fingerprint is invalid", marker)
+            )
+        elif fingerprint != actual:
+            findings.append(
+                _finding(
+                    "error",
+                    "binding.skill-local-drift",
+                    "Managed Skill differs from its recorded fingerprint",
+                    target,
+                )
+            )
 
 
 def validate_binding(workspace: Path) -> list[Finding]:
@@ -528,6 +596,15 @@ def validate_binding(workspace: Path) -> list[Finding]:
             findings.append(
                 _finding("error", "binding.skill-mode-mismatch", "Expected a Skill symlink", target)
             )
+        elif skill_mode == "symlink" and target.resolve(strict=False) != Path(canonical_skill_root()).resolve():
+            findings.append(
+                _finding(
+                    "error",
+                    "binding.skill-link-target",
+                    "Managed Skill symlink does not point to this Kit's canonical Skill",
+                    target,
+                )
+            )
         findings.extend(validate_skill_dir(target, compare_canonical=True))
 
         instructions = workspace / INSTRUCTION_FILES[harness]
@@ -593,10 +670,10 @@ def validate_binding(workspace: Path) -> list[Finding]:
 def validate_kit(root: Path) -> list[Finding]:
     root = root.expanduser().resolve()
     findings = validate_skill_dir(root / "skills" / "llm-wiki")
-    packaged = traversable_fingerprint(canonical_skill_root(), {MARKER_FILE})
+    packaged = canonical_skill_fingerprint()
     visible_path = root / "skills" / "llm-wiki"
     if visible_path.is_dir():
-        visible = directory_fingerprint(visible_path, {MARKER_FILE})
+        visible = directory_fingerprint(visible_path, SKILL_FINGERPRINT_IGNORE)
         if packaged != visible:
             findings.append(
                 _finding(

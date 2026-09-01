@@ -13,6 +13,7 @@ printf '# Local Agent Wiki\n\nA persistent wiki accumulates synthesis across ses
 "$CLI" init "$VAULT" --name "Acceptance Vault" --language zh-CN >/dev/null
 "$CLI" register-source --vault "$VAULT" "$SOURCE" --title "Local Agent Wiki" >/dev/null
 "$CLI" attach --vault "$VAULT" --workspace "$BINDING" --harness all >/dev/null
+"$CLI" update --workspace "$BINDING" --json | grep -q '"already-current"'
 "$CLI" doctor "$VAULT" --strict >/dev/null
 "$CLI" doctor "$BINDING" --strict >/dev/null
 "$CLI" status --workspace "$BINDING" --json | grep -q '"openclaw"'

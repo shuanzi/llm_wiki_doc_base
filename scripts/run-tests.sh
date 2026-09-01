@@ -46,10 +46,12 @@ report = f"""# Test Report
 - Standalone Vault initialization and Obsidian JSON generation;
 - UTF-8 Markdown structure and machine-discoverable Vault Profile;
 - Source copy, SHA-256 registration, idempotency, missing/tampered Source detection;
+- Repository URL normalization, root README registration, offline idempotency, and no source-code persistence;
 - Codex `.agents/skills`, Claude Code `.claude/skills`, OpenClaw `skills` bindings;
 - Copy and symlink Skill modes; symlink and pointer Vault modes;
 - Managed instruction block idempotency, malformed-block preflight, and preservation of user-owned content;
 - Partial detach, complete detach, unmanaged directory/symlink collision protection;
+- Transactional Workspace update, local-drift backup, symlink retargeting, rollback, and idempotency;
 - Vault fingerprint unchanged by detach;
 - Independent Vault copy/migration and moved-Vault rebind;
 - Stale-binding real-directory protection and generated/source path-escape rejection;

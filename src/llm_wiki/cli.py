@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .binding import attach, detach, load_binding
+from .binding import attach, detach, load_binding, update
 from .doctor import run_doctor
 from .models import Finding, OperationResult
 from .vault import init_vault, register_source
@@ -86,6 +86,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     detach_cmd.add_argument("--json", action="store_true")
 
+    update_cmd = sub.add_parser(
+        "update", help="Refresh an existing Binding Workspace from the current Kit"
+    )
+    update_cmd.add_argument("--workspace", required=True, type=Path)
+    update_cmd.add_argument("--json", action="store_true")
+
     doctor_cmd = sub.add_parser("doctor", help="Check kit, vault, or binding invariants")
     doctor_cmd.add_argument("path", type=Path)
     doctor_cmd.add_argument("--kind", choices=["auto", "kit", "vault", "binding"], default="auto")
@@ -123,6 +129,9 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "detach":
             _print_result(detach(args.workspace, args.harness), args.json)
+            return 0
+        if args.command == "update":
+            _print_result(update(args.workspace), args.json)
             return 0
         if args.command == "doctor":
             findings = run_doctor(args.path, args.kind)

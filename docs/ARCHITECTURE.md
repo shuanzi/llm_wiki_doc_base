@@ -140,6 +140,7 @@ Skill 不要求唯一执行步骤，只要求 closure conditions。Agent 可以�
 - `init`：模板实例化和机器可发现 Profile；
 - `register-source`：复制、内容哈希、Source Record Stub 和日志；
 - `attach`：Skill 复制/链接、薄指令和 Vault 引用；
+- `update`：按既有 Binding 事务式刷新托管 Skill/说明并备份 copy drift；
 - `detach`：安全移除托管 Harness；
 - `doctor`：检查可恢复性和边界；
 - `status`：读取 Binding 元数据。

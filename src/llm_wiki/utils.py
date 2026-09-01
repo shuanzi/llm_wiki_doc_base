@@ -8,9 +8,13 @@ import shutil
 import tempfile
 import unicodedata
 from datetime import datetime, timezone
-from importlib.resources.abc import Traversable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
+
+if TYPE_CHECKING:
+    from importlib.resources.abc import Traversable
+else:
+    Traversable = Any
 
 MANAGED_BEGIN = "<!-- llm-wiki:begin -->"
 MANAGED_END = "<!-- llm-wiki:end -->"
@@ -128,13 +132,23 @@ def iter_traversable_files(root: Traversable, prefix: str = "") -> Iterable[tupl
 def directory_fingerprint(path: Path, ignore_names: set[str] | None = None) -> str:
     ignore_names = ignore_names or set()
     digest = hashlib.sha256()
-    for file_path in sorted(p for p in path.rglob("*") if p.is_file()):
-        if any(part in ignore_names for part in file_path.relative_to(path).parts):
+    entries: list[Path] = []
+    for root, directories, files in os.walk(path, followlinks=False):
+        root_path = Path(root)
+        entries.extend(root_path / name for name in directories if (root_path / name).is_symlink())
+        entries.extend(root_path / name for name in files)
+    for file_path in sorted(entries):
+        relative = file_path.relative_to(path)
+        if any(part in ignore_names for part in relative.parts):
             continue
-        rel = file_path.relative_to(path).as_posix()
+        rel = relative.as_posix()
         digest.update(rel.encode("utf-8"))
         digest.update(b"\0")
-        digest.update(file_path.read_bytes())
+        if file_path.is_symlink():
+            digest.update(b"SYMLINK\0")
+            digest.update(os.readlink(file_path).encode("utf-8", "surrogateescape"))
+        else:
+            digest.update(file_path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
 
@@ -152,27 +166,47 @@ def traversable_fingerprint(root: Traversable, ignore_names: set[str] | None = N
     return digest.hexdigest()
 
 
-def update_managed_block(path: Path, body: str | None) -> None:
-    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+def render_managed_block(existing: str, body: str | None) -> str | None:
     begin_count = existing.count(MANAGED_BEGIN)
     end_count = existing.count(MANAGED_END)
     if begin_count != end_count:
-        raise ValueError(f"Malformed llm-wiki managed block in {path}")
-    pattern = re.compile(
-        rf"(?:\n)?{re.escape(MANAGED_BEGIN)}.*?{re.escape(MANAGED_END)}(?:\n)?",
+        raise ValueError("Malformed llm-wiki managed block")
+    block_pattern = re.compile(
+        rf"{re.escape(MANAGED_BEGIN)}.*?{re.escape(MANAGED_END)}",
         re.DOTALL,
     )
-    stripped = pattern.sub("\n", existing).strip()
     if body is None:
-        if stripped:
-            atomic_write_text(path, stripped + "\n")
-        elif path.exists():
-            path.unlink()
-        return
+        matches = list(block_pattern.finditer(existing))
+        if len(matches) == 1:
+            trailing = existing[matches[0].end() :]
+            if trailing in {"", "\n", "\r\n"}:
+                prefix = existing[: matches[0].start()]
+                if prefix.endswith("\r\n"):
+                    prefix = prefix[:-2]
+                elif prefix.endswith("\n"):
+                    prefix = prefix[:-1]
+                return prefix or None
+        rendered = block_pattern.sub("", existing)
+        return rendered if rendered else None
 
     managed = f"{MANAGED_BEGIN}\n{body.rstrip()}\n{MANAGED_END}"
-    combined = f"{stripped}\n\n{managed}\n" if stripped else managed + "\n"
-    atomic_write_text(path, combined)
+    if block_pattern.search(existing):
+        return block_pattern.sub(managed, existing)
+    return f"{existing}\n{managed}\n" if existing else managed + "\n"
+
+
+def update_managed_block(path: Path, body: str | None) -> None:
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    try:
+        rendered = render_managed_block(existing, body)
+    except ValueError as exc:
+        raise ValueError(f"Malformed llm-wiki managed block in {path}") from exc
+    if rendered is None:
+        if path.exists():
+            path.unlink()
+        return
+    if rendered != existing:
+        atomic_write_text(path, rendered)
 
 
 def contains_managed_block(path: Path) -> bool:

@@ -39,6 +39,19 @@
 
 重复注册同一内容是幂等的。Doctor 会发现注册后被改写的文件。
 
+### 方式 C：注册代码仓库
+
+先完成 Attach，再从 Binding Workspace 调用当前 Skill 自带的脚本：
+
+```bash
+cd ~/knowledge/my-wiki-agent
+python3 .agents/skills/llm-wiki/scripts/register_repository.py \
+  https://github.com/owner/project \
+  --json
+```
+
+Claude Code 使用 `.claude/skills/llm-wiki/`，OpenClaw 使用 `skills/llm-wiki/`。脚本从 Binding metadata 自动发现 Vault，只保存项目名称、规范化链接和根 README。README 被当作不可信来源证据；脚本不会 checkout、保存或分析源码。注册完成后，要求 Agent 继续执行 Ingest closure。
+
 ## 3. Attach Agent
 
 建议让 Vault 和 Binding 成为同一父目录下的兄弟目录：
@@ -65,7 +78,13 @@
 ./bin/llm-wiki attach --vault ~/knowledge/my-wiki --workspace ~/knowledge/my-wiki-agent --harness claude
 ```
 
-默认 `--skill-mode copy`，因此移动或删除 Kit 后 Binding 仍可使用已复制 Skill。重新执行 attach 可刷新 Skill。
+默认 `--skill-mode copy`，因此移动或删除 Kit 后 Binding 仍可使用已复制 Skill。Kit 升级后使用 `update` 刷新已有 Workspace：
+
+```bash
+./bin/llm-wiki update --workspace ~/knowledge/my-wiki-agent
+```
+
+`update` 保持 Vault、Harness、copy/symlink 模式和用户文本不变。检测到本地 Skill 漂移或旧 marker 时会先写入 runtime backup；全部产物一致时返回 `already-current`。
 
 默认 `--vault-mode symlink`。Windows、受限 Sandbox 或不允许符号链接的文件系统可使用：
 

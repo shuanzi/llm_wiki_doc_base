@@ -15,7 +15,7 @@
 
 ## Ingest
 
-输入可以是 `sources/inbox/` 文件、已注册 Source Record、用户指定的本地文件或用户授权获取的外部材料。
+输入可以是 `sources/inbox/` 文件、已注册 Source Record、用户指定的本地文件或用户授权获取的外部材料。代码仓库必须先按 [repository-ingest.md](repository-ingest.md) 注册为“名称 + 链接 + 根 README”合成 Source，不得将仓库副本或源码写入 Vault。
 
 完成条件：
 

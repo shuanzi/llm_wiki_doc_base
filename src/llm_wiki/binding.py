@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
+import uuid
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -13,10 +15,16 @@ from .utils import (
     MANAGED_BEGIN,
     MANAGED_END,
     atomic_write_json,
+    atomic_write_text,
+    contains_managed_block,
     copy_traversable,
+    directory_fingerprint,
     ensure_separate_roots,
     is_relative_to,
+    read_json,
     remove_tree_or_link,
+    render_managed_block,
+    traversable_fingerprint,
     update_managed_block,
     utc_timestamp,
 )
@@ -25,6 +33,7 @@ BINDING_SCHEMA_VERSION = 1
 BINDING_DIR = ".llm-wiki-binding"
 BINDING_FILE = "binding.json"
 MARKER_FILE = ".llm-wiki-managed.json"
+SKILL_FINGERPRINT_IGNORE = {MARKER_FILE, ".DS_Store", "__pycache__"}
 ALL_HARNESSES = ("codex", "claude", "openclaw")
 SKILL_TARGETS = {
     "codex": Path(".agents/skills/llm-wiki"),
@@ -40,6 +49,10 @@ INSTRUCTION_FILES = {
 
 def canonical_skill_root():
     return resources.files("llm_wiki.resources").joinpath("skill", "llm-wiki")
+
+
+def canonical_skill_fingerprint() -> str:
+    return traversable_fingerprint(canonical_skill_root(), SKILL_FINGERPRINT_IGNORE)
 
 
 def expand_harnesses(values: list[str]) -> list[str]:
@@ -125,7 +138,11 @@ def _install_skill(target: Path, mode: str, force: bool, managed: bool) -> None:
         copy_traversable(source, target)
         atomic_write_json(
             target / MARKER_FILE,
-            {"managed_by": "llm-wiki", "kit_version": __version__},
+            {
+                "managed_by": "llm-wiki",
+                "kit_version": __version__,
+                "skill_fingerprint": canonical_skill_fingerprint(),
+            },
         )
         return
     if mode == "symlink":
@@ -154,17 +171,14 @@ This is a detachable Agent harness workspace, not the knowledge store.
 
 
 def _write_workspace_docs(workspace: Path, binding: dict[str, object]) -> None:
+    for relative, body in _workspace_doc_bodies(binding).items():
+        update_managed_block(workspace / relative, body)
+
+
+def _workspace_doc_bodies(binding: dict[str, object]) -> dict[Path, str | None]:
     active = list(binding["harnesses"])  # type: ignore[arg-type]
     vault_reference = str(binding["vault_reference"])
     body = _instruction_body(active, vault_reference)
-    if "codex" in active or "openclaw" in active:
-        update_managed_block(workspace / "AGENTS.md", body)
-    else:
-        update_managed_block(workspace / "AGENTS.md", None)
-    if "claude" in active:
-        update_managed_block(workspace / "CLAUDE.md", body)
-    else:
-        update_managed_block(workspace / "CLAUDE.md", None)
 
     readme = f"""# LLM Wiki Binding Workspace
 
@@ -195,13 +209,17 @@ Do not copy Harness permission state into the Vault. Keep it in this Binding Wor
 
 `{BINDING_DIR}/runtime/` is disposable runtime space. Removing this entire binding workspace must not remove or invalidate the vault.
 """
-    update_managed_block(workspace / "BINDING.md", readme)
 
     gitignore_body = f"""# Disposable llm-wiki runtime sidecar
 /{BINDING_DIR}/runtime/*
 !/{BINDING_DIR}/runtime/.gitkeep
 """
-    update_managed_block(workspace / ".gitignore", gitignore_body)
+    return {
+        Path("AGENTS.md"): body if "codex" in active or "openclaw" in active else None,
+        Path("CLAUDE.md"): body if "claude" in active else None,
+        Path("BINDING.md"): readme,
+        Path(".gitignore"): gitignore_body,
+    }
 
 
 def _preflight_workspace_layout(workspace: Path) -> None:
@@ -351,6 +369,7 @@ def attach(
         "vault_mode": vault_mode,
         "vault_reference": vault_reference,
         "skill_mode": skill_mode,
+        "skill_fingerprint": canonical_skill_fingerprint(),
         "harnesses": ordered_active,
     }
     binding_dir = workspace / BINDING_DIR
@@ -370,6 +389,322 @@ def attach(
             "filesystem_access": "Grant the real Vault path in the Agent sandbox when it is outside the workspace",
         },
     )
+
+
+def _validated_update_binding(workspace: Path) -> tuple[dict[str, object], Path, list[str], str]:
+    if not workspace.is_dir():
+        raise ValueError(f"Binding Workspace does not exist: {workspace}")
+    metadata_path = binding_path(workspace)
+    if metadata_path.is_symlink():
+        raise ValueError(f"Binding metadata must not be a symlink: {metadata_path}")
+    binding = load_binding(workspace)
+    if not binding:
+        raise ValueError(f"No llm-wiki binding found: {workspace}")
+    if binding.get("schema_version") != BINDING_SCHEMA_VERSION:
+        raise ValueError(f"Unsupported binding schema version: {binding.get('schema_version')}")
+    for field in ("kit_version", "created_at", "updated_at"):
+        if not isinstance(binding.get(field), str) or not binding.get(field):
+            raise ValueError(f"Binding has invalid {field} metadata")
+
+    active_raw = binding.get("harnesses")
+    if not isinstance(active_raw, list) or not active_raw:
+        raise ValueError("Binding must record at least one harness")
+    if any(not isinstance(item, str) or item not in ALL_HARNESSES for item in active_raw):
+        raise ValueError("Binding contains unknown harness metadata")
+    active = list(active_raw)
+    if len(set(active)) != len(active):
+        raise ValueError("Binding harness list contains duplicates")
+
+    skill_mode = binding.get("skill_mode")
+    if skill_mode not in ("copy", "symlink"):
+        raise ValueError(f"Binding has unsupported skill mode: {skill_mode}")
+    vault_mode = binding.get("vault_mode")
+    if vault_mode not in ("copy", "symlink", "pointer"):
+        raise ValueError(f"Binding has unsupported vault mode: {vault_mode}")
+    # "copy" has never been a public vault mode; reject it explicitly while keeping
+    # the error above focused for corrupted metadata.
+    if vault_mode == "copy":
+        raise ValueError("Binding has unsupported vault mode: copy")
+
+    vault_raw = binding.get("vault_path")
+    if not isinstance(vault_raw, str) or not vault_raw:
+        raise ValueError("Binding has invalid vault_path metadata")
+    vault = Path(vault_raw).expanduser()
+    if not vault.is_absolute():
+        raise ValueError("Binding vault_path must be absolute")
+    if not vault.is_dir() or not (vault / "profile" / "vault.json").is_file():
+        raise ValueError(f"Bound llm-wiki vault is missing or invalid: {vault}")
+    ensure_separate_roots(vault, workspace)
+
+    reference = binding.get("vault_reference")
+    mount = workspace / "vault"
+    if vault_mode == "symlink":
+        if reference != "vault" or not mount.is_symlink():
+            raise ValueError("Managed Vault link is missing or its binding metadata is invalid")
+        if not mount.exists() or mount.resolve() != vault.resolve():
+            raise ValueError("Managed Vault link is broken or points to a different Vault")
+    else:
+        if reference != str(vault):
+            raise ValueError("Pointer-mode vault_reference does not match vault_path")
+        if mount.exists() or mount.is_symlink():
+            raise ValueError("Pointer-mode Workspace must not contain a vault path")
+
+    _preflight_workspace_layout(workspace)
+    required_docs = {Path("BINDING.md"), Path(".gitignore")}
+    if "codex" in active or "openclaw" in active:
+        required_docs.add(Path("AGENTS.md"))
+    if "claude" in active:
+        required_docs.add(Path("CLAUDE.md"))
+    for relative in required_docs:
+        if not contains_managed_block(workspace / relative):
+            raise ValueError(f"Managed block is missing from {workspace / relative}")
+
+    runtime = workspace / BINDING_DIR / "runtime"
+    if runtime.is_symlink() or not runtime.is_dir():
+        raise ValueError(f"Binding runtime directory is missing or unsafe: {runtime}")
+    if not is_relative_to(runtime.resolve(), workspace.resolve()):
+        raise ValueError(f"Binding runtime directory escapes the Workspace: {runtime}")
+    backup_root = runtime / "update-backups"
+    if backup_root.exists() or backup_root.is_symlink():
+        if backup_root.is_symlink() or not backup_root.is_dir():
+            raise ValueError(f"Update backup directory is unsafe: {backup_root}")
+        if not is_relative_to(backup_root.resolve(), workspace.resolve()):
+            raise ValueError(f"Update backup directory escapes the Workspace: {backup_root}")
+
+    for harness in active:
+        target = workspace / SKILL_TARGETS[harness]
+        if skill_mode == "copy":
+            if target.is_symlink() or not target.is_dir() or not _copy_skill_is_managed(target):
+                raise RuntimeError(f"Refusing to overwrite unmanaged copied Skill: {target}")
+        elif not target.is_symlink():
+            raise RuntimeError(f"Refusing to overwrite unmanaged Skill link: {target}")
+    return binding, vault, active, str(skill_mode)
+
+
+def _render_workspace_docs(
+    workspace: Path, binding: dict[str, object]
+) -> dict[Path, str | None]:
+    rendered: dict[Path, str | None] = {}
+    for relative, body in _workspace_doc_bodies(binding).items():
+        path = workspace / relative
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        try:
+            rendered[path] = render_managed_block(existing, body)
+        except ValueError as exc:
+            raise ValueError(f"Malformed llm-wiki managed block in {path}") from exc
+    return rendered
+
+
+def _canonical_skill_path() -> Path:
+    source = canonical_skill_root()
+    try:
+        return Path(os.fspath(source)).resolve()
+    except TypeError as exc:
+        raise RuntimeError("Packaged skill is not available as a filesystem path") from exc
+
+
+def update(workspace: Path) -> OperationResult:
+    """Refresh a valid Binding Workspace from this Kit without changing its binding."""
+
+    workspace = workspace.expanduser().absolute()
+    binding, _vault, active, skill_mode = _validated_update_binding(workspace)
+    from_kit_version = str(binding["kit_version"])
+    canonical_fingerprint = canonical_skill_fingerprint()
+    source_path = _canonical_skill_path()
+    desired_docs = _render_workspace_docs(workspace, binding)
+
+    skill_changes: dict[str, Path] = {}
+    backup_harnesses: set[str] = set()
+    old_link_targets: dict[str, str] = {}
+    for harness in active:
+        target = workspace / SKILL_TARGETS[harness]
+        if skill_mode == "copy":
+            marker = read_json(target / MARKER_FILE)
+            if not isinstance(marker, dict) or marker.get("managed_by") != "llm-wiki":
+                raise RuntimeError(f"Refusing to overwrite unmanaged copied Skill: {target}")
+            actual = directory_fingerprint(target, SKILL_FINGERPRINT_IGNORE)
+            recorded = marker.get("skill_fingerprint")
+            marker_current = (
+                marker.get("kit_version") == __version__
+                and recorded == canonical_fingerprint
+            )
+            if actual != canonical_fingerprint or not marker_current:
+                skill_changes[harness] = target
+            if not isinstance(recorded, str) or recorded != actual:
+                backup_harnesses.add(harness)
+        else:
+            old_link = os.readlink(target)
+            old_link_targets[harness] = old_link
+            resolved = (target.parent / old_link).resolve(strict=False)
+            if resolved != source_path or not target.exists():
+                skill_changes[harness] = target
+                backup_harnesses.add(harness)
+
+    doc_changes = {
+        path: content
+        for path, content in desired_docs.items()
+        if (path.read_text(encoding="utf-8") if path.exists() else None) != content
+    }
+    metadata_current = (
+        binding.get("kit_version") == __version__
+        and binding.get("skill_fingerprint") == canonical_fingerprint
+    )
+    if not skill_changes and not doc_changes and metadata_current:
+        return OperationResult(
+            action="update",
+            path=workspace,
+            details={
+                "status": "already-current",
+                "from_kit_version": from_kit_version,
+                "to_kit_version": __version__,
+                "harnesses": active,
+                "skill_mode": skill_mode,
+                "updated_targets": [],
+                "backups": [],
+            },
+        )
+
+    runtime = workspace / BINDING_DIR / "runtime"
+    runtime.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix="update-staging-", dir=runtime))
+    staged_targets: dict[str, Path] = {}
+    backup_stage = staging / "backups"
+    preimages = staging / "preimages"
+    changed_paths = [str(SKILL_TARGETS[name]) for name in skill_changes]
+    changed_paths.extend(str(path.relative_to(workspace)) for path in doc_changes)
+    changed_paths.append(str(Path(BINDING_DIR) / BINDING_FILE))
+    timestamp = utc_timestamp()
+    backup_stamp = timestamp.replace(":", "-")
+    backup_container = runtime / "update-backups"
+    final_backup_root = backup_container / backup_stamp
+    if final_backup_root.exists() or final_backup_root.is_symlink():
+        final_backup_root = final_backup_root.with_name(
+            f"{final_backup_root.name}-{uuid.uuid4().hex[:8]}"
+        )
+
+    try:
+        for harness in skill_changes:
+            staged = staging / "targets" / harness
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            if skill_mode == "copy":
+                copy_traversable(canonical_skill_root(), staged)
+                atomic_write_json(
+                    staged / MARKER_FILE,
+                    {
+                        "managed_by": "llm-wiki",
+                        "kit_version": __version__,
+                        "skill_fingerprint": canonical_fingerprint,
+                    },
+                )
+            else:
+                staged.symlink_to(source_path, target_is_directory=True)
+            staged_targets[harness] = staged
+
+        for harness in backup_harnesses:
+            destination = backup_stage / harness
+            target = workspace / SKILL_TARGETS[harness]
+            if skill_mode == "copy":
+                shutil.copytree(target, destination, symlinks=True)
+            else:
+                destination.mkdir(parents=True, exist_ok=True)
+                atomic_write_text(
+                    destination / "symlink-target.txt",
+                    old_link_targets[harness] + "\n",
+                )
+
+        binding_preimage = preimages / "binding.json"
+        binding_preimage.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(binding_path(workspace), binding_preimage)
+        doc_preimages: dict[Path, Path | None] = {}
+        for index, path in enumerate(doc_changes):
+            if path.is_symlink():
+                raise ValueError(f"Managed generated file must not be a symlink during update: {path}")
+            if path.exists():
+                preimage = preimages / "docs" / str(index)
+                preimage.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, preimage)
+                doc_preimages[path] = preimage
+            else:
+                doc_preimages[path] = None
+
+        swapped: list[tuple[Path, Path]] = []
+        backups_installed = False
+        try:
+            for harness, target in skill_changes.items():
+                old = preimages / "skills" / harness
+                old.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(target, old)
+                try:
+                    os.replace(staged_targets[harness], target)
+                except Exception:
+                    os.replace(old, target)
+                    raise
+                swapped.append((target, old))
+
+            for path, content in doc_changes.items():
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_write_text(path, content)
+
+            backup_paths: list[str] = []
+            if backup_harnesses:
+                backup_container.mkdir(parents=True, exist_ok=True)
+                if backup_container.is_symlink() or not backup_container.is_dir():
+                    raise ValueError(f"Update backup directory is unsafe: {backup_container}")
+                if not is_relative_to(backup_container.resolve(), workspace.resolve()):
+                    raise ValueError(
+                        f"Update backup directory escapes the Workspace: {backup_container}"
+                    )
+                os.replace(backup_stage, final_backup_root)
+                backups_installed = True
+                backup_paths = [
+                    str(final_backup_root / harness) for harness in sorted(backup_harnesses)
+                ]
+
+            updated_binding = dict(binding)
+            updated_binding["kit_version"] = __version__
+            updated_binding["updated_at"] = timestamp
+            updated_binding["skill_fingerprint"] = canonical_fingerprint
+            atomic_write_json(binding_path(workspace), updated_binding)
+        except Exception:
+            if backups_installed and final_backup_root.exists():
+                shutil.rmtree(final_backup_root)
+                backup_parent = final_backup_root.parent
+                if backup_parent.is_dir() and not any(backup_parent.iterdir()):
+                    backup_parent.rmdir()
+            for path, preimage in doc_preimages.items():
+                if path.exists() or path.is_symlink():
+                    remove_tree_or_link(path)
+                if preimage is not None and preimage.exists():
+                    os.replace(preimage, path)
+            if binding_path(workspace).exists() or binding_path(workspace).is_symlink():
+                remove_tree_or_link(binding_path(workspace))
+            if binding_preimage.exists():
+                os.replace(binding_preimage, binding_path(workspace))
+            for target, old in reversed(swapped):
+                if target.exists() or target.is_symlink():
+                    remove_tree_or_link(target)
+                if old.exists() or old.is_symlink():
+                    os.replace(old, target)
+            raise
+
+        return OperationResult(
+            action="update",
+            path=workspace,
+            details={
+                "status": "updated",
+                "from_kit_version": from_kit_version,
+                "to_kit_version": __version__,
+                "harnesses": active,
+                "skill_mode": skill_mode,
+                "updated_targets": changed_paths,
+                "backups": backup_paths,
+            },
+        )
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
 
 
 def detach(workspace: Path, harnesses: list[str]) -> OperationResult:

@@ -64,6 +64,9 @@ cd llm-wiki-agent-first-mvp
 # 4. 检查边界和完整性
 ./bin/llm-wiki doctor ~/vaults/ai4s-wiki --strict
 ./bin/llm-wiki doctor ~/agent-workspaces/ai4s-wiki --strict
+
+# Kit 升级后，只刷新已有 Binding Workspace
+./bin/llm-wiki update --workspace ~/agent-workspaces/ai4s-wiki
 ```
 
 随后从 Binding Workspace 启动本地 Agent。Skill 发现与 Vault 文件权限是两件事；当 Agent 的 Sandbox 不允许访问工作区外部路径时，需要显式授权真实 Vault 路径：
@@ -106,6 +109,7 @@ llm-wiki --version
 | `init` | 创建标准、Obsidian-compatible Vault | 否 |
 | `register-source` | 复制、哈希并生成 Source Record Stub | 否；不做语义摄取 |
 | `attach` | 安装公共 Skill 和薄 Harness 指令 | 否 |
+| `update` | 从当前 Kit 事务式刷新已有 Binding 的托管 Skill 与说明 | 否 |
 | `detach` | 移除生成的 Harness 产物，保留 Vault | 否 |
 | `doctor` | 检查结构、来源哈希、绑定和边界 | 否 |
 | `status` | 查看 Binding 元数据 | 否 |
@@ -118,7 +122,27 @@ llm-wiki --version
 ./bin/llm-wiki attach --vault /vault --workspace /binding --harness openclaw
 ```
 
-`attach` 可重复执行，托管块不会重复。默认复制 Skill，便于 Kit 与 Binding 独立移动；可用 `--skill-mode symlink` 让 Binding 跟随当前 Kit。默认通过 `binding/vault` 符号链接暴露 Vault；不适合符号链接的环境可用 `--vault-mode pointer`。符号链接和绝对指针都不会绕过 Agent 自身的 Sandbox，必要时仍需通过 `--add-dir` 或相应 workspace/sandbox 配置授权真实 Vault 路径。
+`attach` 用于首次绑定或显式改变绑定选项。默认复制 Skill，便于 Kit 与 Binding 独立移动；可用 `--skill-mode symlink` 让 Binding 跟随当前 Kit。默认通过 `binding/vault` 符号链接暴露 Vault；不适合符号链接的环境可用 `--vault-mode pointer`。符号链接和绝对指针都不会绕过 Agent 自身的 Sandbox，必要时仍需通过 `--add-dir` 或相应 workspace/sandbox 配置授权真实 Vault 路径。
+
+### 更新已有 Workspace
+
+```bash
+./bin/llm-wiki update --workspace /binding
+```
+
+`update` 只读取既有 Binding，不接受 Vault、Harness 或模式变更。它刷新所有已记录 Harness 的 Skill 和托管说明，保留用户文本与 Vault 链接；copy Skill 有本地漂移或旧 marker 无 fingerprint 时，先备份到 `.llm-wiki-binding/runtime/update-backups/`。重复运行且无差异时返回 `already-current`，不改时间戳。
+
+### 导入代码仓库
+
+从 Binding Workspace 调用 attached Skill 内脚本，例如 Codex：
+
+```bash
+python3 .agents/skills/llm-wiki/scripts/register_repository.py \
+  https://github.com/owner/project \
+  --json
+```
+
+脚本只把项目名称、规范化链接与根 README 合成为 Source，不保存或分析源码、目录树、commit 或 Git metadata。注册后仍由 Agent 按 `llm-wiki` Skill 完成 Entity、Concept、限制、交叉引用、Index、Knowledge Map、Source Record 和日志的语义摄取。
 
 ### 解绑
 
@@ -157,8 +181,10 @@ llm-wiki --version
 
 - Vault 初始化、UTF-8 和 Obsidian 配置；
 - Source 注册、幂等、哈希篡改检测；
+- 仓库 URL 归一、根 README 注册、离线幂等与无源码持久化；
 - Codex / Claude Code / OpenClaw 三种目录绑定；
 - 托管块幂等、用户指令保留、部分与完整解绑；
+- Workspace update 的 drift 备份、symlink 重指向、事务回滚与幂等；
 - Pointer / Symlink 两种 Vault 暴露方式；
 - Vault 独立复制迁移和 Binding 重新指向；
 - 非托管目录/符号链接防覆盖、陈旧绑定下的用户目录保护；

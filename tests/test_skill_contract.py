@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from llm_wiki.utils import directory_fingerprint, parse_frontmatter, traversable_fingerprint
-from llm_wiki.binding import canonical_skill_root
+from llm_wiki.binding import SKILL_FINGERPRINT_IGNORE, canonical_skill_root
 
 from .common import PROJECT_ROOT
 
@@ -13,7 +13,10 @@ from .common import PROJECT_ROOT
 class SkillContractTests(unittest.TestCase):
     def test_visible_skill_matches_packaged_canonical_skill(self) -> None:
         visible = PROJECT_ROOT / "skills/llm-wiki"
-        self.assertEqual(directory_fingerprint(visible), traversable_fingerprint(canonical_skill_root()))
+        self.assertEqual(
+            directory_fingerprint(visible, SKILL_FINGERPRINT_IGNORE),
+            traversable_fingerprint(canonical_skill_root(), SKILL_FINGERPRINT_IGNORE),
+        )
 
     def test_skill_uses_common_frontmatter_only(self) -> None:
         skill = PROJECT_ROOT / "skills/llm-wiki/SKILL.md"
@@ -27,6 +30,7 @@ class SkillContractTests(unittest.TestCase):
         for term in ("Orient", "Ingest", "Query / Explore", "Promote", "Reconcile / Maintain"):
             self.assertIn(term, text)
         self.assertIn("sources/library/", text)
+        self.assertIn("register_repository.py", text)
         self.assertIn("Runtime Sidecar", text)
         self.assertIn("完成条件", text)
 

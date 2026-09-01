@@ -45,6 +45,13 @@ class CliTests(unittest.TestCase):
             )
             self.assertEqual(json.loads(attach_result.stdout)["action"], "attach")
 
+            update_result = run_cli(
+                "update", "--workspace", str(binding), "--json"
+            )
+            update_json = json.loads(update_result.stdout)
+            self.assertEqual(update_json["action"], "update")
+            self.assertEqual(update_json["details"]["status"], "already-current")
+
             doctor_result = run_cli("doctor", str(binding), "--strict", "--json")
             doctor_json = json.loads(doctor_result.stdout)
             self.assertEqual(doctor_json["errors"], 0)

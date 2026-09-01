@@ -6,12 +6,15 @@
 
 该机制只覆盖通过命令注册的来源。复制采用临时文件、复制后哈希复核和原子替换；重复注册前会确认已有 Source Record、文件和哈希仍一致。Agent 直接操作 Inbox 时仍应遵守 Skill 约束，并在语义摄取前完成注册或等价的来源记录。
 
+仓库注册以规范化 `host/path` 作为永久 identity。首次只在临时目录浅层、blob-filtered、no-checkout 获取根 README，Vault 内仅保存“项目名称 + 规范化链接 + README”合成 Source。同一 identity 重复注册不联网；README 不刷新，仓库副本、源码、目录树、commit 与 Git metadata 不持久化。
+
 ## 防覆盖
 
 - `init` 通过同目录 staging 生成完整 Vault 后再原子替换空目标，并拒绝非空目录和符号链接目标；
 - `attach` 拒绝覆盖无管理标识的 Skill 目录或符号链接，除非显式 `--force`；
 - `--force` 仅用于明确替换 Skill 目标，不授权删除真实 `binding/vault/` 用户目录；
 - `detach` 拒绝删除无管理身份的 Skill；
+- `update` 在完整预检和 staging 后才替换托管产物；copy drift 与旧 marker 先备份，任一提交步骤失败则恢复 Skill、文档与 Binding metadata；
 - 旧 Binding 元数据不能把已经变成真实目录的 `binding/vault/` 误判为可删除链接；
 - Managed Block 不重写用户文件其余部分，起止标记损坏时在其他写入前失败；
 - 生成文件、Skill 父目录、Source 和必需 Vault 路径检查符号链接逃逸；
@@ -28,7 +31,7 @@ git add .
 git commit -m "Initialize LLM Wiki vault"
 ```
 
-在批量重构前创建提交或快照。Binding 可以单独版本化，也可以随时由 `attach` 重建。
+在批量重构前创建提交或快照。Binding 可以单独版本化，也可以由 `attach` 重建；`update` 备份位于可删除的 `.llm-wiki-binding/runtime/update-backups/`。
 
 ## 威胁边界
 
