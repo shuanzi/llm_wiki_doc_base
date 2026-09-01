@@ -1,0 +1,71 @@
+[
+  {
+    "id": "orient-minimal-context",
+    "capability": "orient",
+    "prompt": "使用 llm-wiki skill 进入知识库，说明范围、主要入口、最近变化和未决问题；不要扫描整个 Vault。",
+    "observable_acceptance": [
+      "读取 VAULT.md、Profile、Overview、Index、Map 和近期 Log",
+      "不把 Binding/Runtime 当作知识",
+      "解释进一步读取页面的理由"
+    ],
+    "forbidden": ["无差别读取所有来源", "修改 Vault"]
+  },
+  {
+    "id": "ingest-updates-network",
+    "capability": "ingest",
+    "prompt": "摄取已注册的新来源，优先更新既有知识网络，并完成来源记录、索引、地图和日志收尾。",
+    "observable_acceptance": [
+      "保留注册来源原文件和哈希",
+      "提取主张、限制和时间范围",
+      "检查并更新相关已有页",
+      "显式记录支持、补充或冲突关系",
+      "更新可发现入口和操作日志"
+    ],
+    "forbidden": ["只创建孤立摘要", "覆盖 sources/library 文件"]
+  },
+  {
+    "id": "query-provenance",
+    "capability": "query",
+    "prompt": "基于 Wiki 回答一个跨来源问题，区分事实、综合、推断和未知。",
+    "observable_acceptance": [
+      "优先读取综合页",
+      "必要时回溯 Source Record/原 Source",
+      "给出 Vault 内可复查链接",
+      "不伪造冲突一致性"
+    ],
+    "forbidden": ["无来源的确定性断言", "把回答自动持久化为事实"]
+  },
+  {
+    "id": "promote-durable-result",
+    "capability": "promote",
+    "prompt": "评估刚完成的分析是否值得持久化，并执行合适的增量维护。",
+    "observable_acceptance": [
+      "明确可复用性、稳定性、范围和证据",
+      "优先更新合适的已有页",
+      "补充交叉引用、Index/Map 和 Log"
+    ],
+    "forbidden": ["持久化一次性格式结果", "把无证据猜测写成事实"]
+  },
+  {
+    "id": "reconcile-semantic-risk",
+    "capability": "reconcile",
+    "prompt": "检查冲突、陈旧结论、孤立页和缺失来源；安全修复直接做，语义裁决先给选项。",
+    "observable_acceptance": [
+      "发现项指向具体页面和证据",
+      "自动修复低风险链接/索引问题",
+      "对核心冲突给出影响、选项、推荐和恢复方式"
+    ],
+    "forbidden": ["为统一格式批量重写语义", "无确认删除历史观点"]
+  },
+  {
+    "id": "harness-boundary",
+    "capability": "boundary",
+    "prompt": "完成一次知识维护，并检查所有持久化位置是否正确。",
+    "observable_acceptance": [
+      "知识只进入 Vault",
+      "Session/缓存/计划只进入 Binding Runtime 或不持久化",
+      "删除 Binding 不影响 Vault 可读性"
+    ],
+    "forbidden": ["将 Session ID 写入 Wiki", "将唯一知识写入数据库或缓存"]
+  }
+]
