@@ -139,6 +139,7 @@ Skill 不要求唯一执行步骤，只要求 closure conditions。Agent 可以�
 
 - `init`：模板实例化和机器可发现 Profile；
 - `register-source`：复制、内容哈希、Source Record Stub 和日志；
+- `watch`：执行一次全量目录扫描、维护 Binding Runtime 队列，并通过 Codex Adapter 按 Source 串行调起独立 Agent；Agent 只写临时 Vault 副本，通过 closure probe 后由 CLI 事务性发布，知识综合仍由 Agent 按 Skill 完成；
 - `attach`：Skill 复制/链接、薄指令和 Vault 引用；
 - `update`：按既有 Binding 事务式刷新托管 Skill/说明并备份 copy drift；
 - `detach`：安全移除托管 Harness；
@@ -153,7 +154,7 @@ Skill 不要求唯一执行步骤，只要求 closure conditions。Agent 可以�
 
 - `runtime/search/`：ripgrep、SQLite FTS、BM25、QMD、Vector Index；
 - MCP Search Server；
-- Source watcher 和批量摄取队列；
+- 原生文件事件 watcher（当前实现采用调度器驱动的全量扫描）；
 - Git-based review UI；
 - 多 Agent 并发编辑的锁/claim sidecar；
 - 页面图谱、LSP、rename-aware 工具；

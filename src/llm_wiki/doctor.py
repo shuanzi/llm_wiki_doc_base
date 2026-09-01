@@ -183,6 +183,10 @@ def _read_markdown(vault: Path, findings: list[Finding]) -> dict[Path, str]:
     for markdown in vault.rglob("*.md"):
         if not markdown.is_file():
             continue
+        if markdown.relative_to(vault).parts[:2] == ("sources", "inbox"):
+            # Inbox files are untrusted intake, not durable Wiki content. They
+            # are validated after registration into sources/library.
+            continue
         try:
             markdown_texts[markdown] = markdown.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError) as exc:
@@ -724,6 +728,7 @@ def validate_kit(root: Path) -> list[Finding]:
         "README.md",
         "pyproject.toml",
         "docs/ARCHITECTURE.md",
+        "docs/WATCHER.md",
         "scripts/run-tests.sh",
         "evals/cases.json",
     ):

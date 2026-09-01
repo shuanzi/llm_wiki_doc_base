@@ -37,6 +37,20 @@ class DoctorTests(unittest.TestCase):
             codes = {item.code for item in validate_vault(vault) if item.level == "error"}
             self.assertIn("vault.obsidian-json", codes)
 
+    def test_untrusted_inbox_markdown_is_not_validated_as_durable_wiki_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            vault = Path(temp) / "vault"
+            init_vault(vault, "Inbox")
+            (vault / "sources/inbox/untrusted.md").write_text(
+                "[source-context link](missing.md)", encoding="utf-8"
+            )
+
+            findings = [
+                item for item in validate_vault(vault) if item.level in ("error", "warning")
+            ]
+
+            self.assertEqual(findings, [])
+
     def test_required_vault_paths_must_have_the_declared_type(self) -> None:
         replacements = {
             "sources/inbox": "file",

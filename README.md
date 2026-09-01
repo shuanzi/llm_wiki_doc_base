@@ -69,6 +69,19 @@ cd llm-wiki-agent-first-mvp
 ./bin/llm-wiki update --workspace ~/agent-workspaces/ai4s-wiki
 ```
 
+需要每 30 分钟扫描一个 drop folder 并自动调起 Codex 执行 Ingest 时，请配置系统调度器运行一次性扫描任务：
+
+```bash
+llm-wiki watch /absolute/path/to/drop-folder \
+  --workspace /absolute/path/to/binding \
+  --harness codex \
+  --recursive \
+  --settle-seconds 60 \
+  --json
+```
+
+完整的前置条件、恢复语义和 macOS/Linux/Windows 调度示例见 [周期扫描与自动 Ingest](docs/WATCHER.md)。
+
 随后从 Binding Workspace 启动本地 Agent。Skill 发现与 Vault 文件权限是两件事；当 Agent 的 Sandbox 不允许访问工作区外部路径时，需要显式授权真实 Vault 路径：
 
 ```bash
@@ -108,6 +121,7 @@ llm-wiki --version
 |---|---|---:|
 | `init` | 创建标准、Obsidian-compatible Vault | 否 |
 | `register-source` | 复制、哈希并生成 Source Record Stub | 否；不做语义摄取 |
+| `watch` | 全量扫描文件夹、可靠注册并调起 Codex 完成 Ingest | 通过外部 Agent 执行 |
 | `attach` | 安装公共 Skill 和薄 Harness 指令 | 否 |
 | `update` | 从当前 Kit 事务式刷新已有 Binding 的托管 Skill 与说明 | 否 |
 | `detach` | 移除生成的 Harness 产物，保留 Vault | 否 |
