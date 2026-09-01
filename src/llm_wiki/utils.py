@@ -166,11 +166,22 @@ def traversable_fingerprint(root: Traversable, ignore_names: set[str] | None = N
     return digest.hexdigest()
 
 
-def render_managed_block(existing: str, body: str | None) -> str | None:
-    begin_count = existing.count(MANAGED_BEGIN)
-    end_count = existing.count(MANAGED_END)
-    if begin_count != end_count:
+def validate_managed_block_text(text: str) -> bool:
+    begin_count = text.count(MANAGED_BEGIN)
+    end_count = text.count(MANAGED_END)
+    if begin_count == 0 and end_count == 0:
+        return False
+    if (
+        begin_count != 1
+        or end_count != 1
+        or text.index(MANAGED_BEGIN) >= text.index(MANAGED_END)
+    ):
         raise ValueError("Malformed llm-wiki managed block")
+    return True
+
+
+def render_managed_block(existing: str, body: str | None) -> str | None:
+    validate_managed_block_text(existing)
     block_pattern = re.compile(
         rf"{re.escape(MANAGED_BEGIN)}.*?{re.escape(MANAGED_END)}",
         re.DOTALL,
@@ -216,11 +227,10 @@ def contains_managed_block(path: Path) -> bool:
         text = path.read_text(encoding="utf-8")
     except (UnicodeDecodeError, OSError):
         return False
-    return (
-        text.count(MANAGED_BEGIN) == 1
-        and text.count(MANAGED_END) == 1
-        and text.index(MANAGED_BEGIN) < text.index(MANAGED_END)
-    )
+    try:
+        return validate_managed_block_text(text)
+    except ValueError:
+        return False
 
 
 def remove_tree_or_link(path: Path) -> None:

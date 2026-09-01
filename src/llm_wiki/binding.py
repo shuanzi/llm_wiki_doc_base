@@ -12,8 +12,6 @@ from typing import Any
 from . import __version__
 from .models import OperationResult
 from .utils import (
-    MANAGED_BEGIN,
-    MANAGED_END,
     atomic_write_json,
     atomic_write_text,
     contains_managed_block,
@@ -27,6 +25,7 @@ from .utils import (
     traversable_fingerprint,
     update_managed_block,
     utc_timestamp,
+    validate_managed_block_text,
 )
 
 BINDING_SCHEMA_VERSION = 1
@@ -241,8 +240,10 @@ def _preflight_workspace_layout(workspace: Path) -> None:
                 text = path.read_text(encoding="utf-8")
             except (UnicodeDecodeError, OSError) as exc:
                 raise ValueError(f"Generated file is unreadable as UTF-8: {path}: {exc}") from exc
-            if text.count(MANAGED_BEGIN) != text.count(MANAGED_END):
-                raise ValueError(f"Malformed llm-wiki managed block in {path}")
+            try:
+                validate_managed_block_text(text)
+            except ValueError as exc:
+                raise ValueError(f"Malformed llm-wiki managed block in {path}") from exc
 
     for target in (workspace / path for path in SKILL_TARGETS.values()):
         probe = target.parent
@@ -718,16 +719,21 @@ def detach(workspace: Path, harnesses: list[str]) -> OperationResult:
     if not isinstance(active_raw, list):
         raise ValueError("Binding has invalid harness metadata; run doctor or repair it")
     active = set(active_raw)
-    removing = requested & active
+    removing_set = requested & active
+    removing = [name for name in ALL_HARNESSES if name in removing_set]
 
+    removal_targets: list[Path] = []
     for harness in removing:
         target = workspace / SKILL_TARGETS[harness]
         if target.exists() or target.is_symlink():
             if not _skill_is_managed(target, binding, harness):
                 raise RuntimeError(f"Refusing to remove unmanaged skill target: {target}")
-            remove_tree_or_link(target)
+            removal_targets.append(target)
 
-    remaining = [name for name in ALL_HARNESSES if name in active - removing]
+    for target in removal_targets:
+        remove_tree_or_link(target)
+
+    remaining = [name for name in ALL_HARNESSES if name in active - removing_set]
     binding["harnesses"] = remaining
     binding["updated_at"] = utc_timestamp()
 

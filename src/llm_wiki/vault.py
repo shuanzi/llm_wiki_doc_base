@@ -261,21 +261,10 @@ def register_source(
     resolved_destination = destination.resolve()
     if not is_relative_to(resolved_destination, vault):
         raise RuntimeError(f"Registered source destination escapes the Vault: {destination}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.is_symlink():
         raise FileExistsError(f"Refusing to replace a source symlink: {destination}")
     if destination.exists() and sha256_file(destination) != digest:
         raise FileExistsError(f"Refusing to overwrite a different registered source: {destination}")
-    if not destination.exists():
-        temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            shutil.copy2(source, temporary)
-            if sha256_file(temporary) != digest:
-                raise RuntimeError(f"Source copy verification failed: {source}")
-            os.replace(temporary, destination)
-        finally:
-            if temporary.exists():
-                temporary.unlink()
 
     media_type = mimetypes.guess_type(destination.name)[0] or "application/octet-stream"
     timestamp = utc_timestamp()
@@ -316,8 +305,6 @@ Registered but not yet semantically ingested. An Agent should read the source, u
 
 _Add source-specific takeaways, limitations, and affected pages here._
 """
-    atomic_write_text(record, record_text)
-
     log_path = vault / "logs" / "operations.md"
     resolved_log = log_path.resolve()
     if not is_relative_to(resolved_log, vault):
@@ -332,7 +319,37 @@ _Add source-specific takeaways, limitations, and affected pages here._
 - SHA-256: `{digest}`
 - Result: registered; semantic ingest pending
 """
-    atomic_write_text(log_path, log_text + log_entry + "\n")
+    destination_parent_existed = destination.parent.exists()
+    destination_created = False
+    record_created = False
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.exists():
+            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                shutil.copy2(source, temporary)
+                if sha256_file(temporary) != digest:
+                    raise RuntimeError(f"Source copy verification failed: {source}")
+                os.replace(temporary, destination)
+                destination_created = True
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+
+        atomic_write_text(record, record_text)
+        record_created = True
+        atomic_write_text(log_path, log_text + log_entry + "\n")
+    except Exception:
+        if record_created and record.exists():
+            record.unlink()
+        if destination_created and destination.exists():
+            destination.unlink()
+        if not destination_parent_existed and destination.parent.exists():
+            try:
+                destination.parent.rmdir()
+            except OSError:
+                pass
+        raise
 
     return OperationResult(
         action="register-source",

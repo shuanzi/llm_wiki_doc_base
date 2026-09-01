@@ -5,6 +5,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from llm_wiki.doctor import validate_vault
 from llm_wiki.utils import directory_fingerprint
@@ -66,6 +67,49 @@ class VaultTests(unittest.TestCase):
         log = (self.vault / "logs" / "operations.md").read_text(encoding="utf-8")
         self.assertEqual(log.count("source-register | Article"), 1)
         self.assertEqual(errors(validate_vault(self.vault)), [])
+
+    def test_register_source_missing_log_fails_without_partial_registration(self) -> None:
+        source = self.base / "missing-log.md"
+        source.write_text("durable", encoding="utf-8")
+        (self.vault / "logs/operations.md").unlink()
+        before = directory_fingerprint(self.vault)
+
+        with self.assertRaises(FileNotFoundError):
+            register_source(self.vault, source)
+
+        self.assertEqual(directory_fingerprint(self.vault), before)
+
+    def test_register_source_log_write_failure_rolls_back_new_files(self) -> None:
+        source = self.base / "log-write-failure.md"
+        source.write_text("durable", encoding="utf-8")
+        log_path = self.vault / "logs/operations.md"
+        before = directory_fingerprint(self.vault)
+        from llm_wiki import vault as vault_module
+
+        original_write = vault_module.atomic_write_text
+
+        def fail_log_write(path, text):
+            if Path(path).resolve() == log_path.resolve():
+                raise OSError("injected log write failure")
+            return original_write(path, text)
+
+        with mock.patch("llm_wiki.vault.atomic_write_text", side_effect=fail_log_write):
+            with self.assertRaises(OSError):
+                register_source(self.vault, source)
+
+        self.assertEqual(directory_fingerprint(self.vault), before)
+
+        registered = register_source(self.vault, source)
+        registered.path.unlink()
+        existing_source = Path(str(registered.details["registered_file"]))
+        before = directory_fingerprint(self.vault)
+
+        with mock.patch("llm_wiki.vault.atomic_write_text", side_effect=fail_log_write):
+            with self.assertRaises(OSError):
+                register_source(self.vault, source)
+
+        self.assertEqual(directory_fingerprint(self.vault), before)
+        self.assertTrue(existing_source.is_file())
 
     def test_register_source_sanitizes_multiline_title(self) -> None:
         source = self.base / "note.txt"

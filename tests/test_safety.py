@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from llm_wiki.binding import attach, detach
+from llm_wiki.binding import SKILL_TARGETS, attach, detach, expand_harnesses, load_binding
 from llm_wiki.doctor import validate_binding, validate_vault
-from llm_wiki.utils import MANAGED_BEGIN
+from llm_wiki.utils import MANAGED_BEGIN, MANAGED_END, directory_fingerprint
 from llm_wiki.vault import init_vault, register_source
 
 
@@ -84,6 +84,28 @@ class SafetyAndRecoveryTests(unittest.TestCase):
         self.assertFalse((self.workspace / ".agents/skills/llm-wiki").exists())
         self.assertFalse((self.workspace / ".llm-wiki-binding").exists())
 
+    def test_reordered_or_duplicate_managed_blocks_fail_before_binding_mutation(self) -> None:
+        malformed = {
+            "reordered": f"# User file\n\n{MANAGED_END}\nbody\n{MANAGED_BEGIN}\n",
+            "duplicate": (
+                f"{MANAGED_BEGIN}\nfirst\n{MANAGED_END}\n"
+                f"{MANAGED_BEGIN}\nsecond\n{MANAGED_END}\n"
+            ),
+        }
+        for name, original in malformed.items():
+            with self.subTest(name=name):
+                workspace = self.base / f"binding-{name}"
+                workspace.mkdir()
+                (workspace / "AGENTS.md").write_text(original, encoding="utf-8")
+                before = directory_fingerprint(workspace)
+
+                with self.assertRaises(ValueError):
+                    attach(self.vault, workspace, ["all"])
+
+                self.assertEqual(directory_fingerprint(workspace), before)
+                self.assertFalse((workspace / "vault").exists())
+                self.assertFalse((workspace / ".llm-wiki-binding").exists())
+
     def test_generated_file_symlink_escape_is_refused(self) -> None:
         self.workspace.mkdir()
         outside = self.base / "outside-agents.md"
@@ -118,6 +140,26 @@ class SafetyAndRecoveryTests(unittest.TestCase):
         self.assertFalse((self.workspace / ".claude/skills/llm-wiki").exists())
         self.assertFalse((self.workspace / "skills/llm-wiki").exists())
         self.assertTrue(self.vault.exists())
+
+    def test_detach_preflights_all_skill_targets_before_removing_any(self) -> None:
+        attach(self.vault, self.workspace, ["all"])
+        binding = load_binding(self.workspace)
+        removing_order = list(
+            set(expand_harnesses(["all"])) & set(binding["harnesses"])
+        )
+        unmanaged_harness = removing_order[-1]
+        unmanaged_target = self.workspace / SKILL_TARGETS[unmanaged_harness]
+        shutil.rmtree(unmanaged_target)
+        unmanaged_target.mkdir()
+        (unmanaged_target / "user-owned.txt").write_text("keep", encoding="utf-8")
+        before = directory_fingerprint(self.workspace)
+
+        with self.assertRaises(RuntimeError):
+            detach(self.workspace, ["all"])
+
+        self.assertEqual(directory_fingerprint(self.workspace), before)
+        for harness in binding["harnesses"]:
+            self.assertTrue((self.workspace / SKILL_TARGETS[harness]).exists())
 
     def test_binding_readme_contains_external_filesystem_permission_hints(self) -> None:
         attach(self.vault, self.workspace, ["all"])
