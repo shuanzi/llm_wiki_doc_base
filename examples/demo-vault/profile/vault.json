@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "vault_id": "5ca15708-6160-436d-8752-0dd10e666b18",
+  "name": "Local Agent LLM Wiki Demo",
+  "language": "en",
+  "created_at": "2026-08-31T14:27:13Z",
+  "knowledge_root": ".",
+  "entrypoint": "VAULT.md"
+}

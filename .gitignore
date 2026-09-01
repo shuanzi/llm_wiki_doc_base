@@ -11,3 +11,14 @@ dist/
 
 # KB machine cache; rebuildable from kb/wiki
 kb/state/cache/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.coverage
+.pytest_cache/
+.DS_Store
+*.zip

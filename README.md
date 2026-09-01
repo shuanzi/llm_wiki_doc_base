@@ -1,317 +1,182 @@
-# OpenClaw KB
+# LLM Wiki Agent-First MVP
 
-OpenClaw KB 是一个由 LLM 持续维护的知识库系统。它把原始资料沉淀为可编辑、可追踪、可检索的 wiki 知识层，并通过 MCP / OpenClaw 工具暴露标准化操作。
+面向本地 Coding / General Agent 的持续编译型知识库：Agent 读取新资料后持续维护一个用户拥有的 Markdown Wiki，而不是每次查询都从原始文件重新拼装答案。
 
-本文是仓库的顶层入口，说明当前 V2 架构包含什么、如何构建启动、如何安全运行。
+本实现基于四个边界：
 
-## Live 文档
+1. **Durable Vault 是产品**：来源、证据、综合知识、领域配置和演进日志均为普通文件。
+2. **Agent Skill 是操作协议**：规定 Orient、Ingest、Query、Promote、Reconcile 的语义与完成条件，不建立固定工作流引擎。
+3. **Harness Binding 是可替换插头**：Codex、Claude Code、OpenClaw 的技能副本和启动说明位于独立工作区。
+4. **Runtime Sidecar 是可删除加速层**：缓存、索引、锁和 Session 状态不进入 Vault。
 
-当前 live 文档集：
-
-- `README.md`（本文）
-- [docs/product.md](./docs/product.md)
-- [docs/technical.md](./docs/technical.md)
-- [docs/progress.md](./docs/progress.md)
-- [docs/openclaw-installer-agent-guide.md](./docs/openclaw-installer-agent-guide.md)
-
-历史计划、评审、想法和会话快照已经归档到 `archived/`，仅作背景追溯，不是当前事实来源。
-
-## 当前状态
-
-- 当前架构：**V2（LLM-driven knowledge compilation）**
-- 工具面：MCP server 与 OpenClaw native plugin 均暴露 canonical `kb_*` 工具面。
-- OpenClaw 集成：仓库提供 native plugin surface 与 installer-managed external-KB 部署流程。
-- KB 治理：对 `kb/wiki` 的多文件修改必须遵循 [AGENTS.md](./AGENTS.md) 要求的 `plan -> draft -> apply` 流程。
-- 日志语义：`kb/wiki/log.md` 记录 ingest、重要 query synthesis，以及每次完整 lint pass（包括 clean pass / `No findings`）。
-
-## 目录结构
+## 目录
 
 ```text
-kb/
-  raw/                 # 原始资料层，不改写原件
-  wiki/                # 可编辑知识层
-    index.md           # 导航索引
-    log.md             # 操作时间线
-    sources/           # 来源摘要页
-    entities/          # 实体页
-    concepts/          # 概念页
-    analyses/          # 值得沉淀的分析结果
-    reports/           # lint / health 报告
-  schema/
-    wiki-conventions.md
-  state/
-    manifests/         # source manifest
-    cache/page-index.json
-    cache/search-index.json
-src/
-  mcp_server.ts        # stdio MCP server
-  openclaw_plugin.ts   # OpenClaw native runtime adapter
-  runtime/             # canonical kb_* tool contract / args / dispatch
-  tools/kb_*.ts        # 工具实现
-openclaw.plugin.json   # OpenClaw native plugin manifest
-skills/
-  kb_ingest/SKILL.md
-  kb_query/SKILL.md
-  kb_lint/SKILL.md
+llm-wiki-agent-first-mvp/       # Kit，可独立升级或删除
+├── skills/llm-wiki/            # 公共 Agent Skill
+├── src/llm_wiki/               # 极薄确定性工具
+├── docs/                        # 架构、使用和测试说明
+├── examples/demo-vault/         # Obsidian 可直接打开的示例
+└── tests/                       # 自动化测试
+
+~/vaults/my-wiki/               # Durable Vault
+├── VAULT.md
+├── profile/
+├── sources/
+├── wiki/
+├── evidence/
+├── logs/
+└── .obsidian/
+
+~/agent-workspaces/my-wiki/      # Detachable Binding Workspace
+├── AGENTS.md                    # Codex / OpenClaw 薄绑定
+├── CLAUDE.md                    # Claude Code 薄绑定
+├── .agents/skills/llm-wiki/    # Codex Skill
+├── .claude/skills/llm-wiki/    # Claude Code Skill
+├── skills/llm-wiki/            # OpenClaw Skill
+├── .llm-wiki-binding/          # 绑定元数据与可删除 runtime
+└── vault -> ~/vaults/my-wiki   # 默认符号链接
 ```
 
-KB 写入边界和 wiki 操作规则以 [AGENTS.md](./AGENTS.md) 为准。
+## 快速开始
 
-## 安装与验证
-
-从仓库根目录执行：
+无需安装即可从解压目录运行：
 
 ```bash
-npm install
-npm run typecheck
-npm run test
-npm run build
+cd llm-wiki-agent-first-mvp
+
+# 1. 创建完全独立的 Markdown Vault
+./bin/llm-wiki init ~/vaults/ai4s-wiki \
+  --name "AI for Science Wiki" \
+  --language zh-CN
+
+# 2. 可选：确定性地复制并哈希注册来源；语义摄取仍由 Agent 完成
+./bin/llm-wiki register-source \
+  --vault ~/vaults/ai4s-wiki \
+  ~/Downloads/a-paper.md
+
+# 3. 创建独立的 Harness Binding Workspace
+./bin/llm-wiki attach \
+  --vault ~/vaults/ai4s-wiki \
+  --workspace ~/agent-workspaces/ai4s-wiki \
+  --harness all
+
+# 4. 检查边界和完整性
+./bin/llm-wiki doctor ~/vaults/ai4s-wiki --strict
+./bin/llm-wiki doctor ~/agent-workspaces/ai4s-wiki --strict
 ```
 
-常用专项验证：
+随后从 Binding Workspace 启动本地 Agent。Skill 发现与 Vault 文件权限是两件事；当 Agent 的 Sandbox 不允许访问工作区外部路径时，需要显式授权真实 Vault 路径：
 
 ```bash
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_tool_contract_baseline.ts
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_search_wiki_resolve_link.ts
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_rebuild_index.ts
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_run_lint.ts
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_kb_repair.ts
-npm run validate:defuddle-dist-smoke
-npm run validate:mcp-dist-surface
-npm run validate:plugin-surface
-npm run validate:url-real-ingest
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_installer_install.ts
-npx tsx --tsconfig tsconfig.scripts.json scripts/validate_openclaw_installer_repair_uninstall.ts
+cd ~/agent-workspaces/ai4s-wiki
+
+# Codex / Claude Code 在需要时授予外部 Vault 目录权限
+codex --add-dir ~/vaults/ai4s-wiki
+claude --add-dir ~/vaults/ai4s-wiki
+
+# OpenClaw：在当前 workspace/sandbox 配置中允许或挂载该 Vault 路径
 ```
 
-## 启动 MCP
-
-先构建，再启动：
-
-```bash
-npm run build
-npm run start:mcp
-```
-
-`start:mcp` 等价于：
-
-```bash
-node dist/mcp_server.js
-```
-
-### `KB_ROOT` / `WORKSPACE_ROOT`
-
-`src/mcp_server.ts` 按以下顺序解析 `kb_root`：
-
-1. `KB_ROOT`：直接解析为 KB 根目录。
-2. `WORKSPACE_ROOT`：视为仓库根目录，解析到 `${WORKSPACE_ROOT}/kb`。
-3. 默认值：从当前工作目录解析 `./kb`。
-
-显式指定示例：
-
-```bash
-KB_ROOT=/absolute/path/to/kb npm run start:mcp
-WORKSPACE_ROOT=/absolute/path/to/repo npm run start:mcp
-```
-
-启动守卫：如果解析后的 `kb_root` 不是已存在目录，server 会在连接 MCP transport 前退出，退出码为 `2`。
-
-## MCP 工具
-
-MCP server（`kb-mcp`）当前暴露 14 个工具。
-
-Workflow tools：
-
-1. `kb_source_add`：注册本地 source 文件，写入 raw source 与 manifest。
-2. `kb_url_add({ url, accept_language? })`：抓取 public HTTP/HTTPS `text/html` URL，经 Defuddle 转为 canonical Markdown source，并写入 URL manifest。
-3. `kb_ingest_finalize`：source 完成 wiki 集成后，将 manifest 标记为 `ingested` 或 `failed`，并记录摘要页、touched pages 或失败原因。
-4. `kb_read_source`：按 `source_id` read canonical Markdown source content，支持分页窗口。
-5. `kb_write_page`：创建或更新完整 wiki 页面，并校验 frontmatter。
-6. `kb_update_section`：替换或追加指定 heading section。
-7. `kb_ensure_entry`：向 index 等页面幂等插入单行条目。
-8. `kb_append_log_entry`：向 `wiki/log.md` 幂等追加结构化多行操作日志。
-9. `kb_search_wiki`：基于 `page-index.json` 或 `search-index.json` 搜索 wiki，支持 page/chunk mode、query、type/tag filter 与 wikilink 解析。
-10. `kb_read_page`：按路径或 `page_id` 读取 wiki 页面。
-11. `kb_commit`：仅 stage 配置的 `kb_root` 范围并创建 git commit。
-
-Maintenance tools：
-
-12. `kb_rebuild_index`：从 `kb/wiki/**/*.md` 确定性重建 `kb/state/cache/page-index.json` 与 `kb/state/cache/search-index.json`。
-13. `kb_run_lint`：执行 deterministic 与 semantic KB lint，默认包含 semantic advisory checks。
-14. `kb_repair`：仅修复结构性 KB artifact（`index.md`、`log.md`、`page-index.json`、`search-index.json`），支持 `dry_run`。
-
-当前实现注意点：
-
-- `kb_source_add` 原生支持 Markdown / plaintext；`.html/.htm/.csv/.json/.xml/.pdf/.docx/.pptx/.xlsx/.xls/.epub` 可在安装 Python MarkItDown 后转换为 canonical Markdown。
-- `kb_url_add` 仅支持 public HTTP/HTTPS `text/html`；不使用 credentials、cookies；默认不访问 private networks。显式启用 trusted fake-ip proxy DNS 模式（`KB_URL_FETCH_TRUSTED_PROXY_DNS=1`）时，仅允许 trusted fake-ip CIDR（默认 `198.18.0.0/15`，可由 `KB_URL_FETCH_TRUSTED_PROXY_CIDRS` 配置）且须经公网 DNS 校验；最多 5 redirects，wire 6MiB and decoded 5MiB，并写入 `raw/originals`, `raw/inbox`, and `state/extractions`。
-- `kb_write_page` 内容必须包含完整 YAML frontmatter：`id`、`type`、`title`、`updated_at`、`status`。
-- `[[wikilinks]]` 优先使用目标页 frontmatter `id`，不要把文件名 stem 当作 page_id；`kb_append_log_entry.references` 只接受可解析的 wiki page_id/wikilink 或已有 manifest 的 source_id，wikilink label 不得包含 `[[`、`]]` 或 `|`，避免生成 broken wikilink。
-- `kb_ensure_entry.entry` 不要包含 `<!-- dedup:... -->`；工具会根据 `dedup_key` 自动追加 dedup 注释。`anchor: null` 或 `anchor: ""` 都表示追加到文件末尾。
-- ZIP、OCR / 图片、音频转录、Outlook / email、YouTube URL、SVG 与 MarkItDown plugins 当前故意不支持。
-- `kb_commit` 会拒绝在已有 `kb_root` 范围外 staged files 的情况下提交，避免把无关暂存内容带入同一次 commit。
-
-## OpenClaw Native Plugin
-
-仓库同时提供 OpenClaw native plugin runtime surface：
-
-- manifest：`openclaw.plugin.json`
-- runtime artifact：`dist/openclaw_plugin.js`
-- package metadata：`package.json` -> `openclaw.extensions = ["./dist/openclaw_plugin.js"]`
-
-构建：
-
-```bash
-npm run typecheck
-npm run build
-```
-
-从本地路径安装到 OpenClaw：
-
-```bash
-openclaw plugins install /absolute/path/to/this/repo
-```
-
-运行 `openclaw agent --local` 时，OpenClaw 会预加载已安装的 local plugins，使 canonical 14 个 `kb_*` 工具在 session 内可用。
-
-## OpenClaw Installer（External KB）
-
-installer 用于把当前仓库的 KB 能力接入另一个 OpenClaw workspace，并让 KB 保持为外部目录。
-
-入口：
-
-- script：`npm run start:openclaw-installer`
-- artifact：`dist/openclaw_installer.js`
-- bin：`kb-openclaw-installer`
-
-先构建：
-
-```bash
-npm run typecheck
-npm run build
-```
-
-安装（显式 workspace + 显式 external `KB_ROOT`）：
-
-```bash
-node dist/openclaw_installer.js install \
-  --workspace /absolute/path/to/target-workspace \
-  --kb-root /absolute/path/to/external-kb \
-  --agent-id llmwiki \
-  --mcp-name llm-kb
-```
-
-检查：
-
-```bash
-node dist/openclaw_installer.js check \
-  --workspace /absolute/path/to/target-workspace \
-  --agent-id llmwiki \
-  --mcp-name llm-kb \
-  --json
-```
-
-修复：
-
-```bash
-node dist/openclaw_installer.js repair \
-  --workspace /absolute/path/to/target-workspace \
-  --kb-root /absolute/path/to/external-kb \
-  --agent-id llmwiki \
-  --mcp-name llm-kb
-```
-
-卸载：
-
-```bash
-node dist/openclaw_installer.js uninstall \
-  --workspace /absolute/path/to/target-workspace \
-  --agent-id llmwiki \
-  --mcp-name llm-kb
-```
-
-installer-managed flow 的健康标准：
-
-- 配置的 OpenClaw agent session 能直接看到 canonical `kb_*` 工具面。
-- `check` 和 `repair` 以 session-visible `kb_*` availability 作为主要健康契约；仅有已保存 MCP config 不足以证明 OpenClaw 可用。
-- 默认 `--agent-id` 是 `llmwiki`，但不是唯一支持目标。
-- standalone MCP server 只是次要兼容 / 调试入口，不是 OpenClaw 成功标准。
-<!-- configured OpenClaw agent session-visible `kb_*` availability as the primary health contract; saved MCP config alone is insufficient evidence of OpenClaw usability. -->
-<!-- The standalone MCP server remains a secondary compatibility/debugging surface, not the OpenClaw success criterion. -->
-
-### Installer 操作约束
-
-- `install/check/repair/uninstall` 都只作用于显式 `--workspace`，并使用显式或默认 `--agent-id` 选择配置的 OpenClaw agent；缺失或歧义绑定会 fail-closed。
-- `install` 要求显式 `--kb-root`；`repair` 可从 manifest / MCP config 推断，也可显式覆盖。
-- external `KB_ROOT` 是已安装 KB 目录本身：`<KB_ROOT>/raw`、`<KB_ROOT>/wiki`、`<KB_ROOT>/schema`、`<KB_ROOT>/state`，不是 `<KB_ROOT>/kb/...`。
-- 工具相对路径（例如 `wiki/index.md` 和 `wiki/log.md`）都在该 `KB_ROOT` 下解析。
-<!-- `KB_ROOT` is the installed `kb` directory itself (`<KB_ROOT>/raw`, `<KB_ROOT>/wiki`, `<KB_ROOT>/schema`, `<KB_ROOT>/state`) -->
-<!-- Tool-relative paths such as `wiki/index.md` and `wiki/log.md` are resolved under that `KB_ROOT` -->
-- installer 会在 `<workspace>/skills/{kb_ingest|kb_query|kb_lint}` 写入 OpenClaw-adapted skills（`openclaw-adapted-v1`）。
-- installer 会在 `<workspace>/.openclaw/extensions/llmwiki-kb-tools` 写入 workspace-local native plugin shim，并把它固定到 external `KB_ROOT`。
-- installer 会配置 OpenClaw plugin load / allow / enabled 状态，并在绑定 agent 的 tool policy 中允许 `llmwiki-kb-tools` plugin group，使选中的 agent session 获得 canonical 14 个 `kb_*` 工具。
-- `kb_commit` 仍在 MCP server surface 中可用，但不是默认 external-KB installer contract；adapted skills 不会自动执行 `kb_commit`。
-- installer ownership 与 repo 路径绑定，期望 MCP config 指向当前仓库的 `<repo>/dist/mcp_server.js` 与配置的 `KB_ROOT`。
-- 冲突处理默认 fail-closed；只有在明确理解 ownership / drift 后才使用 `--force`。
-
-更细的执行手册见 [docs/openclaw-installer-agent-guide.md](./docs/openclaw-installer-agent-guide.md)。
-
-## Skills 工作流
-
-- `skills/kb_ingest/SKILL.md`：新增 source 并更新多页 wiki。
-- `skills/kb_query/SKILL.md`：wiki-first 问答；高价值答案可沉淀到 `wiki/analyses/`。
-- `skills/kb_lint/SKILL.md`：健康检查，包括 orphan、ghost link、missing cross-reference、stub、contradiction 与 data gap。
-
-日常操作优先使用 skills 作为 SOP；maintenance tools 是健康检查与结构修复原语。
-
-## Safe E2E 用法
-
-E2E driver：
+可直接使用自然语言：
 
 ```text
-scripts/e2e_v2_ingest.ts
+先了解这个知识库，说明主要范围、最近变化和未解决问题。
+
+将 vault/sources/inbox 中的新资料摄取进 Wiki。不要只生成摘要，检查并更新已有概念、实体、分析、索引和证据关系。
+
+基于 Wiki 比较方案 A 与方案 B，区分来源事实、综合判断和仍未验证的推断。
+
+检查知识库中的冲突、陈旧结论、孤立页面、缺失来源和研究缺口；安全的小修复直接完成，高影响语义裁决先给出选项。
 ```
 
-默认安全行为：如果省略 `--kb-root`，脚本会创建临时 workspace，复制当前 `./kb` 到临时目录，执行两轮 ingest 后清理，不污染真实仓库。
+## 安装为本地命令
 
-安全默认运行：
+项目无第三方运行依赖：
 
 ```bash
-npx tsx --tsconfig tsconfig.scripts.json scripts/e2e_v2_ingest.ts /absolute/path/to/source.md
+python3 -m pip install --no-deps --no-build-isolation .
+llm-wiki --version
 ```
 
-显式目标 KB：
+## CLI
+
+| 命令 | 作用 | 是否替代 Agent |
+|---|---|---:|
+| `init` | 创建标准、Obsidian-compatible Vault | 否 |
+| `register-source` | 复制、哈希并生成 Source Record Stub | 否；不做语义摄取 |
+| `attach` | 安装公共 Skill 和薄 Harness 指令 | 否 |
+| `detach` | 移除生成的 Harness 产物，保留 Vault | 否 |
+| `doctor` | 检查结构、来源哈希、绑定和边界 | 否 |
+| `status` | 查看 Binding 元数据 | 否 |
+
+### 分别绑定
 
 ```bash
-npx tsx --tsconfig tsconfig.scripts.json scripts/e2e_v2_ingest.ts /absolute/path/to/source.md --kb-root /absolute/path/to/kb
+./bin/llm-wiki attach --vault /vault --workspace /binding --harness codex
+./bin/llm-wiki attach --vault /vault --workspace /binding --harness claude
+./bin/llm-wiki attach --vault /vault --workspace /binding --harness openclaw
 ```
 
-commit 模式规则：
+`attach` 可重复执行，托管块不会重复。默认复制 Skill，便于 Kit 与 Binding 独立移动；可用 `--skill-mode symlink` 让 Binding 跟随当前 Kit。默认通过 `binding/vault` 符号链接暴露 Vault；不适合符号链接的环境可用 `--vault-mode pointer`。符号链接和绝对指针都不会绕过 Agent 自身的 Sandbox，必要时仍需通过 `--add-dir` 或相应 workspace/sandbox 配置授权真实 Vault 路径。
 
-- `--commit` 必须同时提供显式 `--kb-root`。
-- 显式 `--kb-root` 必须正好是 `<git-top-level>/kb`。
-- 嵌套路径如 `<repo>/sub/kb` 会被拒绝。
-
-生产可用 commit 示例：
+### 解绑
 
 ```bash
-npx tsx --tsconfig tsconfig.scripts.json scripts/e2e_v2_ingest.ts /absolute/path/to/source.md --kb-root "$PWD/kb" --commit
+./bin/llm-wiki detach --workspace /binding --harness claude
+./bin/llm-wiki detach --workspace /binding --harness all
 ```
 
-## 操作守则
+解绑只删除带有 Kit 管理标识的 Skill、托管说明、绑定元数据和 Vault 链接。已有 `AGENTS.md`、`CLAUDE.md` 和 `.gitignore` 中的用户内容会保留。
 
-- 查询时先查 `kb/wiki`，再回退到 `kb/raw`。
-- `kb/raw` 是 source-of-truth 原件层，不改写。
-- 新页面必须从 index 或 parent page 可达。
-- 每次改变 `kb/wiki` 的 ingest 都必须更新 `kb/wiki/log.md`。
-- 不确定、冲突或证据不足必须显式写成 conflict / open question。
-- 高价值回答优先沉淀到 `kb/wiki/analyses/`。
+## Agent-first 与硬约束边界
 
-## 入口索引
+代码只保护少量安全不变量：
 
-- 产品视角：[docs/product.md](./docs/product.md)
-- 技术实现：[docs/technical.md](./docs/technical.md)
-- 当前进度：[docs/progress.md](./docs/progress.md)
-- OpenClaw installer 执行指南：[docs/openclaw-installer-agent-guide.md](./docs/openclaw-installer-agent-guide.md)
-- MCP server 入口：[src/mcp_server.ts](./src/mcp_server.ts)
-- OpenClaw plugin 入口：[src/openclaw_plugin.ts](./src/openclaw_plugin.ts)
-- Archive index：[archived/index.md](./archived/index.md)
+- Vault 与 Binding 不能是同一路径或父子目录；
+- 已注册 Source 通过 SHA-256 检测静默改写；
+- Skill 安装目标不会在无 `--force` 时覆盖非托管目录或符号链接；
+- 失效 Binding 元数据不会导致真实 `binding/vault/` 用户目录被递归删除；
+- 生成文件、Skill 父目录、Source 和必需 Vault 路径均检查符号链接逃逸；
+- 解绑不会删除非托管 Skill 或 Durable Vault；
+- Doctor 检查路径逃逸、配置可解析性、来源哈希和 Harness 泄漏。
+
+以下内容不由脚本硬编码：页面粒度、主题分类、一次 Ingest 修改多少页、标签数量、分析结构、冲突语义裁决。它们由 Agent 按 [Skill](skills/llm-wiki/SKILL.md)、Vault Profile 和用户反馈共同演进。
+
+## Obsidian
+
+直接用 Obsidian 打开 Vault 根目录。初始配置将新文件放入 `sources/inbox/`、附件放入 `sources/assets/`、模板放在 `wiki/_templates/`。核心内容使用 UTF-8 Markdown、YAML frontmatter 和相对链接；不依赖社区插件、Dataview 数据库或 Obsidian 才能读取。
+
+## 测试
+
+```bash
+./scripts/run-tests.sh
+```
+
+测试覆盖：
+
+- Vault 初始化、UTF-8 和 Obsidian 配置；
+- Source 注册、幂等、哈希篡改检测；
+- Codex / Claude Code / OpenClaw 三种目录绑定；
+- 托管块幂等、用户指令保留、部分与完整解绑；
+- Pointer / Symlink 两种 Vault 暴露方式；
+- Vault 独立复制迁移和 Binding 重新指向；
+- 非托管目录/符号链接防覆盖、陈旧绑定下的用户目录保护；
+- 异常 JSON、非 UTF-8、路径逃逸和模式漂移的容错检测；
+- Kit/Skill 一致性、CLI 子进程、无运行依赖安装和端到端验收。
+
+详细结果见 [docs/TEST_REPORT.md](docs/TEST_REPORT.md)。
+
+## 文档
+
+- [架构设计](docs/ARCHITECTURE.md)
+- [使用手册](docs/USER_GUIDE.md)
+- [Harness 兼容与 Attach 语义](docs/HARNESS_COMPATIBILITY.md)
+- [测试策略](docs/TESTING.md)
+- [安全与恢复边界](docs/SAFETY_AND_RECOVERY.md)
+- [设计裁决](docs/DESIGN_DECISIONS.md)
+- [参考资料](docs/REFERENCES.md)
+
+## 当前范围
+
+这是一个本地、文件系统优先的 MVP。它没有内置模型调用、向量数据库、后台 Watcher、Web UI 或 MCP Server；这些都可作为可删除 Sidecar 后续加入，而不改变 Vault 作为唯一持久知识源的原则。
