@@ -10,6 +10,7 @@ from .binding import attach, detach, load_binding, update
 from .doctor import run_doctor
 from .models import Finding, OperationResult
 from .vault import init_vault, register_source
+from .watch import run_watch
 
 
 def _print_result(result: OperationResult, as_json: bool) -> None:
@@ -62,6 +63,31 @@ def build_parser() -> argparse.ArgumentParser:
     source_cmd.add_argument("--title")
     source_cmd.add_argument("--json", action="store_true")
 
+    watch_cmd = sub.add_parser(
+        "watch",
+        help="Run one full folder scan and ask Codex to ingest registered sources",
+    )
+    watch_cmd.add_argument("source_dir", type=Path)
+    watch_cmd.add_argument("--workspace", required=True, type=Path)
+    watch_cmd.add_argument("--harness", required=True, choices=["codex"])
+    watch_cmd.add_argument("--recursive", action="store_true")
+    format_group = watch_cmd.add_mutually_exclusive_group()
+    format_group.add_argument(
+        "--markdown-only",
+        dest="markdown_only",
+        action="store_true",
+        help="Process only .md and .markdown files (default)",
+    )
+    format_group.add_argument(
+        "--all-files",
+        dest="markdown_only",
+        action="store_false",
+        help="Process all regular files",
+    )
+    watch_cmd.set_defaults(markdown_only=True)
+    watch_cmd.add_argument("--settle-seconds", type=float, default=60)
+    watch_cmd.add_argument("--json", action="store_true")
+
     attach_cmd = sub.add_parser("attach", help="Create/update a detachable Agent binding workspace")
     attach_cmd.add_argument("--vault", required=True, type=Path)
     attach_cmd.add_argument("--workspace", required=True, type=Path)
@@ -113,6 +139,24 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "register-source":
             _print_result(register_source(args.vault, args.source, args.title), args.json)
+            return 0
+        if args.command == "watch":
+            result = run_watch(
+                args.workspace,
+                args.source_dir,
+                harness=args.harness,
+                recursive=args.recursive,
+                markdown_only=args.markdown_only,
+                settle_seconds=args.settle_seconds,
+            )
+            _print_result(result, args.json)
+            jobs = result.details.get("jobs", {})
+            if result.details.get("errors", 0):
+                return 1
+            if isinstance(jobs, dict) and any(
+                jobs.get(status, 0) for status in ("retry", "needs-review", "permanent-error")
+            ):
+                return 1
             return 0
         if args.command == "attach":
             _print_result(

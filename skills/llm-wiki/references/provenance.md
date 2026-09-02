@@ -20,6 +20,8 @@
 综合判断：这会降低重复检索成本，但维护质量取决于冲突处理和来源纪律。
 ```
 
+正文引用用于读者追溯，但 canonical 来源关系只来自普通 Wiki 页 `frontmatter.sources` 的 block-list。Source Record 必须在精确的 `## Affected pages` 段落反向列出同一批消费者。正文链接本身不会自动成为关系；只读或仅被触碰的页面只记录在 operations log。
+
 ## 冲突
 
 遇到冲突时记录：

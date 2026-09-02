@@ -53,3 +53,9 @@
 **决定**：复制 Skill 通过目录内 marker 证明所有权；Skill 符号链接必须同时有 Binding 记录。`binding/vault` 只有当前仍为已记录符号链接时才可替换或删除，真实目录始终拒绝。
 
 **理由**：仅凭路径名称或“以前曾托管”推断所有权，可能覆盖用户 Skill 或递归删除用户文件。安全失败优先于自动修复。
+
+## D-010：来源关系以显式双向集合闭环
+
+**决定**：普通 Wiki 页 `frontmatter.sources` 的 block-list 是 canonical forward set F，Source Record 的精确 `## Affected pages` 段落是 reverse set R；Doctor 与 Watcher 都要求 F == R。正文导航、读取或触碰不会隐式产生关系。
+
+**理由**：显式集合既能识别漏回填，也能识别已失效的反向链接；把 Index/Map 导航或 Agent 读取范围当成消费者会污染 provenance。Watcher 允许为新消费者回填旧 Source Record，但以 Affected-pages-only byte preimage 比较限制副作用。

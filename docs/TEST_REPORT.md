@@ -1,10 +1,10 @@
 # Test Report
 
 - Result: **PASS**
-- Executed at: `2026-09-01T07:34:30Z`
-- Platform: `macOS-26.6.2-arm64-arm-64bit-Mach-O`
-- Python: `Python 3.13.12`
-- Unit/integration tests: `80` passed
+- Executed at: `2026-09-02T09:19:40Z`
+- Platform: `macOS-26.6.2-arm64-arm-64bit`
+- Test Python: `Python 3.12.13`
+- Unit/integration tests: `162` passed
 - Kit Doctor strict: PASS, 0 errors, 0 warnings
 - End-to-end acceptance smoke: PASS
 - Installed-package smoke in clean venv: PASS
@@ -14,6 +14,8 @@
 - Standalone Vault initialization and Obsidian JSON generation;
 - UTF-8 Markdown structure and machine-discoverable Vault Profile;
 - Source copy, SHA-256 registration, idempotency, missing/tampered Source detection;
+- Symmetric frontmatter.sources/Affected pages validation, path fencing, body-only warnings, and exact 13-relation incident regression;
+- One-shot Watch Markdown-default scans, all-files compatibility, stability gate, SQLite queue/lease recovery, Codex Adapter protocol, and deterministic Ingest completion checks;
 - Repository URL normalization, root README registration, offline idempotency, and no source-code persistence;
 - Codex `.agents/skills`, Claude Code `.claude/skills`, OpenClaw `skills` bindings;
 - Copy and symlink Skill modes; symlink and pointer Vault modes;
@@ -29,13 +31,13 @@
 
 ## External Agent execution
 
-The test container did not contain authenticated local Agent CLIs:
+The deterministic test suite deliberately did not execute a live Agent session. The locally visible CLI versions were:
 
 - Codex: `codex-cli 0.152.0`
 - Claude Code: `2.1.252 (Claude Code)`
 - OpenClaw: `not installed`
 
-Therefore no live model Session was executed. The binding directories and common Agent Skill format were verified deterministically against the implemented compatibility contract. Semantic Agent behavior is specified as reusable cross-Harness scenarios in `evals/cases.json`; those scenarios require the corresponding local Agent, account, model, and filesystem permissions.
+Authentication availability is checked by the production Adapter at runtime and is not inferred from these version probes. The binding directories and common Agent Skill format were verified deterministically against the implemented compatibility contract. Semantic Agent behavior is specified as reusable cross-Harness scenarios in `evals/cases.json`; those scenarios require the corresponding local Agent, account, model, and filesystem permissions.
 
 ## Commands
 

@@ -27,7 +27,9 @@ Semantic ingest completed. The source supports the persistent-wiki concept, the 
 
 - Main idea: synthesis should accumulate in maintained Markdown rather than disappear with a Session.
 - Limitation: this is a conceptual note, not an empirical benchmark.
-- Affected pages:
-  - [Persistent Wiki](../concepts/Persistent%20Wiki.md)
-  - [RAG and Persistent Wiki](../analyses/RAG%20and%20Persistent%20Wiki.md)
-  - [Knowledge Maintenance Quality](../questions/Knowledge%20Maintenance%20Quality.md)
+
+## Affected pages
+
+- [Persistent Wiki](../concepts/Persistent%20Wiki.md)
+- [RAG and Persistent Wiki](../analyses/RAG%20and%20Persistent%20Wiki.md)
+- [Knowledge Maintenance Quality](../questions/Knowledge%20Maintenance%20Quality.md)

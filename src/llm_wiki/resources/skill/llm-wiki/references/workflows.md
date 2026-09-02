@@ -24,6 +24,8 @@
 - 相关已有页面得到增量更新，必要时才新建页面；
 - 新旧资料的支持、补充或冲突关系被显式表达；
 - 新知识可由 Index/Map 发现；
+- 每个实际消费者都在 `frontmatter.sources` 的 block-list 中声明 Source，且对应 Source Record 的精确 `## Affected pages` 段落逐项反向列出；两个关系集合完全相等；
+- 仅被读取或触碰但没有声明该 Source 的页面只写入 operation log，不列入 Affected pages；Index/Map 导航链接本身也不构成消费者；
 - Source Record 的状态和受影响页面已更新；
 - 操作日志记录了范围、证据和未决问题。
 

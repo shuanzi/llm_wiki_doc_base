@@ -21,6 +21,9 @@ CLI="$TMP/venv/bin/llm-wiki"
 "$CLI" init "$TMP/vault" --name "Installed Vault" >/dev/null
 "$CLI" attach --vault "$TMP/vault" --workspace "$TMP/binding" --harness all >/dev/null
 "$CLI" update --workspace "$TMP/binding" --json | grep -q '"already-current"'
+mkdir "$TMP/drop"
+printf 'ignored by default\n' > "$TMP/drop/ignored.txt"
+"$CLI" watch "$TMP/drop" --workspace "$TMP/binding" --harness codex --markdown-only --settle-seconds 0 --json | grep -q '"ignored": 1'
 test -f "$TMP/binding/.agents/skills/llm-wiki/scripts/register_repository.py"
 "$CLI" doctor "$TMP/vault" --strict >/dev/null
 "$CLI" doctor "$TMP/binding" --strict >/dev/null
