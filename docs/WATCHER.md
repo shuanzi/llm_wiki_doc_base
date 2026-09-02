@@ -45,7 +45,8 @@ Watcher 拒绝监听 Vault 根目录、`sources/library/`、Binding 内部目录
 2. 全量扫描稳定且符合当前格式策略的文件，复用 `register_source()` 复制、哈希注册 Source Record 与日志；相同 SHA-256 不会重复注册。
 3. 将新注册的 Source 和符合当前格式策略的 `status: registered` Source Record 放入 Binding Runtime 队列：`.llm-wiki-binding/runtime/watch/queue.sqlite3`；默认模式只过滤本轮不符合 Markdown 策略的待处理或暂停 job，不删除或重置其既有 `retry`、`needs-review`、`permanent-error` 等可恢复状态。JSON 结果通过 `details.filtered_jobs` 报告这类被保留但未执行的 job；历史 `ingested` job 不计入该数值，缺失或损坏 Source Record 的异常队列状态仍通过 `details.jobs` 和 `details.job_errors` 告警。后续使用 `--all-files` 或再次发现同内容的 Markdown 文件时可继续恢复。
 4. 每个 Source 独立、串行启动一个 ephemeral Codex 进程，避免某个 `needs-review` 或不支持的文件暂停其他 Source。Agent 只得到当前 Source ID/Record 路径和已安装 Skill 的绝对路径。
-5. Agent 只写临时 Vault 副本，且副本中的 intake root 为空；真实 Binding Runtime、队列和 Vault 不授予 Agent 写权限。Agent 结束后，Watcher 在副本中检查允许写入范围、Source Record 的 `status: ingested`、来源 SHA-256、对应的 Ingest operation log、结构化结果，以及 `llm-wiki doctor <vault> --strict`。只有 `wiki/`、`evidence/` 和 `logs/operations.md` 的合法闭环修改才能通过可恢复事务写回，`Clippings/` 与 `sources/inbox/` 永远不属于发布范围。
+5. Agent 只写临时 Vault 副本，且副本中的 intake root 为空；真实 Binding Runtime、队列和 Vault 不授予 Agent 写权限。运行前保存所有既有 Source Record 的 byte preimage。当前任务的 Source Record 可按 Ingest closure 更新；其他既有 Source Record 只能修改精确的 `## Affected pages` 段落，其他字节必须完全相同，且不允许创建、删除或重命名 Source Record。
+6. Agent 结束后，Watcher 在副本中检查允许写入范围、Source Record 的 `status: ingested`、来源 SHA-256、对应的 Ingest operation log、结构化结果、统一来源关系报告，以及 `llm-wiki doctor <vault> --strict`。普通 Wiki 页 `frontmatter.sources` 的 block-list 构成正向集合 F，Source Record 的精确 `## Affected pages` 构成反向集合 R；只有 F == R 才能发布。仅被读取或触碰但没有声明 Source 的页面只写 operation log；Index、Knowledge Map 与 Source Record 的导航正文链接不产生隐式关系。missing/stale 或无效、逃逸路径都会保持 `retry`，staging 被丢弃，不做自动猜测修复。只有 `wiki/`、`evidence/` 和 `logs/operations.md` 的合法闭环修改才能通过可恢复事务写回，`Clippings/` 与 `sources/inbox/` 永远不属于发布范围。
 
 生产 Adapter 直接用 argv 启动，不经过 Shell。等价命令如下，其中 `<staged-vault>` 是本轮隔离副本，不是 Durable Vault：
 

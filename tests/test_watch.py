@@ -16,7 +16,8 @@ from pathlib import Path
 from unittest import mock
 
 from llm_wiki.binding import attach
-from llm_wiki.utils import parse_frontmatter
+from llm_wiki.source_relations import source_record_changed_only_in_affected_pages
+from llm_wiki.utils import directory_fingerprint, parse_frontmatter
 from llm_wiki.vault import init_vault, register_source
 from llm_wiki.watch import (
     AgentRunResult,
@@ -47,6 +48,39 @@ def _set_ingested(vault: Path, records: list[Path], *, write_log: bool = True) -
             for source_id in source_ids
         )
         log.write_text(log.read_text(encoding="utf-8").rstrip() + entries + "\n", encoding="utf-8")
+
+
+def _set_affected_pages(record: Path, links: tuple[str, ...]) -> None:
+    text = record.read_text(encoding="utf-8")
+    heading = "## Affected pages"
+    before, separator, after = text.partition(heading)
+    if not separator:
+        before = text
+        separator = heading
+        after = "\n"
+    next_heading = after.find("\n## ")
+    suffix = after[next_heading:] if next_heading >= 0 else ""
+    bullets = "".join(f"- [consumer]({link})\n" for link in links)
+    record.write_text(
+        before + separator + "\n\n" + bullets + suffix.lstrip("\n"),
+        encoding="utf-8",
+    )
+
+
+def _write_consumer(page: Path, records: tuple[Path, ...]) -> None:
+    page.parent.mkdir(parents=True, exist_ok=True)
+    sources = "".join(f"  - ../sources/{record.name}\n" for record in records)
+    page.write_text(
+        "---\n"
+        f"title: {page.stem}\n"
+        "type: concept\n"
+        "status: active\n"
+        "sources:\n"
+        f"{sources}"
+        "---\n\n"
+        f"# {page.stem}\n",
+        encoding="utf-8",
+    )
 
 
 class FakeAgentRuntime:
@@ -118,6 +152,27 @@ class WatchTests(unittest.TestCase):
             settle_seconds=0,
             agent_runtime=runtime,
             **kwargs,
+        )
+
+    def test_existing_affected_pages_section_can_change_without_other_bytes(self) -> None:
+        before = (
+            b"---\nstatus: ingested\n---\n\n# Source\n\n"
+            b"## Affected pages\n\n"
+            b"## Ingest status\n\nDone.\n"
+        )
+        after = before.replace(
+            b"## Affected pages\n\n",
+            b"## Affected pages\n\n- [Page](../concepts/page.md)\n\n",
+        )
+
+        self.assertTrue(
+            source_record_changed_only_in_affected_pages(before, after)
+        )
+        self.assertFalse(
+            source_record_changed_only_in_affected_pages(
+                before,
+                after.replace(b"status: ingested", b"status: changed"),
+            )
         )
 
     def records(self) -> list[Path]:
@@ -702,7 +757,7 @@ class WatchTests(unittest.TestCase):
         }
         self.assertEqual(statuses, {"bad": "registered", "good": "ingested"})
 
-    def test_one_agent_cannot_modify_another_source_record(self) -> None:
+    def test_one_agent_cannot_modify_another_source_record_metadata(self) -> None:
         (self.drop / "first.md").write_text("first", encoding="utf-8")
         (self.drop / "second.md").write_text("second", encoding="utf-8")
 
@@ -751,6 +806,282 @@ class WatchTests(unittest.TestCase):
                 == "registered"
                 for record in self.records()
             )
+        )
+
+    def test_relationship_mismatch_retries_without_changing_durable_vault(self) -> None:
+        for mismatch in ("missing", "stale"):
+            with self.subTest(mismatch=mismatch):
+                with tempfile.TemporaryDirectory() as temp:
+                    base = Path(temp)
+                    vault = base / "vault"
+                    workspace = base / "binding"
+                    drop = base / "drop"
+                    drop.mkdir()
+                    init_vault(vault, "Relationship mismatch")
+                    attach(vault, workspace, ["codex"])
+                    source = base / f"{mismatch}.md"
+                    source.write_text(mismatch, encoding="utf-8")
+                    record = register_source(vault, source).path
+                    before = directory_fingerprint(vault)
+
+                    class MismatchedRuntime(FakeAgentRuntime):
+                        def run(inner_self, **kwargs: object) -> AgentRunResult:
+                            staged_vault = kwargs["vault"]
+                            records = kwargs["source_records"]
+                            if not isinstance(staged_vault, Path) or not isinstance(records, list):
+                                raise AssertionError("invalid fake runtime arguments")
+                            _set_ingested(staged_vault, records)
+                            if mismatch == "missing":
+                                _write_consumer(
+                                    staged_vault / "wiki/concepts/missing-consumer.md",
+                                    (records[0],),
+                                )
+                            else:
+                                _set_affected_pages(records[0], ("../INDEX.md",))
+                            return AgentRunResult(
+                                "ingested", (_source_id(records[0]),), "false success"
+                            )
+
+                    result = run_watch(
+                        workspace,
+                        drop,
+                        settle_seconds=0,
+                        agent_runtime=MismatchedRuntime(),
+                    )
+
+                    self.assertEqual(result.details["jobs"]["retry"], 1)
+                    self.assertEqual(directory_fingerprint(vault), before)
+                    self.assertEqual(
+                        parse_frontmatter(record.read_text(encoding="utf-8"))["status"],
+                        "registered",
+                    )
+
+    def test_current_new_source_record_cannot_drop_affected_pages_section(self) -> None:
+        source = self.base / "drop-section.md"
+        source.write_text("drop section", encoding="utf-8")
+        record = register_source(self.vault, source).path
+        before = directory_fingerprint(self.vault)
+
+        class DropSectionRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                vault = kwargs["vault"]
+                records = kwargs["source_records"]
+                if not isinstance(vault, Path) or not isinstance(records, list):
+                    raise AssertionError("invalid fake runtime arguments")
+                _set_ingested(vault, records)
+                current = records[0]
+                current.write_text(
+                    current.read_text(encoding="utf-8").replace(
+                        "\n## Affected pages\n", "", 1
+                    ),
+                    encoding="utf-8",
+                )
+                return AgentRunResult(
+                    "ingested", (_source_id(current),), "dropped required section"
+                )
+
+        result = self.watch(DropSectionRuntime())
+
+        self.assertEqual(result.details["jobs"]["retry"], 1)
+        self.assertEqual(directory_fingerprint(self.vault), before)
+        self.assertIn(
+            "\n## Affected pages\n", record.read_text(encoding="utf-8")
+        )
+
+    def test_other_existing_source_record_may_change_affected_pages_only(self) -> None:
+        old_source = self.base / "old.md"
+        current_source = self.base / "current.md"
+        old_source.write_text("old", encoding="utf-8")
+        current_source.write_text("current", encoding="utf-8")
+        old_record = register_source(self.vault, old_source).path
+        old_record.write_text(
+            old_record.read_text(encoding="utf-8").replace(
+                "status: registered", "status: ingested", 1
+            ).replace(
+                "\n## Affected pages\n", "", 1
+            ),
+            encoding="utf-8",
+        )
+        current_record = register_source(self.vault, current_source).path
+
+        class BackfillRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                vault = kwargs["vault"]
+                records = kwargs["source_records"]
+                if not isinstance(vault, Path) or not isinstance(records, list):
+                    raise AssertionError("invalid fake runtime arguments")
+                current = records[0]
+                other = next(
+                    item
+                    for item in (vault / "wiki/sources").glob("*.md")
+                    if item != current
+                )
+                _set_ingested(vault, [current])
+                page = vault / "wiki/concepts/shared-consumer.md"
+                _write_consumer(page, (current, other))
+                _set_affected_pages(current, ("../concepts/shared-consumer.md",))
+                _set_affected_pages(other, ("../concepts/shared-consumer.md",))
+                return AgentRunResult(
+                    "ingested", (_source_id(current),), "backfilled old reverse"
+                )
+
+        result = self.watch(BackfillRuntime())
+
+        self.assertEqual(result.details["jobs"]["ingested"], 2)
+        self.assertTrue((self.vault / "wiki/concepts/shared-consumer.md").is_file())
+        self.assertIn(
+            "../concepts/shared-consumer.md",
+            old_record.read_text(encoding="utf-8"),
+        )
+        self.assertEqual(
+            parse_frontmatter(current_record.read_text(encoding="utf-8"))["status"],
+            "ingested",
+        )
+
+    def test_other_existing_source_record_body_change_is_rejected(self) -> None:
+        old_source = self.base / "old-body.md"
+        current_source = self.base / "current-body.md"
+        old_source.write_text("old body", encoding="utf-8")
+        current_source.write_text("current body", encoding="utf-8")
+        old_record = register_source(self.vault, old_source).path
+        old_record.write_text(
+            old_record.read_text(encoding="utf-8").replace(
+                "status: registered", "status: ingested", 1
+            ),
+            encoding="utf-8",
+        )
+        register_source(self.vault, current_source)
+        before = directory_fingerprint(self.vault)
+
+        class BodyMutationRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                vault = kwargs["vault"]
+                records = kwargs["source_records"]
+                if not isinstance(vault, Path) or not isinstance(records, list):
+                    raise AssertionError("invalid fake runtime arguments")
+                current = records[0]
+                other = next(
+                    item
+                    for item in (vault / "wiki/sources").glob("*.md")
+                    if item != current
+                )
+                _set_ingested(vault, [current])
+                other.write_text(
+                    other.read_text(encoding="utf-8") + "\nunauthorized body edit\n",
+                    encoding="utf-8",
+                )
+                return AgentRunResult(
+                    "ingested", (_source_id(current),), "changed another body"
+                )
+
+        result = self.watch(BodyMutationRuntime())
+
+        self.assertEqual(result.details["jobs"]["retry"], 1)
+        self.assertEqual(directory_fingerprint(self.vault), before)
+        self.assertNotIn("unauthorized body edit", old_record.read_text(encoding="utf-8"))
+
+    def test_other_source_record_create_delete_and_rename_are_rejected(self) -> None:
+        for operation in ("create", "delete", "rename"):
+            with self.subTest(operation=operation):
+                with tempfile.TemporaryDirectory() as temp:
+                    base = Path(temp)
+                    vault = base / "vault"
+                    workspace = base / "binding"
+                    drop = base / "drop"
+                    drop.mkdir()
+                    init_vault(vault, "Source Record paths")
+                    attach(vault, workspace, ["codex"])
+                    old_source = base / "old.md"
+                    current_source = base / "current.md"
+                    old_source.write_text("old", encoding="utf-8")
+                    current_source.write_text("current", encoding="utf-8")
+                    old_record = register_source(vault, old_source).path
+                    old_record.write_text(
+                        old_record.read_text(encoding="utf-8").replace(
+                            "status: registered", "status: ingested", 1
+                        ),
+                        encoding="utf-8",
+                    )
+                    current_record = register_source(vault, current_source).path
+                    before = directory_fingerprint(vault)
+
+                    class PathMutationRuntime(FakeAgentRuntime):
+                        def run(inner_self, **kwargs: object) -> AgentRunResult:
+                            staged_vault = kwargs["vault"]
+                            records = kwargs["source_records"]
+                            if not isinstance(staged_vault, Path) or not isinstance(records, list):
+                                raise AssertionError("invalid fake runtime arguments")
+                            current = records[0]
+                            other = next(
+                                item
+                                for item in (staged_vault / "wiki/sources").glob("*.md")
+                                if item != current
+                            )
+                            _set_ingested(staged_vault, [current])
+                            if operation == "create":
+                                (staged_vault / "wiki/sources/injected.md").write_text(
+                                    "injected", encoding="utf-8"
+                                )
+                            elif operation == "delete":
+                                other.unlink()
+                            else:
+                                other.rename(other.with_name("renamed.md"))
+                            return AgentRunResult(
+                                "ingested", (_source_id(current),), operation
+                            )
+
+                    result = run_watch(
+                        workspace,
+                        drop,
+                        settle_seconds=0,
+                        agent_runtime=PathMutationRuntime(),
+                    )
+
+                    self.assertEqual(result.details["jobs"]["retry"], 1)
+                    self.assertEqual(directory_fingerprint(vault), before)
+                    self.assertTrue(old_record.is_file())
+                    self.assertEqual(
+                        parse_frontmatter(
+                            current_record.read_text(encoding="utf-8")
+                        )["status"],
+                        "registered",
+                    )
+
+    def test_reading_existing_sourced_page_does_not_make_current_source_a_consumer(self) -> None:
+        old_source = self.base / "read-old.md"
+        current_source = self.base / "read-current.md"
+        old_source.write_text("old", encoding="utf-8")
+        current_source.write_text("current", encoding="utf-8")
+        old_record = register_source(self.vault, old_source).path
+        old_record.write_text(
+            old_record.read_text(encoding="utf-8").replace(
+                "status: registered", "status: ingested", 1
+            ),
+            encoding="utf-8",
+        )
+        existing_page = self.vault / "wiki/concepts/existing.md"
+        _write_consumer(existing_page, (old_record,))
+        _set_affected_pages(old_record, ("../concepts/existing.md",))
+        current_record = register_source(self.vault, current_source).path
+
+        class ReadOnlyRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                vault = kwargs["vault"]
+                records = kwargs["source_records"]
+                if not isinstance(vault, Path) or not isinstance(records, list):
+                    raise AssertionError("invalid fake runtime arguments")
+                (vault / "wiki/concepts/existing.md").read_text(encoding="utf-8")
+                _set_ingested(vault, records)
+                return AgentRunResult(
+                    "ingested", (_source_id(records[0]),), "read only"
+                )
+
+        result = self.watch(ReadOnlyRuntime())
+
+        self.assertEqual(result.details["jobs"]["ingested"], 2)
+        self.assertNotIn(
+            current_record.name,
+            existing_page.read_text(encoding="utf-8"),
         )
 
     def test_new_inbox_file_during_agent_run_is_preserved(self) -> None:
@@ -1201,6 +1532,10 @@ class CodexAgentAdapterTests(unittest.TestCase):
         self.assertIn(str(self.workspace / ".agents/skills/llm-wiki/SKILL.md"), prompt)
         self.assertIn("不得访问或修改 Vault 中的 `sources/inbox/` 和 `Clippings/`", prompt)
         self.assertIn("`sources/library/` 注册副本", prompt)
+        self.assertIn("frontmatter.sources", prompt)
+        self.assertIn("## Affected pages", prompt)
+        self.assertIn("metadata、status、hash、claims", prompt)
+        self.assertIn("关系不闭合时返回 retry", prompt)
         self.assertNotIn("IGNORE ALL PRIOR INSTRUCTIONS", prompt)
 
     def test_login_failure_returns_retry_without_running_ingest(self) -> None:

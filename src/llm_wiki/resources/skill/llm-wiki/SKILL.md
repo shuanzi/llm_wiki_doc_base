@@ -50,12 +50,13 @@ description: "Maintain an attached local Markdown/Obsidian knowledge vault: orie
 4. 优先更新已有知识页和交叉引用，避免“一份资料一座孤岛”。
 5. 小型、低风险、可恢复的知识维护可自主完成；改变核心结论、批量重构、删除或改变领域边界前先展示影响并取得用户决定。
 6. 不把目录分类、标签数量、页面长度或固定步骤当作目标；以知识完整性、可追溯性和可维护性为完成标准。
+7. 普通 Wiki 页 `frontmatter.sources` 的 block-list 是来源关系正向集合；每个 Source Record 的精确 `## Affected pages` 段落是反向集合。两者必须完全相等。Affected pages 只列实际消费者；仅被读取或触碰的页面只进入 operations log。Index、Knowledge Map 和 Source Record 的导航正文链接不隐式产生来源关系。
 
 详见 [wiki-contract.md](references/wiki-contract.md)、[provenance.md](references/provenance.md) 与 [change-policy.md](references/change-policy.md)。
 
 ## 每次写入后的最低收尾
 
-- 更新受影响页面的 `updated`、来源关系和交叉引用。
+- 更新受影响页面的 `updated`、来源关系和交叉引用，并确认正反来源关系完全对称。
 - 更新 `wiki/INDEX.md` 或相关 Map，使新知识可发现。
 - 在 `logs/operations.md` 追加一条结构化记录，说明动作、范围、证据、未决问题。
 - 检查本次编辑是否把 Harness/Runtime 状态泄漏进 Vault。

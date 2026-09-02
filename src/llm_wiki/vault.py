@@ -314,7 +314,9 @@ Registered but not yet semantically ingested. An Agent should read the source, u
 
 ## Agent notes
 
-_Add source-specific takeaways, limitations, and affected pages here._
+_Add source-specific takeaways and limitations here._
+
+## Affected pages
 """
     log_path = vault / "logs" / "operations.md"
     resolved_log = log_path.resolve()

@@ -19,6 +19,7 @@ from .binding import (
     load_binding,
 )
 from .models import Finding
+from .source_relations import validate_source_relations
 from .utils import (
     contains_managed_block,
     directory_fingerprint,
@@ -513,6 +514,11 @@ def validate_vault(vault: Path) -> list[Finding]:
     _validate_obsidian(vault, findings)
     _validate_operation_log(vault, markdown_texts, findings)
     _validate_source_records(vault, markdown_texts, findings)
+    relation_report = validate_source_relations(vault, markdown_texts)
+    findings.extend(
+        _finding(problem.level, problem.code, problem.message, problem.path)
+        for problem in relation_report.problems
+    )
 
     if not any(item.level == "error" for item in findings):
         findings.append(_finding("info", "vault.ok", "Durable vault invariants are valid", vault))

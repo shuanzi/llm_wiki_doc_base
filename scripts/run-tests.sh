@@ -47,6 +47,7 @@ report = f"""# Test Report
 - Standalone Vault initialization and Obsidian JSON generation;
 - UTF-8 Markdown structure and machine-discoverable Vault Profile;
 - Source copy, SHA-256 registration, idempotency, missing/tampered Source detection;
+- Symmetric frontmatter.sources/Affected pages validation, path fencing, body-only warnings, and exact 13-relation incident regression;
 - One-shot Watch Markdown-default scans, all-files compatibility, stability gate, SQLite queue/lease recovery, Codex Adapter protocol, and deterministic Ingest completion checks;
 - Repository URL normalization, root README registration, offline idempotency, and no source-code persistence;
 - Codex `.agents/skills`, Claude Code `.claude/skills`, OpenClaw `skills` bindings;

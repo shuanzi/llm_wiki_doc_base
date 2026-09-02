@@ -4,9 +4,9 @@
 
 ### Unit
 
-覆盖路径处理、Managed Block、Frontmatter、Source 哈希、Skill fingerprint、绑定元数据、符号链接所有权与跨平台文件名。
+覆盖路径处理、Managed Block、scalar Frontmatter、`sources` block-list 窄解析、Source 哈希、Skill fingerprint、绑定元数据、符号链接所有权与跨平台文件名。来源关系 fixture 覆盖原事故的 13 个 missing reverse、missing/stale、后创建消费者、中文 URL 编码路径、Index/Map 导航豁免、body-only warning 与完整对称零诊断。
 
-Watcher 测试使用临时目录、SQLite Runtime 队列和 fake Agent Adapter，覆盖默认 Markdown 过滤、`--all-files` 兼容、全量重扫、稳定门、幂等、单 Source 串行任务、OS lock/lease、发布事务恢复、路径换链、特殊文件拒绝、`retry` / `needs-review` 与确定性 completion probe；进程测试只使用本地 fake executable，不调用真实 Codex 或外部模型。
+Watcher 测试使用临时目录、SQLite Runtime 队列和 fake Agent Adapter，覆盖默认 Markdown 过滤、`--all-files` 兼容、全量重扫、稳定门、幂等、单 Source 串行任务、OS lock/lease、发布事务恢复、路径换链、特殊文件拒绝、`retry` / `needs-review` 与确定性 completion probe；关系测试验证伪成功的 missing/stale 不发布、Durable Vault 指纹不变、旧 Source Record 仅 Affected-pages-only 可回填而 metadata/正文变化被拒绝。进程测试只使用本地 fake executable，不调用真实 Codex 或外部模型。
 
 ### Integration
 
@@ -50,6 +50,7 @@ Watcher 测试使用临时目录、SQLite Runtime 队列和 fake Agent Adapter�
 - update 的多 Harness 替换、托管文档与 Binding metadata 具备失败回滚和重复幂等；
 - 仓库注册不持久化源码，且重复 identity 不访问网络；
 - Watcher 重扫和 Runtime 恢复不漏掉仍保留的稳定文件，且 Agent 声称成功不能绕过 Source/Log/Doctor closure；
+- 普通 Wiki 页的 F 与 Source Record 的 R 完全相等，Doctor strict 与 Watcher completion probe 都会阻断 missing/stale/body-only 或路径错误；
 - 完整 detach 后 Vault fingerprint 不变；
 - 复制后的 Vault 无需 Binding 即可通过 Doctor；
 - 安装包不下载第三方运行依赖。
