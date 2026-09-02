@@ -51,6 +51,35 @@ class DoctorTests(unittest.TestCase):
 
             self.assertEqual(findings, [])
 
+    def test_untrusted_clippings_markdown_is_not_validated_as_durable_wiki_content(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            vault = Path(temp) / "vault"
+            init_vault(vault, "Clippings")
+            clippings = vault / "Clippings"
+            clippings.mkdir()
+            (clippings / "untrusted.md").write_text(
+                "[source-context link](missing.md)", encoding="utf-8"
+            )
+
+            findings = [
+                item for item in validate_vault(vault) if item.level in ("error", "warning")
+            ]
+
+            self.assertEqual(findings, [])
+
+    def test_clippings_intake_root_must_not_be_a_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            vault = base / "vault"
+            outside = base / "outside"
+            init_vault(vault, "Clippings symlink")
+            outside.mkdir()
+            (vault / "Clippings").symlink_to(outside, target_is_directory=True)
+
+            codes = {item.code for item in validate_vault(vault) if item.level == "error"}
+
+            self.assertIn("vault.intake-root-type", codes)
+
     def test_required_vault_paths_must_have_the_declared_type(self) -> None:
         replacements = {
             "sources/inbox": "file",

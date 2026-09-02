@@ -35,7 +35,7 @@ llm-wiki watch /absolute/path/to/drop-folder \
 
 为避免读取半写入内容，推荐生产者先写入同一文件系统上的临时文件，写完并关闭后再原子 `rename` 到 drop folder。文件必须保留到至少一次扫描成功；在两次扫描之间写入又删除的文件无法被发现，不属于“不漏文件”保证范围。
 
-Watcher 拒绝监听 Vault 根目录、`sources/library/`、Binding 内部目录、符号链接根，以及会与 Vault 或 Binding 重叠的路径，以避免递归反馈和路径逃逸；唯一允许的 Vault 内输入目录是 `sources/inbox/`。Inbox 内容按不可信待注册材料处理，不参与 Durable Wiki 的 Doctor 检查，注册后的 `sources/library/` 副本和 Source Record 才进入 closure 校验。目录不可访问、挂载消失或权限异常会作为扫描失败报告，绝不视为空目录。
+Watcher 拒绝监听 Vault 根目录、`sources/library/`、Binding 内部目录、符号链接根，以及会与 Vault 或 Binding 重叠的路径，以避免递归反馈和路径逃逸；Vault 内只允许精确的根级 `Clippings/` 和 `sources/inbox/`。这两个目录按只读、不可信 intake root 处理：原始内容不参与 Durable Wiki 的 Doctor 检查，也不会复制进 Agent 的临时 Vault；注册后的 `sources/library/` 副本和 Source Record 才进入 closure 校验。Agent 对 intake root 的任何创建、编辑、重命名、移动或删除都不会发布到 Durable Vault，并会使本次任务保持 `retry`。目录不可访问、挂载消失或权限异常会作为扫描失败报告，绝不视为空目录。
 
 ## 处理与结果
 
@@ -43,9 +43,9 @@ Watcher 拒绝监听 Vault 根目录、`sources/library/`、Binding 内部目录
 
 1. 获取当前 Binding 的跨进程 OS lock 和 SQLite lease，恢复未完成的发布事务，再校验 Binding、Vault、输入目录和 Codex 可用性。v1 依赖“一个 Vault 只由一个 Binding/调度任务负责”的部署约束来实现 Vault 级单写者。
 2. 全量扫描稳定且符合当前格式策略的文件，复用 `register_source()` 复制、哈希注册 Source Record 与日志；相同 SHA-256 不会重复注册。
-3. 将新注册的 Source 和符合当前格式策略的 `status: registered` Source Record 放入 Binding Runtime 队列：`.llm-wiki-binding/runtime/watch/queue.sqlite3`；默认模式会从 disposable queue 移除非 Markdown job，但不删除其 Durable Source Record。
+3. 将新注册的 Source 和符合当前格式策略的 `status: registered` Source Record 放入 Binding Runtime 队列：`.llm-wiki-binding/runtime/watch/queue.sqlite3`；默认模式只过滤本轮不符合 Markdown 策略的待处理或暂停 job，不删除或重置其既有 `retry`、`needs-review`、`permanent-error` 等可恢复状态。JSON 结果通过 `details.filtered_jobs` 报告这类被保留但未执行的 job；历史 `ingested` job 不计入该数值，缺失或损坏 Source Record 的异常队列状态仍通过 `details.jobs` 和 `details.job_errors` 告警。后续使用 `--all-files` 或再次发现同内容的 Markdown 文件时可继续恢复。
 4. 每个 Source 独立、串行启动一个 ephemeral Codex 进程，避免某个 `needs-review` 或不支持的文件暂停其他 Source。Agent 只得到当前 Source ID/Record 路径和已安装 Skill 的绝对路径。
-5. Agent 只写临时 Vault 副本；真实 Binding Runtime、队列和 Vault 不授予 Agent 写权限。Agent 结束后，Watcher 在副本中检查 Source Record 的 `status: ingested`、来源 SHA-256、对应的 Ingest operation log、结构化结果，以及 `llm-wiki doctor <vault> --strict`。全部满足后，才通过可恢复的发布事务写回真实 Vault 并再次校验。
+5. Agent 只写临时 Vault 副本，且副本中的 intake root 为空；真实 Binding Runtime、队列和 Vault 不授予 Agent 写权限。Agent 结束后，Watcher 在副本中检查允许写入范围、Source Record 的 `status: ingested`、来源 SHA-256、对应的 Ingest operation log、结构化结果，以及 `llm-wiki doctor <vault> --strict`。只有 `wiki/`、`evidence/` 和 `logs/operations.md` 的合法闭环修改才能通过可恢复事务写回，`Clippings/` 与 `sources/inbox/` 永远不属于发布范围。
 
 生产 Adapter 直接用 argv 启动，不经过 Shell。等价命令如下，其中 `<staged-vault>` 是本轮隔离副本，不是 Durable Vault：
 

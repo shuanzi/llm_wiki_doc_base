@@ -21,6 +21,7 @@ from llm_wiki.vault import init_vault, register_source
 from llm_wiki.watch import (
     AgentRunResult,
     CodexAgentAdapter,
+    _copy_vault_for_agent,
     _terminate_process_tree,
     run_watch,
 )
@@ -214,7 +215,7 @@ class WatchTests(unittest.TestCase):
             "ingested",
         )
 
-    def test_default_recovery_dequeues_non_markdown_but_all_files_can_restore_it(self) -> None:
+    def test_default_recovery_filters_non_markdown_without_deleting_queue_state(self) -> None:
         source = self.base / "registered.bin"
         source.write_bytes(b"registered before markdown-only default")
         registered = register_source(self.vault, source)
@@ -233,13 +234,15 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(retry.calls), 1)
         self.assertEqual(default_runtime.calls, [])
         self.assertNotIn("retry", default_result.details["jobs"])
-        self.assertIn(
-            {
-                "event": "dequeued-non-markdown",
-                "source_id": _source_id(registered.path),
-            },
-            default_result.details["events"],
+        self.assertEqual(default_result.details["filtered_jobs"], 1)
+        queue = sqlite3.connect(
+            self.workspace / ".llm-wiki-binding" / "runtime" / "watch" / "queue.sqlite3"
         )
+        stored_status = queue.execute(
+            "SELECT status FROM jobs WHERE source_id = ?", (_source_id(registered.path),)
+        ).fetchone()[0]
+        queue.close()
+        self.assertEqual(stored_status, "retry")
         self.assertEqual(
             parse_frontmatter(registered.path.read_text(encoding="utf-8"))["status"],
             "registered",
@@ -250,6 +253,90 @@ class WatchTests(unittest.TestCase):
 
         self.assertEqual(len(all_files_runtime.calls), 1)
         self.assertEqual(all_files_result.details["jobs"]["ingested"], 1)
+
+    def test_format_filter_preserves_paused_and_permanent_queue_states(self) -> None:
+        for name, outcome in (
+            ("review.bin", "needs-review"),
+            ("permanent.bin", "permanent-error"),
+        ):
+            source = self.base / name
+            source.write_bytes(name.encode("utf-8"))
+            register_source(self.vault, source)
+            run_watch(
+                self.workspace,
+                self.drop,
+                settle_seconds=0,
+                markdown_only=False,
+                agent_runtime=FakeAgentRuntime(outcome, complete=False),
+            )
+
+        filtered_runtime = FakeAgentRuntime()
+        filtered = self.watch(filtered_runtime)
+        self.assertEqual(filtered_runtime.calls, [])
+        self.assertEqual(filtered.details["filtered_jobs"], 2)
+
+        restored_runtime = FakeAgentRuntime()
+        restored = self.watch(restored_runtime, markdown_only=False)
+        self.assertEqual(restored_runtime.calls, [])
+        self.assertEqual(restored.details["jobs"]["needs-review"], 1)
+        self.assertEqual(restored.details["jobs"]["permanent-error"], 1)
+
+    def test_filtered_jobs_excludes_completed_non_markdown_history(self) -> None:
+        source = self.drop / "completed.bin"
+        source.write_bytes(b"completed non-markdown history")
+
+        completed = self.watch(FakeAgentRuntime(), markdown_only=False)
+        filtered = self.watch(FakeAgentRuntime())
+
+        self.assertEqual(completed.details["jobs"]["ingested"], 1)
+        self.assertEqual(filtered.details["filtered_jobs"], 0)
+        self.assertNotIn("ingested", filtered.details["jobs"])
+
+    def test_orphan_retry_remains_visible_in_jobs_and_errors(self) -> None:
+        source = self.drop / "orphan.md"
+        source.write_text("retry before record loss", encoding="utf-8")
+        retry = FakeAgentRuntime("retry", complete=False)
+        self.watch(retry)
+        record = self.records()[0]
+        source_id = _source_id(record)
+        record.unlink()
+        source.unlink()
+
+        result = self.watch(FakeAgentRuntime())
+
+        self.assertEqual(result.details["filtered_jobs"], 0)
+        self.assertEqual(result.details["jobs"]["retry"], 1)
+        self.assertEqual(result.details["job_errors"][0]["status"], "retry")
+        self.assertEqual(result.details["job_errors"][0]["source_id"], source_id)
+
+    def test_removed_markdown_alias_does_not_delete_retry_for_non_markdown_record(self) -> None:
+        original = self.base / "original.bin"
+        original.write_bytes(b"same bytes observed through markdown")
+        registered = register_source(self.vault, original)
+        observed = self.drop / "observed.md"
+        observed.write_bytes(original.read_bytes())
+
+        self.watch(FakeAgentRuntime("retry", complete=False))
+        observed.unlink()
+        filtered_runtime = FakeAgentRuntime()
+        filtered = self.watch(filtered_runtime)
+
+        self.assertEqual(filtered_runtime.calls, [])
+        self.assertEqual(filtered.details["filtered_jobs"], 1)
+        queue = sqlite3.connect(
+            self.workspace / ".llm-wiki-binding" / "runtime" / "watch" / "queue.sqlite3"
+        )
+        stored_status = queue.execute(
+            "SELECT status FROM jobs WHERE source_id = ?", (_source_id(registered.path),)
+        ).fetchone()[0]
+        queue.close()
+        self.assertEqual(stored_status, "retry")
+
+        observed.write_bytes(original.read_bytes())
+        restored_runtime = FakeAgentRuntime()
+        restored = self.watch(restored_runtime)
+        self.assertEqual(len(restored_runtime.calls), 1)
+        self.assertEqual(restored.details["jobs"]["ingested"], 1)
 
     def test_markdown_candidate_admits_same_hash_existing_non_markdown_record(self) -> None:
         original = self.base / "original.bin"
@@ -262,13 +349,6 @@ class WatchTests(unittest.TestCase):
 
         self.assertEqual(len(runtime.calls), 1)
         self.assertEqual(result.details["jobs"]["ingested"], 1)
-        self.assertNotIn(
-            {
-                "event": "dequeued-non-markdown",
-                "source_id": _source_id(registered.path),
-            },
-            result.details["events"],
-        )
         self.assertEqual(
             parse_frontmatter(registered.path.read_text(encoding="utf-8"))["status"],
             "ingested",
@@ -374,6 +454,95 @@ class WatchTests(unittest.TestCase):
 
         self.assertEqual(result.details["jobs"]["ingested"], 1)
         self.assertEqual(len(runtime.calls), 1)
+
+    def test_vault_clippings_is_allowed_but_not_copied_into_agent_stage(self) -> None:
+        clippings = self.vault / "Clippings"
+        clippings.mkdir()
+        source = clippings / "untrusted.md"
+        source.write_text("[source-context link](missing.md)", encoding="utf-8")
+        staged_contents: list[list[str]] = []
+
+        class InspectingRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                staged_vault = kwargs["vault"]
+                assert isinstance(staged_vault, Path)
+                staged_contents.append(
+                    sorted(path.name for path in (staged_vault / "Clippings").iterdir())
+                )
+                return super().run(**kwargs)  # type: ignore[arg-type]
+
+        result = run_watch(
+            self.workspace,
+            clippings,
+            settle_seconds=0,
+            agent_runtime=InspectingRuntime(),
+        )
+
+        self.assertEqual(result.details["jobs"]["ingested"], 1)
+        self.assertEqual(staged_contents, [[]])
+        self.assertEqual(source.read_text(encoding="utf-8"), "[source-context link](missing.md)")
+
+    def test_agent_cannot_write_generated_content_back_to_clippings(self) -> None:
+        clippings = self.vault / "Clippings"
+        clippings.mkdir()
+        source = clippings / "source.md"
+        source.write_text("untrusted source", encoding="utf-8")
+
+        class FeedbackRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                staged_vault = kwargs["vault"]
+                assert isinstance(staged_vault, Path)
+                (staged_vault / "Clippings" / "generated.md").write_text(
+                    "must never publish", encoding="utf-8"
+                )
+                return super().run(**kwargs)  # type: ignore[arg-type]
+
+        result = run_watch(
+            self.workspace,
+            clippings,
+            settle_seconds=0,
+            agent_runtime=FeedbackRuntime(),
+        )
+
+        self.assertEqual(result.details["jobs"]["retry"], 1)
+        self.assertFalse((clippings / "generated.md").exists())
+        self.assertEqual(source.read_text(encoding="utf-8"), "untrusted source")
+
+    def test_symlinked_intake_root_is_replaced_by_empty_staged_directory(self) -> None:
+        outside = self.base / "outside"
+        outside.mkdir()
+        (outside / "private.md").write_text("outside", encoding="utf-8")
+        (self.vault / "Clippings").symlink_to(outside, target_is_directory=True)
+        staged = self.base / "staged-vault"
+
+        _copy_vault_for_agent(self.vault, staged)
+
+        staged_clippings = staged / "Clippings"
+        self.assertTrue(staged_clippings.is_dir())
+        self.assertFalse(staged_clippings.is_symlink())
+        self.assertEqual(list(staged_clippings.iterdir()), [])
+        (staged_clippings / "generated.md").write_text("staged", encoding="utf-8")
+        self.assertFalse((outside / "generated.md").exists())
+
+    def test_agent_stage_rejects_other_vault_symlinks_before_runtime(self) -> None:
+        outside = self.base / "outside"
+        outside.mkdir()
+        (self.vault / "unsafe-link").symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(RuntimeError, "unsupported links"):
+            _copy_vault_for_agent(self.vault, self.base / "staged-vault")
+
+    def test_only_exact_approved_vault_intake_roots_are_allowed(self) -> None:
+        clippings = self.vault / "Clippings"
+        nested = clippings / "nested"
+        other = self.vault / "Other"
+        nested.mkdir(parents=True)
+        other.mkdir()
+
+        with self.assertRaises(ValueError):
+            run_watch(self.workspace, nested, agent_runtime=FakeAgentRuntime())
+        with self.assertRaises(ValueError):
+            run_watch(self.workspace, other, agent_runtime=FakeAgentRuntime())
 
     def test_external_keep_file_is_not_mistaken_for_inbox_marker(self) -> None:
         (self.drop / ".keep").write_text(
@@ -1030,6 +1199,8 @@ class CodexAgentAdapterTests(unittest.TestCase):
         self.assertIn(_source_id(self.record), prompt)
         self.assertIn(str(self.record), prompt)
         self.assertIn(str(self.workspace / ".agents/skills/llm-wiki/SKILL.md"), prompt)
+        self.assertIn("不得访问或修改 Vault 中的 `sources/inbox/` 和 `Clippings/`", prompt)
+        self.assertIn("`sources/library/` 注册副本", prompt)
         self.assertNotIn("IGNORE ALL PRIOR INSTRUCTIONS", prompt)
 
     def test_login_failure_returns_retry_without_running_ingest(self) -> None:

@@ -81,7 +81,7 @@ llm-wiki watch /absolute/path/to/drop-folder \
   --json
 ```
 
-Watcher 默认只处理大小写不敏感的 `.md` 和 `.markdown` 文件；只有明确需要恢复旧的全文件行为时才传 `--all-files`。
+Watcher 默认只处理大小写不敏感的 `.md` 和 `.markdown` 文件；只有明确需要恢复旧的全文件行为时才传 `--all-files`。Vault 内仅允许 `sources/inbox/` 和根级 `Clippings/` 作为不可信 intake root；Agent 不会读取其原始目录副本，也不能把生成内容回写到这些目录。
 
 完整的前置条件、恢复语义和 macOS/Linux/Windows 调度示例见 [周期扫描与自动 Ingest](docs/WATCHER.md)。
 

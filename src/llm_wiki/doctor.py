@@ -30,7 +30,9 @@ from .utils import (
 from .vault import (
     REQUIRED_VAULT_FILES,
     REQUIRED_VAULT_PATHS,
+    UNTRUSTED_VAULT_INTAKE_ROOTS,
     VAULT_SCHEMA_VERSION,
+    is_untrusted_vault_intake_path,
 )
 
 FORBIDDEN_VAULT_ROOTS = (
@@ -183,8 +185,8 @@ def _read_markdown(vault: Path, findings: list[Finding]) -> dict[Path, str]:
     for markdown in vault.rglob("*.md"):
         if not markdown.is_file():
             continue
-        if markdown.relative_to(vault).parts[:2] == ("sources", "inbox"):
-            # Inbox files are untrusted intake, not durable Wiki content. They
+        if is_untrusted_vault_intake_path(markdown.relative_to(vault)):
+            # Intake files are untrusted input, not durable Wiki content. They
             # are validated after registration into sources/library.
             continue
         try:
@@ -469,6 +471,20 @@ def validate_vault(vault: Path) -> list[Finding]:
                     "error",
                     "vault.required-type",
                     f"Required path must be a {expected}: {relative}",
+                    target,
+                )
+            )
+
+    for relative in UNTRUSTED_VAULT_INTAKE_ROOTS:
+        target = vault / relative
+        if not target.exists() and not target.is_symlink():
+            continue
+        if target.is_symlink() or not target.is_dir():
+            findings.append(
+                _finding(
+                    "error",
+                    "vault.intake-root-type",
+                    f"Intake root must be a real directory: {relative}",
                     target,
                 )
             )

@@ -54,7 +54,7 @@ Claude Code 使用 `.claude/skills/llm-wiki/`，OpenClaw 使用 `skills/llm-wiki
 
 ### 方式 D：周期扫描文件夹
 
-需要自动处理 drop folder 时，可让系统调度器每 30 分钟运行一次 `llm-wiki watch`。该命令默认只处理 `.md` / `.markdown`，每次进行全量扫描，先完成确定性注册，再启动 ephemeral Codex Agent 执行语义 Ingest；仅在明确需要其他文件类型时使用 `--all-files`。完整前置条件、恢复语义和跨平台调度示例见 [周期扫描与自动 Ingest](WATCHER.md)。
+需要自动处理 drop folder 时，可让系统调度器每 30 分钟运行一次 `llm-wiki watch`。该命令默认只处理 `.md` / `.markdown`，每次进行全量扫描，先完成确定性注册，再启动 ephemeral Codex Agent 执行语义 Ingest；仅在明确需要其他文件类型时使用 `--all-files`。Vault 内可监听根级 `Clippings/` 或 `sources/inbox/`，二者始终是只读、不可信 intake root，Agent 输出不得回写。完整前置条件、恢复语义和跨平台调度示例见 [周期扫描与自动 Ingest](WATCHER.md)。
 
 ## 3. Attach Agent
 
