@@ -106,6 +106,96 @@ class CliTests(unittest.TestCase):
             self.assertEqual(watch_json["action"], "watch")
             self.assertEqual(watch_json["details"]["status"], "completed")
 
+    def test_watch_markdown_flags_are_mutually_exclusive_and_default_on(self) -> None:
+        stdout = io.StringIO()
+
+        with mock.patch("llm_wiki.cli.run_watch") as run_watch_mock, contextlib.redirect_stdout(
+            stdout
+        ):
+            run_watch_mock.return_value = OperationResult(
+                action="watch",
+                path=Path("/absolute/drop"),
+                details={"status": "completed", "errors": 0, "jobs": {}},
+            )
+            returncode = main(
+                [
+                    "watch",
+                    "/absolute/drop",
+                    "--workspace",
+                    "/absolute/binding",
+                    "--harness",
+                    "codex",
+                    "--json",
+                ]
+            )
+
+        self.assertEqual(returncode, 0)
+        self.assertTrue(run_watch_mock.call_args.kwargs["markdown_only"])
+
+        stdout = io.StringIO()
+        with mock.patch("llm_wiki.cli.run_watch") as run_watch_mock, contextlib.redirect_stdout(
+            stdout
+        ):
+            run_watch_mock.return_value = OperationResult(
+                action="watch",
+                path=Path("/absolute/drop"),
+                details={"status": "completed", "errors": 0, "jobs": {}},
+            )
+            returncode = main(
+                [
+                    "watch",
+                    "/absolute/drop",
+                    "--workspace",
+                    "/absolute/binding",
+                    "--harness",
+                    "codex",
+                    "--markdown-only",
+                    "--json",
+                ]
+            )
+
+        self.assertEqual(returncode, 0)
+        self.assertTrue(run_watch_mock.call_args.kwargs["markdown_only"])
+
+        stdout = io.StringIO()
+        with mock.patch("llm_wiki.cli.run_watch") as run_watch_mock, contextlib.redirect_stdout(
+            stdout
+        ):
+            run_watch_mock.return_value = OperationResult(
+                action="watch",
+                path=Path("/absolute/drop"),
+                details={"status": "completed", "errors": 0, "jobs": {}},
+            )
+            returncode = main(
+                [
+                    "watch",
+                    "/absolute/drop",
+                    "--workspace",
+                    "/absolute/binding",
+                    "--harness",
+                    "codex",
+                    "--all-files",
+                    "--json",
+                ]
+            )
+
+        self.assertEqual(returncode, 0)
+        self.assertFalse(run_watch_mock.call_args.kwargs["markdown_only"])
+
+        result = run_cli(
+            "watch",
+            "/absolute/drop",
+            "--workspace",
+            "/absolute/binding",
+            "--harness",
+            "codex",
+            "--markdown-only",
+            "--all-files",
+            check=False,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("not allowed with argument", result.stderr)
+
     def test_watch_returns_one_when_scan_reports_registration_errors(self) -> None:
         result = OperationResult(
             action="watch",

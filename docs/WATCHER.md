@@ -1,6 +1,6 @@
 # 周期扫描与自动 Ingest
 
-`llm-wiki watch` 是一次性（one-shot）任务：每次启动都全量扫描一个输入目录，注册稳定的新文件，并串行调用 Codex 完成语义 Ingest。它不是常驻 daemon，也不依赖可能丢失的文件系统事件。
+`llm-wiki watch` 是一次性（one-shot）任务：每次启动都全量扫描一个输入目录，默认注册稳定的 Markdown 新文件，并串行调用 Codex 完成语义 Ingest。它不是常驻 daemon，也不依赖可能丢失的文件系统事件。
 
 请由操作系统调度器每 **30 分钟**运行一次。调度漏跑、进程异常退出或 Runtime 队列丢失后，下一次全量扫描会继续发现仍保留在输入目录中的文件，并可从 `registered` Source Record 恢复待办任务。
 
@@ -25,12 +25,13 @@ llm-wiki attach \
 llm-wiki watch /absolute/path/to/drop-folder \
   --workspace /absolute/path/to/binding \
   --harness codex \
+  --markdown-only \
   --recursive \
   --settle-seconds 60 \
   --json
 ```
 
-`--settle-seconds 60` 要求文件在两次检查之间保持相同的大小和修改时间，才会注册。扫描器不会移动或删除输入文件。
+默认模式只处理大小写不敏感的 `.md` 和 `.markdown`；`--markdown-only` 可显式记录这一策略，只有确实需要处理其他普通文件时才使用互斥的 `--all-files`。被过滤的文件不会注册或入队，JSON 结果通过 `details.ignored` 和 `ignored-non-markdown` 事件报告。`--settle-seconds 60` 要求候选文件在两次检查之间保持相同的大小和修改时间，才会注册。扫描器不会移动或删除输入文件。
 
 为避免读取半写入内容，推荐生产者先写入同一文件系统上的临时文件，写完并关闭后再原子 `rename` 到 drop folder。文件必须保留到至少一次扫描成功；在两次扫描之间写入又删除的文件无法被发现，不属于“不漏文件”保证范围。
 
@@ -41,8 +42,8 @@ Watcher 拒绝监听 Vault 根目录、`sources/library/`、Binding 内部目录
 每轮执行以下恢复型流程：
 
 1. 获取当前 Binding 的跨进程 OS lock 和 SQLite lease，恢复未完成的发布事务，再校验 Binding、Vault、输入目录和 Codex 可用性。v1 依赖“一个 Vault 只由一个 Binding/调度任务负责”的部署约束来实现 Vault 级单写者。
-2. 全量扫描稳定文件，复用 `register_source()` 复制、哈希注册 Source Record 与日志；相同 SHA-256 不会重复注册。
-3. 将新注册的 Source 和已有 `status: registered` Source Record 放入 Binding Runtime 队列：`.llm-wiki-binding/runtime/watch/queue.sqlite3`。
+2. 全量扫描稳定且符合当前格式策略的文件，复用 `register_source()` 复制、哈希注册 Source Record 与日志；相同 SHA-256 不会重复注册。
+3. 将新注册的 Source 和符合当前格式策略的 `status: registered` Source Record 放入 Binding Runtime 队列：`.llm-wiki-binding/runtime/watch/queue.sqlite3`；默认模式会从 disposable queue 移除非 Markdown job，但不删除其 Durable Source Record。
 4. 每个 Source 独立、串行启动一个 ephemeral Codex 进程，避免某个 `needs-review` 或不支持的文件暂停其他 Source。Agent 只得到当前 Source ID/Record 路径和已安装 Skill 的绝对路径。
 5. Agent 只写临时 Vault 副本；真实 Binding Runtime、队列和 Vault 不授予 Agent 写权限。Agent 结束后，Watcher 在副本中检查 Source Record 的 `status: ingested`、来源 SHA-256、对应的 Ingest operation log、结构化结果，以及 `llm-wiki doctor <vault> --strict`。全部满足后，才通过可恢复的发布事务写回真实 Vault 并再次校验。
 
@@ -54,7 +55,6 @@ codex exec \
   --cd <isolated-temp-dir> \
   --skip-git-repo-check \
   --add-dir <staged-vault> \
-  --sandbox workspace-write \
   --approve-for-me \
   --json \
   --output-schema <runtime-result-schema> \
@@ -62,11 +62,13 @@ codex exec \
   -
 ```
 
+当前 Codex CLI 的 `--approve-for-me` 已使用 workspace-write sandbox，不得再与显式 `--sandbox workspace-write` 同时传入，否则 Codex 会在启动前以参数错误退出。
+
 Prompt 通过临时文件接入 stdin，只包含 Skill 路径、当前 Source ID/Record 路径和闭环约束，不包含来源正文。每个 Agent 最长运行 25 分钟；超时或 lease control loss 时终止整个进程树。结构化结果和 JSONL/stderr 留在 `.llm-wiki-binding/runtime/watch/` 供排查。
 
 队列状态为 `discovered`、`registered`、`queued`、`ingesting`、`ingested`、`retry`、`needs-review` 或 `permanent-error`。Codex 非零退出、超时、认证或网络故障、无效结果以及 completion probe 失败都会保留任务为 `retry`；不会因 Agent 的退出码或文本声称完成就静默成功。
 
-命令在全部任务完成或没有待办时返回 `0`；若扫描注册失败，或仍有 `retry`、`needs-review`、`permanent-error`，则返回 `1`；路径、Binding、参数或 Runtime 损坏等启动错误返回 `2`。调度器应保留 stdout/stderr，并对非零退出告警；`--json` 的 `details.jobs` 给出各状态数量，`details.job_errors` 最多返回 100 条 Source 级状态和原因，`details.runtime` 指向完整 Agent 日志所在目录。
+命令在全部任务完成或没有待办时返回 `0`；若扫描注册失败，或仍有 `retry`、`needs-review`、`permanent-error`，则返回 `1`；路径、Binding、参数或 Runtime 损坏等启动错误返回 `2`。调度器应保留 stdout/stderr，并对非零退出告警；`--json` 的 `details.ignored` 给出本轮过滤数量，`details.jobs` 给出各状态数量，`details.job_errors` 最多返回 100 条 Source 级状态和原因，`details.runtime` 指向完整 Agent 日志所在目录。
 
 Agent 遇到需要推翻核心结论、不可裁决冲突或其他高影响语义变更时会返回 `needs-review`。这类任务的临时副本会被丢弃，Durable Vault 仅保留注册结果，任务暂停等待人工交互式 Agent 裁决。开始人工裁决前必须暂停 30 分钟 timer，并确认当前 watcher 已退出；完成并关闭交互式 Agent 后再恢复 timer。下一轮若发现其 Source Record 已由人工完成为 `ingested`，会自动关闭任务。
 
@@ -94,6 +96,7 @@ Agent 遇到需要推翻核心结论、不可裁决冲突或其他高影响语�
       <string>/Users/alice/Drop</string>
       <string>--workspace</string><string>/Users/alice/WikiBinding</string>
       <string>--harness</string><string>codex</string>
+      <string>--markdown-only</string>
       <string>--recursive</string>
       <string>--settle-seconds</string><string>60</string>
       <string>--json</string>
@@ -125,7 +128,7 @@ Type=oneshot
 User=alice
 Environment="PATH=/usr/local/bin:/usr/bin:/bin"
 Environment="CODEX_HOME=/home/alice/.codex"
-ExecStart=/usr/local/bin/llm-wiki watch /home/alice/Drop --workspace /home/alice/WikiBinding --harness codex --recursive --settle-seconds 60 --json
+ExecStart=/usr/local/bin/llm-wiki watch /home/alice/Drop --workspace /home/alice/WikiBinding --harness codex --markdown-only --recursive --settle-seconds 60 --json
 ```
 
 保存 timer 为 `/etc/systemd/system/llm-wiki-watch.timer`：
@@ -151,7 +154,7 @@ WantedBy=timers.target
 
 - 触发器：每天，重复任务间隔 **30 分钟**，持续时间“无限期”。
 - 操作的“程序或脚本”：`C:\\Users\\Alice\\AppData\\Local\\Programs\\Python\\Python313\\Scripts\\llm-wiki.exe`（替换为实际绝对路径）。
-- “添加参数”：`watch "C:\\Users\\Alice\\Drop" --workspace "C:\\Users\\Alice\\WikiBinding" --harness codex --recursive --settle-seconds 60 --json`。
+- “添加参数”：`watch "C:\\Users\\Alice\\Drop" --workspace "C:\\Users\\Alice\\WikiBinding" --harness codex --markdown-only --recursive --settle-seconds 60 --json`。
 - “起始于”：包含 `llm-wiki.exe` 的目录；在任务的环境设置中确保 `PATH` 可找到 `codex.exe`，并保留交互环境所用的 `CODEX_HOME`。
 
 不要选择会阻止访问该用户 Codex 认证状态或 Vault 的账户/权限模式。首次运行后检查任务历史、输出日志和队列状态；认证失效时修复认证后，后续扫描会从 `retry` 恢复。

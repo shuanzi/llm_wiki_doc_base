@@ -6,7 +6,7 @@
 
 覆盖路径处理、Managed Block、Frontmatter、Source 哈希、Skill fingerprint、绑定元数据、符号链接所有权与跨平台文件名。
 
-Watcher 测试使用临时目录、SQLite Runtime 队列和 fake Agent Adapter，覆盖全量重扫、稳定门、幂等、单 Source 串行任务、OS lock/lease、发布事务恢复、路径换链、特殊文件拒绝、`retry` / `needs-review` 与确定性 completion probe；进程测试只使用本地 fake executable，不调用真实 Codex 或外部模型。
+Watcher 测试使用临时目录、SQLite Runtime 队列和 fake Agent Adapter，覆盖默认 Markdown 过滤、`--all-files` 兼容、全量重扫、稳定门、幂等、单 Source 串行任务、OS lock/lease、发布事务恢复、路径换链、特殊文件拒绝、`retry` / `needs-review` 与确定性 completion probe；进程测试只使用本地 fake executable，不调用真实 Codex 或外部模型。
 
 ### Integration
 

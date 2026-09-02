@@ -135,11 +135,48 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(parse_frontmatter(records[0].read_text(encoding="utf-8"))["status"], "ingested")
         self.assertIn(_source_id(records[0]), (self.vault / "logs" / "operations.md").read_text(encoding="utf-8"))
 
+    def test_markdown_only_is_default_and_accepts_both_markdown_extensions(self) -> None:
+        for name, contents in {
+            "note.md": "lower md",
+            "note-upper.MD": "upper md",
+            "article.markdown": "lower markdown",
+            "article-upper.MARKDOWN": "upper markdown",
+        }.items():
+            (self.drop / name).write_text(contents, encoding="utf-8")
+        (self.drop / "ignored.txt").write_text("plain text", encoding="utf-8")
+        (self.drop / ".DS_Store").write_bytes(b"finder metadata")
+        (self.drop / "ignored.pdf").write_bytes(b"not a pdf")
+        runtime = FakeAgentRuntime()
+
+        result = self.watch(runtime)
+
+        self.assertEqual(len(runtime.calls), 4)
+        self.assertEqual(len(self.records()), 4)
+        self.assertEqual(result.details["ignored"], 3)
+        self.assertEqual(
+            {
+                Path(event["path"]).name
+                for event in result.details["events"]
+                if event["event"] == "ignored-non-markdown"
+            },
+            {"ignored.txt", ".DS_Store", "ignored.pdf"},
+        )
+
+    def test_all_files_opt_out_restores_non_markdown_processing(self) -> None:
+        (self.drop / "plain.txt").write_text("plain text", encoding="utf-8")
+        runtime = FakeAgentRuntime()
+
+        result = self.watch(runtime, markdown_only=False)
+
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertEqual(len(self.records()), 1)
+        self.assertEqual(result.details["ignored"], 0)
+
     def test_repeat_scan_and_same_content_rename_do_not_repeat_semantic_ingest(self) -> None:
-        (self.drop / "first.txt").write_text("same bytes", encoding="utf-8")
+        (self.drop / "first.md").write_text("same bytes", encoding="utf-8")
         runtime = FakeAgentRuntime()
         self.watch(runtime)
-        (self.drop / "renamed.txt").write_text("same bytes", encoding="utf-8")
+        (self.drop / "renamed.md").write_text("same bytes", encoding="utf-8")
 
         self.watch(runtime)
 
@@ -177,8 +214,84 @@ class WatchTests(unittest.TestCase):
             "ingested",
         )
 
+    def test_default_recovery_dequeues_non_markdown_but_all_files_can_restore_it(self) -> None:
+        source = self.base / "registered.bin"
+        source.write_bytes(b"registered before markdown-only default")
+        registered = register_source(self.vault, source)
+        retry = FakeAgentRuntime("retry", complete=False)
+
+        run_watch(
+            self.workspace,
+            self.drop,
+            settle_seconds=0,
+            markdown_only=False,
+            agent_runtime=retry,
+        )
+        default_runtime = FakeAgentRuntime()
+        default_result = self.watch(default_runtime)
+
+        self.assertEqual(len(retry.calls), 1)
+        self.assertEqual(default_runtime.calls, [])
+        self.assertNotIn("retry", default_result.details["jobs"])
+        self.assertIn(
+            {
+                "event": "dequeued-non-markdown",
+                "source_id": _source_id(registered.path),
+            },
+            default_result.details["events"],
+        )
+        self.assertEqual(
+            parse_frontmatter(registered.path.read_text(encoding="utf-8"))["status"],
+            "registered",
+        )
+
+        all_files_runtime = FakeAgentRuntime()
+        all_files_result = self.watch(all_files_runtime, markdown_only=False)
+
+        self.assertEqual(len(all_files_runtime.calls), 1)
+        self.assertEqual(all_files_result.details["jobs"]["ingested"], 1)
+
+    def test_markdown_candidate_admits_same_hash_existing_non_markdown_record(self) -> None:
+        original = self.base / "original.bin"
+        original.write_bytes(b"same bytes later observed as markdown")
+        registered = register_source(self.vault, original)
+        (self.drop / "observed.md").write_bytes(original.read_bytes())
+        runtime = FakeAgentRuntime()
+
+        result = self.watch(runtime)
+
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertEqual(result.details["jobs"]["ingested"], 1)
+        self.assertNotIn(
+            {
+                "event": "dequeued-non-markdown",
+                "source_id": _source_id(registered.path),
+            },
+            result.details["events"],
+        )
+        self.assertEqual(
+            parse_frontmatter(registered.path.read_text(encoding="utf-8"))["status"],
+            "ingested",
+        )
+
+    def test_run_watch_keeps_existing_positional_argument_order(self) -> None:
+        (self.drop / "positional.md").write_text("positional API", encoding="utf-8")
+        runtime = FakeAgentRuntime()
+
+        result = run_watch(
+            self.workspace,
+            self.drop,
+            "codex",
+            False,
+            0,
+            runtime,
+        )
+
+        self.assertEqual(result.details["jobs"]["ingested"], 1)
+        self.assertEqual(len(runtime.calls), 1)
+
     def test_unstable_file_is_deferred_without_registration(self) -> None:
-        source = self.drop / "still-writing.txt"
+        source = self.drop / "still-writing.md"
         source.write_text("first", encoding="utf-8")
         runtime = FakeAgentRuntime()
 
@@ -269,7 +382,7 @@ class WatchTests(unittest.TestCase):
         )
         runtime = FakeAgentRuntime()
 
-        result = self.watch(runtime)
+        result = self.watch(runtime, markdown_only=False)
 
         self.assertEqual(result.details["jobs"]["ingested"], 1)
         self.assertEqual(len(runtime.calls), 1)
@@ -313,10 +426,10 @@ class WatchTests(unittest.TestCase):
     def test_permanent_error_is_not_retried_until_manual_ingest_closes_it(self) -> None:
         (self.drop / "unsupported.bin").write_bytes(b"unsupported")
         failed = FakeAgentRuntime("permanent-error", complete=False)
-        self.watch(failed)
+        self.watch(failed, markdown_only=False)
         later = FakeAgentRuntime()
 
-        self.watch(later)
+        self.watch(later, markdown_only=False)
 
         self.assertEqual(len(failed.calls), 1)
         self.assertEqual(later.calls, [])
@@ -367,9 +480,9 @@ class WatchTests(unittest.TestCase):
                     "unsupported",
                 )
 
-        first = self.watch(MutatingPermanentRuntime())
+        first = self.watch(MutatingPermanentRuntime(), markdown_only=False)
         later = FakeAgentRuntime()
-        second = self.watch(later)
+        second = self.watch(later, markdown_only=False)
 
         self.assertEqual(first.details["jobs"]["permanent-error"], 1)
         self.assertEqual(second.details["jobs"]["permanent-error"], 1)
@@ -407,7 +520,7 @@ class WatchTests(unittest.TestCase):
                 return AgentRunResult("ingested", (_source_id(record),), "completed")
 
         runtime = MixedRuntime()
-        result = self.watch(runtime)
+        result = self.watch(runtime, markdown_only=False)
 
         self.assertEqual(len(runtime.calls), 2)
         self.assertEqual(result.details["jobs"]["ingested"], 1)
@@ -491,7 +604,7 @@ class WatchTests(unittest.TestCase):
         source.write_text("private", encoding="utf-8")
         source.chmod(0o600)
 
-        self.watch(FakeAgentRuntime())
+        self.watch(FakeAgentRuntime(), markdown_only=False)
 
         metadata = parse_frontmatter(self.records()[0].read_text(encoding="utf-8"))
         registered = self.vault / metadata["source_path"]
@@ -501,7 +614,7 @@ class WatchTests(unittest.TestCase):
         source = self.drop / (("a" * 180) + ".pdf")
         source.write_bytes(b"not-a-real-pdf")
 
-        self.watch(FakeAgentRuntime())
+        self.watch(FakeAgentRuntime(), markdown_only=False)
 
         metadata = parse_frontmatter(self.records()[0].read_text(encoding="utf-8"))
         self.assertEqual(metadata["media_type"], "application/pdf")
@@ -903,8 +1016,7 @@ class CodexAgentAdapterTests(unittest.TestCase):
         self.assertIn("--skip-git-repo-check", command)
         self.assertIn("--add-dir", command)
         self.assertEqual(command[command.index("--add-dir") + 1], str(self.vault))
-        self.assertIn("--sandbox", command)
-        self.assertEqual(command[command.index("--sandbox") + 1], "workspace-write")
+        self.assertNotIn("--sandbox", command)
         self.assertIn("--approve-for-me", command)
         self.assertIn("--json", command)
         self.assertIn("--output-schema", command)

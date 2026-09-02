@@ -38,6 +38,7 @@ LEASE_TTL_SECONDS = 120.0
 LEASE_HEARTBEAT_SECONDS = 30.0
 AGENT_TIMEOUT_SECONDS = 25 * 60
 INBOX_KEEP_MARKER = b"This directory is intentionally available for Agent-managed content.\n"
+MARKDOWN_SUFFIXES = frozenset({".md", ".markdown"})
 WINDOWS_CREATE_SUSPENDED = 0x00000004
 WINDOWS_PROCESS_ACCESS = 0x0001 | 0x0100 | 0x0400 | 0x0800
 JOB_STATES = (
@@ -485,6 +486,10 @@ def _iter_candidates(
 
     visit(source)
     return sorted(candidates, key=lambda item: item.relative_to(source).as_posix())
+
+
+def _is_markdown_path(path: Path) -> bool:
+    return path.suffix.lower() in MARKDOWN_SUFFIXES
 
 
 def _sha256_fd(file_fd: int) -> str:
@@ -1005,20 +1010,41 @@ def _upsert_job(
     return _Job(source_id, record, digest, status)
 
 
-def _reconcile_registered_records(connection: sqlite3.Connection, vault: Path) -> None:
+def _reconcile_registered_records(
+    connection: sqlite3.Connection,
+    vault: Path,
+    *,
+    markdown_only: bool,
+    admitted_markdown_source_ids: set[str],
+) -> list[str]:
     records_root = vault / "wiki" / "sources"
+    dequeued: list[str] = []
     for record in sorted(records_root.glob("*.md")):
         try:
             metadata = _record_metadata(record)
         except RuntimeError:
             continue
         if metadata.get("status") in ("registered", "ingested"):
+            source_id = metadata["source_id"]
+            source_path = Path(metadata.get("source_path", ""))
+            if (
+                markdown_only
+                and source_id not in admitted_markdown_source_ids
+                and not _is_markdown_path(source_path)
+            ):
+                deleted = connection.execute(
+                    "DELETE FROM jobs WHERE source_id = ?", (source_id,)
+                ).rowcount
+                if deleted:
+                    dequeued.append(source_id)
+                continue
             _upsert_job(connection, record)
     connection.execute(
         "UPDATE jobs SET status = 'retry', updated_at = ? WHERE status = 'ingesting'",
         (utc_timestamp(),),
     )
     connection.commit()
+    return dequeued
 
 
 def _pending_jobs(connection: sqlite3.Connection) -> list[_Job]:
@@ -1427,8 +1453,6 @@ class CodexAgentAdapter:
             "--skip-git-repo-check",
             "--add-dir",
             str(vault),
-            "--sandbox",
-            "workspace-write",
             "--approve-for-me",
             "--json",
             "--output-schema",
@@ -1511,6 +1535,7 @@ def _run_watch(
     agent_runtime: AgentRuntime | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.time,
+    markdown_only: bool = True,
 ) -> OperationResult:
     if not math.isfinite(settle_seconds) or settle_seconds < 0:
         raise ValueError("settle_seconds must be a finite non-negative number")
@@ -1529,6 +1554,7 @@ def _run_watch(
                 "registered": 0,
                 "ingested": 0,
                 "deferred": 0,
+                "ignored": 0,
                 "errors": 0,
                 "jobs": {},
                 "job_errors": [],
@@ -1544,7 +1570,9 @@ def _run_watch(
     registered_count = 0
     ingested_count = 0
     deferred_count = 0
+    ignored_count = 0
     error_count = 0
+    admitted_markdown_source_ids: set[str] = set()
     events: list[dict[str, str]] = []
     try:
         _recover_publish_transactions(watch_root, vault)
@@ -1567,11 +1595,21 @@ def _run_watch(
 
         root_identity = _directory_identity(source)
         skip_packaged_inbox_marker = source == (vault / "sources" / "inbox").resolve()
-        candidates = _iter_candidates(
+        discovered = _iter_candidates(
             source,
             recursive,
             skip_packaged_inbox_marker=skip_packaged_inbox_marker,
         )
+        if markdown_only:
+            candidates = [path for path in discovered if _is_markdown_path(path)]
+            ignored = [path for path in discovered if not _is_markdown_path(path)]
+            ignored_count = len(ignored)
+            events.extend(
+                {"event": "ignored-non-markdown", "path": str(path)}
+                for path in ignored
+            )
+        else:
+            candidates = discovered
         first = {path: _snapshot(path) for path in candidates}
         if candidates:
             sleeper(settle_seconds)
@@ -1624,6 +1662,8 @@ def _run_watch(
                 registration = register_source(vault, staged, title=path.stem)
                 record = Path(str(registration.details["record"]))
                 job = _upsert_job(connection, record)
+                if markdown_only:
+                    admitted_markdown_source_ids.add(job.source_id)
                 if registration.details.get("status") == "registered":
                     registered_count += 1
                 events.append(
@@ -1644,7 +1684,16 @@ def _run_watch(
 
         if heartbeat.control_lost.is_set():
             raise RuntimeError("Watch runner lost its lease")
-        _reconcile_registered_records(connection, vault)
+        dequeued = _reconcile_registered_records(
+            connection,
+            vault,
+            markdown_only=markdown_only,
+            admitted_markdown_source_ids=admitted_markdown_source_ids,
+        )
+        events.extend(
+            {"event": "dequeued-non-markdown", "source_id": source_id}
+            for source_id in dequeued
+        )
         jobs = _pending_jobs(connection)
         if jobs:
             runtime = agent_runtime or CodexAgentAdapter(
@@ -1807,6 +1856,7 @@ def _run_watch(
                 "registered": registered_count,
                 "ingested": ingested_count,
                 "deferred": deferred_count,
+                "ignored": ignored_count,
                 "errors": error_count,
                 "jobs": status_counts,
                 "job_errors": job_errors,
@@ -1836,6 +1886,7 @@ def run_watch(
     agent_runtime: AgentRuntime | None = None,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.time,
+    markdown_only: bool = True,
 ) -> OperationResult:
     """Run one recoverable full scan and semantic-ingest attempt."""
 
@@ -1845,6 +1896,7 @@ def run_watch(
             source_dir,
             harness=harness,
             recursive=recursive,
+            markdown_only=markdown_only,
             settle_seconds=settle_seconds,
             agent_runtime=agent_runtime,
             sleeper=sleeper,

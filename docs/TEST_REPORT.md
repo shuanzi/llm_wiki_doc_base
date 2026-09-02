@@ -1,10 +1,10 @@
 # Test Report
 
 - Result: **PASS**
-- Executed at: `2026-09-01T09:37:12Z`
+- Executed at: `2026-09-02T03:10:41Z`
 - Platform: `macOS-26.6.2-arm64-arm-64bit`
 - Test Python: `Python 3.12.13`
-- Unit/integration tests: `127` passed
+- Unit/integration tests: `133` passed
 - Kit Doctor strict: PASS, 0 errors, 0 warnings
 - End-to-end acceptance smoke: PASS
 - Installed-package smoke in clean venv: PASS
@@ -14,7 +14,7 @@
 - Standalone Vault initialization and Obsidian JSON generation;
 - UTF-8 Markdown structure and machine-discoverable Vault Profile;
 - Source copy, SHA-256 registration, idempotency, missing/tampered Source detection;
-- One-shot Watch full scans, stability gate, SQLite queue/lease recovery, Codex Adapter protocol, and deterministic Ingest completion checks;
+- One-shot Watch Markdown-default scans, all-files compatibility, stability gate, SQLite queue/lease recovery, Codex Adapter protocol, and deterministic Ingest completion checks;
 - Repository URL normalization, root README registration, offline idempotency, and no source-code persistence;
 - Codex `.agents/skills`, Claude Code `.claude/skills`, OpenClaw `skills` bindings;
 - Copy and symlink Skill modes; symlink and pointer Vault modes;

@@ -75,10 +75,13 @@ cd llm-wiki-agent-first-mvp
 llm-wiki watch /absolute/path/to/drop-folder \
   --workspace /absolute/path/to/binding \
   --harness codex \
+  --markdown-only \
   --recursive \
   --settle-seconds 60 \
   --json
 ```
+
+Watcher 默认只处理大小写不敏感的 `.md` 和 `.markdown` 文件；只有明确需要恢复旧的全文件行为时才传 `--all-files`。
 
 完整的前置条件、恢复语义和 macOS/Linux/Windows 调度示例见 [周期扫描与自动 Ingest](docs/WATCHER.md)。
 

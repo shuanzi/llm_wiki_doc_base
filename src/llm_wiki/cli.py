@@ -71,6 +71,20 @@ def build_parser() -> argparse.ArgumentParser:
     watch_cmd.add_argument("--workspace", required=True, type=Path)
     watch_cmd.add_argument("--harness", required=True, choices=["codex"])
     watch_cmd.add_argument("--recursive", action="store_true")
+    format_group = watch_cmd.add_mutually_exclusive_group()
+    format_group.add_argument(
+        "--markdown-only",
+        dest="markdown_only",
+        action="store_true",
+        help="Process only .md and .markdown files (default)",
+    )
+    format_group.add_argument(
+        "--all-files",
+        dest="markdown_only",
+        action="store_false",
+        help="Process all regular files",
+    )
+    watch_cmd.set_defaults(markdown_only=True)
     watch_cmd.add_argument("--settle-seconds", type=float, default=60)
     watch_cmd.add_argument("--json", action="store_true")
 
@@ -132,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.source_dir,
                 harness=args.harness,
                 recursive=args.recursive,
+                markdown_only=args.markdown_only,
                 settle_seconds=args.settle_seconds,
             )
             _print_result(result, args.json)

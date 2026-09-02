@@ -154,7 +154,7 @@ Skill 不要求唯一执行步骤，只要求 closure conditions。Agent 可以�
 
 - `runtime/search/`：ripgrep、SQLite FTS、BM25、QMD、Vector Index；
 - MCP Search Server；
-- 原生文件事件 watcher（当前实现采用调度器驱动的全量扫描）；
+- 原生文件事件 watcher（当前实现采用调度器驱动、默认 Markdown-only 的全量扫描）；
 - Git-based review UI；
 - 多 Agent 并发编辑的锁/claim sidecar；
 - 页面图谱、LSP、rename-aware 工具；
