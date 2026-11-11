@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Iterator
@@ -183,19 +184,25 @@ def _validate_profile(vault: Path, findings: list[Finding]) -> None:
 
 def _read_markdown(vault: Path, findings: list[Finding]) -> dict[Path, str]:
     markdown_texts: dict[Path, str] = {}
-    for markdown in vault.rglob("*.md"):
-        if not markdown.is_file():
-            continue
-        if is_untrusted_vault_intake_path(markdown.relative_to(vault)):
-            # Intake files are untrusted input, not durable Wiki content. They
-            # are validated after registration into sources/library.
-            continue
-        try:
-            markdown_texts[markdown] = markdown.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError) as exc:
-            findings.append(
-                _finding("error", "vault.encoding", f"Markdown file is unreadable as UTF-8: {exc}", markdown)
-            )
+    def traversal_error(exc: OSError) -> None:
+        findings.append(_finding("error", "vault.read", str(exc), vault))
+
+    for root, directories, names in os.walk(vault, onerror=traversal_error):
+        parent = Path(root)
+        directories[:] = [
+            name for name in directories
+            if name != ".git" and not is_untrusted_vault_intake_path((parent / name).relative_to(vault))
+        ]
+        for name in names:
+            markdown = parent / name
+            if markdown.suffix != ".md" or not markdown.is_file():
+                continue
+            try:
+                markdown_texts[markdown] = markdown.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError) as exc:
+                findings.append(
+                    _finding("error", "vault.encoding", f"Markdown file is unreadable as UTF-8: {exc}", markdown)
+                )
     return markdown_texts
 
 

@@ -16,6 +16,8 @@ description: "Maintain an attached local Markdown/Obsidian knowledge vault: orie
 3. 若当前目录本身存在 `profile/vault.json` 与 `VAULT.md`，当前目录就是 Vault。
 4. 若仍无法定位，向用户说明缺少绑定，并给出 `llm-wiki init` / `llm-wiki attach` 的最小操作建议。
 
+对于以独立 Git checkout 管理的 Vault，从外层 Binding 通过 `llm-wiki run --workspace <binding> --mode read|write -- <command>` 执行知识任务。同步程序先取得候选版本，任务通过临时 Binding 中的 `vault` 读写，验证完成后由同步程序提交和推送。已经处于 `LLM_WIKI_WORKSPACE` 指示的受管会话时直接完成本轮任务。报告离线、待同步和冲突状态。后台 Ingest 以 watcher 提供的 staging 和 Source Record 为准。
+
 定位后先读：
 
 - `VAULT.md`

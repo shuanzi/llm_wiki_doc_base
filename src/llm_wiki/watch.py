@@ -14,11 +14,12 @@ import tempfile
 import threading
 import time
 import uuid
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Callable, Protocol
 
-from .binding import BINDING_DIR, BINDING_SCHEMA_VERSION, load_binding
+from .binding import BINDING_DIR, BINDING_SCHEMA_VERSION, attach, load_binding
 from .doctor import validate_binding, validate_vault
 from .models import OperationResult
 from .source_relations import (
@@ -390,6 +391,27 @@ def _validate_watch_context(
     ):
         raise ValueError("Watch folder and Binding Workspace must not overlap")
 
+    watch_root = _watch_runtime(workspace)
+    if strict:
+        binding_findings = []
+        for item in validate_binding(workspace):
+            if item.level not in ("error", "warning"):
+                continue
+            if source_is_vault_intake and item.path:
+                finding_path = Path(item.path).expanduser().absolute()
+                if finding_path != source and is_relative_to(finding_path, source):
+                    # Approved intake roots are untrusted drop areas, not durable Wiki content.
+                    continue
+            binding_findings.append(item)
+        if binding_findings:
+            summary = "; ".join(
+                f"{item.code}: {item.message} [{item.path}]" for item in binding_findings
+            )
+            raise ValueError(f"Binding is not ready for watch: {summary}")
+    return workspace, vault, watch_root
+
+
+def _watch_runtime(workspace: Path) -> Path:
     binding_root = workspace / BINDING_DIR
     if _is_link_or_reparse(binding_root) or not binding_root.is_dir():
         raise ValueError(f"Binding metadata directory is missing or unsafe: {binding_root}")
@@ -417,25 +439,7 @@ def _validate_watch_context(
             raise ValueError(f"Watch runtime path is unsafe: {watch_root}")
         if not is_relative_to(watch_root.resolve(), workspace):
             raise ValueError(f"Watch runtime path escapes the Workspace: {watch_root}")
-    if strict:
-        binding_findings = []
-        for item in validate_binding(workspace):
-            if item.level not in ("error", "warning"):
-                continue
-            if source_is_vault_intake and item.path:
-                finding_path = Path(item.path).expanduser().absolute()
-                if finding_path != source and is_relative_to(finding_path, source):
-                    # Approved intake roots are untrusted drop areas, not
-                    # durable Wiki content. Their contents are validated only
-                    # after deterministic registration into sources/library.
-                    continue
-            binding_findings.append(item)
-        if binding_findings:
-            summary = "; ".join(
-                f"{item.code}: {item.message}" for item in binding_findings
-            )
-            raise ValueError(f"Binding is not ready for watch: {summary}")
-    return workspace, vault, watch_root
+    return watch_root
 
 
 def _is_packaged_inbox_marker(path: Path, metadata: os.stat_result) -> bool:
@@ -769,7 +773,10 @@ def _vault_manifest(
     manifest: dict[str, tuple[str, str]] = {}
     for root, directories, files in os.walk(vault, followlinks=False):
         root_path = Path(root)
+        directories[:] = [name for name in directories if name != ".git"]
         for name in sorted(directories + files):
+            if name == ".git":
+                continue
             path = root_path / name
             relative = path.relative_to(vault).as_posix()
             mode = path.lstat().st_mode
@@ -887,7 +894,7 @@ def _publish_manifest(
 def _copy_vault_for_agent(vault: Path, staged_vault: Path) -> None:
     def ignore(directory: str, names: list[str]) -> set[str]:
         relative_directory = Path(directory).relative_to(vault)
-        return {
+        return {".git"} | {
             intake_root.name
             for intake_root in UNTRUSTED_VAULT_INTAKE_ROOTS
             if intake_root.parent == relative_directory and intake_root.name in names
@@ -1622,12 +1629,15 @@ def _run_watch(
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.time,
     markdown_only: bool = True,
+    runtime_workspace: Path | None = None,
 ) -> OperationResult:
     if not math.isfinite(settle_seconds) or settle_seconds < 0:
         raise ValueError("settle_seconds must be a finite non-negative number")
     workspace, vault, watch_root = _validate_watch_context(
         workspace, source_dir, harness, strict=False
     )
+    if runtime_workspace is not None:
+        watch_root = _watch_runtime(runtime_workspace)
     source = source_dir.expanduser().resolve()
     queue_path = watch_root / QUEUE_FILE
     process_lock = _ProcessLock(watch_root / RUNNER_LOCK_FILE)
@@ -1672,7 +1682,7 @@ def _run_watch(
                 raise ValueError(
                     f"Watch SQLite path must not be a symlink: {sqlite_path}"
                 )
-        workspace, vault, watch_root = _validate_watch_context(
+        workspace, vault, _ = _validate_watch_context(
             workspace, source_dir, harness, strict=True
         )
         connection = _connect(queue_path)
@@ -1816,8 +1826,12 @@ def _run_watch(
                     staged_before = _vault_manifest(staged_vault)
                     source_record_preimages = _source_record_preimages(staged_vault)
                     try:
+                        agent_workspace = workspace
+                        if runtime_workspace is not None:
+                            agent_workspace = Path(temp_dir) / "agent-binding"
+                            attach(staged_vault, agent_workspace, [harness])
                         result = runtime.run(
-                            workspace=workspace,
+                            workspace=agent_workspace,
                             vault=staged_vault,
                             source_records=[staged_jobs[0].record_path],
                             timeout_seconds=AGENT_TIMEOUT_SECONDS,
@@ -1983,10 +1997,52 @@ def run_watch(
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.time,
     markdown_only: bool = True,
+    git_sync: bool = False,
 ) -> OperationResult:
     """Run one recoverable full scan and semantic-ingest attempt."""
 
     try:
+        if git_sync:
+            from .git_sync import VaultSync
+
+            if not math.isfinite(settle_seconds) or settle_seconds < 0:
+                raise ValueError("settle_seconds must be a finite non-negative number")
+            workspace, vault, _ = _validate_watch_context(workspace, source_dir, harness, strict=False)
+            source = source_dir.expanduser().resolve()
+            relative = source.relative_to(vault) if is_relative_to(source, vault) else None
+
+            def ingest(binding: Path, candidate: Path) -> OperationResult:
+                report = _run_watch(
+                    binding, candidate / relative if relative is not None else source,
+                    harness=harness, recursive=recursive, markdown_only=markdown_only,
+                    settle_seconds=0 if relative is not None else settle_seconds,
+                    agent_runtime=agent_runtime, sleeper=sleeper, clock=clock,
+                    runtime_workspace=workspace,
+                )
+                # The disposable checkout can disappear after publishing.
+                # Persist display paths relative to the shared Vault instead.
+                with closing(_connect(_watch_runtime(workspace) / QUEUE_FILE)) as queue, queue:
+                    rows = queue.execute("SELECT source_id, record_path FROM jobs").fetchall()
+                    for row in rows:
+                        record = Path(row["record_path"])
+                        if is_relative_to(record, candidate):
+                            queue.execute(
+                                "UPDATE jobs SET record_path = ? WHERE source_id = ?",
+                                (str(vault / record.relative_to(candidate)), row["source_id"]),
+                            )
+                return report
+
+            sync = VaultSync(workspace).run(
+                operation=ingest,
+                settle_seconds=settle_seconds if relative is not None else 0,
+                sleeper=sleeper,
+                watch=True,
+            )
+            details = {key: value for key, value in sync.details.items() if key != "operation"}
+            return OperationResult("watch", source, {
+                **(sync.details.get("operation") or {}),
+                "sync": details,
+            })
         return _run_watch(
             workspace,
             source_dir,
