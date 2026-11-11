@@ -9,7 +9,8 @@
 - [x] (2026-11-11) 验证 watcher 与受管 Agent 集成。Kit strict Doctor、端到端和安装包 smoke 通过。回归用例覆盖忽略文件保护、进程中断和远端已登记原文保护。
 - [x] (2026-11-11) 迁移 370 个文件并逐项核对哈希。独立 clone 的 368 个跟踪文件哈希一致，strict Doctor 通过。Obsidian 已打开本地 Vault，iCloud 原件移入本地备份。
 - [x] (2026-11-11) 真实保存的同步说明已提交至 GitHub 私有仓库，受管读取成功。
-- [ ] 安装最终版本化部署并验证计划内运行。
+- [x] (2026-11-11) 最终运行版本 `45f166c` 已安装，175 项测试、严格 Doctor 和安装包 smoke 通过。LaunchAgent 已加载并核对 27 个时间点。
+- [x] (2026-11-11 12:10 +08:00) 12:00 计划任务按时启动，实际 fetch、全量扫描和 Codex 摄取交接已观测。首批任务仍在处理，一条运行、七条排队。
 
 ## Surprises & Discoveries
 
@@ -21,7 +22,7 @@
 
 ## Outcomes & Retrospective
 
-临时工作树能在共享目录仍有新保存时推送已验证的导入提交。双 clone 测试证实下一次同步仍会保存新编辑。文本可合并的历史日志改写也进入冲突恢复流程。真实迁移使用 `/Users/xiquandai/Knowledge/.llm-wiki-migrations/20261111.i4QZZ8` 保存文件清单、旧配置、SQLite 队列和 iCloud 原件。
+临时工作树能在共享目录仍有新保存时推送已验证的导入提交。双 clone 测试证实下一次同步仍会保存新编辑。文本可合并的历史日志改写也进入冲突恢复流程。真实迁移使用 `/Users/xiquandai/Knowledge/.llm-wiki-migrations/20261111.i4QZZ8` 保存文件清单、旧配置、SQLite 队列和 iCloud 原件。已保存的同步说明由实际同步命令提交到私有远端，本机和远端均在 `edddcfa`。12:00 首轮的整批摄取推送要等任务结束后才能核对。
 
 ## Context and Orientation
 
@@ -29,7 +30,7 @@
 
 ## Plan of Work
 
-通过两个真实 clone 固化 Git 同步行为，再接入已有 watcher。工作树保存在用户约定的开发 worktree 父目录下。同步、日志合并和冲突恢复使用系统 Git 与 Python 标准库。验证通过后，安装版本化 venv。关闭目标 Obsidian Vault 并暂停 watcher，备份并复制到 `/Users/xiquandai/Knowledge/llm-wiki-vault`，验证私有远端 `shuanzi/llm-wiki-vault` 的独立 clone 后切换 Binding 和调度。移出已验证的 iCloud 原件，保留本地备份。
+通过两个真实 clone 固化 Git 同步行为，再接入已有 watcher。工作树保存在用户约定的开发 worktree 父目录下。同步、日志合并和冲突恢复使用系统 Git 与 Python 标准库。验证通过后，安装版本化 venv。关闭目标 Obsidian Vault 并暂停 watcher，备份并复制到 `/Users/xiquandai/Knowledge/llm-wiki-vault`，验证私有远端 `shuanzi/llm-wiki-vault` 的独立 clone 后切换 Binding 和调度。移出已验证的 iCloud 原件，保留本地备份。最终 LaunchAgent 直接调用 `venv-45f166c/bin/llm-wiki watch`，参数包含 `--git-sync --markdown-only --settle-seconds 60`。
 
 ## Validation and Acceptance
 
@@ -42,3 +43,5 @@
 ## Interfaces and Dependencies
 
 `llm-wiki sync --workspace <binding> [--resume <id>] [--json]` 执行同步。`llm-wiki sync-status --workspace <binding> --json` 查询本地状态。`llm-wiki run --workspace <binding> --mode read|write -- <command>` 以临时 Binding 运行命令。`llm-wiki watch … --git-sync` 保留现有摄取接口并启用 Git 同步。
+
+2026-11-11 更新：记录真实迁移、最终部署提交及预定运行验收。
