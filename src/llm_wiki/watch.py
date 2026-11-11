@@ -2030,6 +2030,11 @@ def run_watch(
                                 "UPDATE jobs SET record_path = ? WHERE source_id = ?",
                                 (str(vault / record.relative_to(candidate)), row["source_id"]),
                             )
+                for event in report.details.get("events", []):
+                    if isinstance(event.get("path"), str):
+                        event_path = Path(event["path"])
+                        if is_relative_to(event_path, candidate):
+                            event["path"] = str(vault / event_path.relative_to(candidate))
                 return report
 
             sync = VaultSync(workspace).run(

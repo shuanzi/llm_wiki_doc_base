@@ -268,7 +268,10 @@ class VaultSync:
 
     def _merge(self, path: Path, other: str) -> list[str]:
         left = _ref(path, "HEAD")
-        if not other or _is_ancestor(path, other, left):
+        if not other or other == left:
+            return []
+        if _is_ancestor(path, other, left):
+            self._validate_library(path, left, (other,))
             return []
         self._validate_tree(path, other)
         if _is_ancestor(path, left, other):
@@ -460,8 +463,14 @@ class VaultSync:
                 and _text(self.vault, "write-tree") == _ref(self.vault, f"{base}^{{tree}}")
                 and self._snapshot(base) == _ref(self.vault, f"{base}^{{tree}}")
             )
+            local_error = ""
             if updated and candidate != base:
-                updated = not _git(self.vault, "merge", "--ff-only", candidate, check=False).returncode
+                applied = _git(
+                    self.vault, "merge", "--ff-only", "--no-overwrite-ignore", candidate, check=False
+                )
+                updated = applied.returncode == 0
+                if not updated:
+                    local_error = _error(applied) or "Shared checkout fast-forward failed"
             if updated:
                 _materialize_empty_dirs(self.vault)
             _git(self.vault, "worktree", "remove", str(stage))
@@ -472,6 +481,7 @@ class VaultSync:
             return self._result(
                 "synced" if pushed and updated else "local-update-pending" if pushed else "offline-pending",
                 pushed=pushed, local_updated=updated, candidate=candidate, error="" if pushed else offline,
+                local_error=local_error,
                 input_commit=input_commit,
                 last_online_at=utc_timestamp() if pushed else self._state(self.last).get("last_online_at"),
                 operation=report.details if report is not None else None,

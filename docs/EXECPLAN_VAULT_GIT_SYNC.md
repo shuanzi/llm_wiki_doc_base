@@ -6,9 +6,10 @@
 
 - [x] (2026-11-11) 确认本机部署基线为 `00962de`，严格 Doctor 通过，目标目录和私有仓库尚未创建。
 - [x] (2026-11-11) 双 clone 验证快进、冲突恢复、日志追加、断网、push 失败和并发保存。
-- [x] (2026-11-11) 验证 watcher 与受管 Agent 集成。完整 172 项测试、Kit strict Doctor、端到端和安装包 smoke 通过。
-- [ ] 安装版本化部署并核对已安装命令。
-- [ ] 迁移现有 Vault 并验证计划内运行。
+- [x] (2026-11-11) 验证 watcher 与受管 Agent 集成。Kit strict Doctor、端到端和安装包 smoke 通过。回归用例覆盖忽略文件保护、进程中断和远端已登记原文保护。
+- [x] (2026-11-11) 迁移 370 个文件并逐项核对哈希。独立 clone 的 368 个跟踪文件哈希一致，strict Doctor 通过。Obsidian 已打开本地 Vault，iCloud 原件移入本地备份。
+- [x] (2026-11-11) 真实保存的同步说明已提交至 GitHub 私有仓库，受管读取成功。
+- [ ] 安装最终版本化部署并验证计划内运行。
 
 ## Surprises & Discoveries
 
@@ -20,7 +21,7 @@
 
 ## Outcomes & Retrospective
 
-临时工作树能在共享目录仍有新保存时推送已验证的导入提交。双 clone 测试证实下一次同步仍会保存新编辑。文本可合并的历史日志改写也进入冲突恢复流程。实际迁移及定时验证进行中。
+临时工作树能在共享目录仍有新保存时推送已验证的导入提交。双 clone 测试证实下一次同步仍会保存新编辑。文本可合并的历史日志改写也进入冲突恢复流程。真实迁移使用 `/Users/xiquandai/Knowledge/.llm-wiki-migrations/20261111.i4QZZ8` 保存文件清单、旧配置、SQLite 队列和 iCloud 原件。
 
 ## Context and Orientation
 

@@ -5,12 +5,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 from llm_wiki.binding import attach
 from llm_wiki.cli import main
-from llm_wiki.vault import init_vault
+from llm_wiki.vault import init_vault, register_source
 from llm_wiki.watch import run_watch
 from tests.test_watch import FakeAgentRuntime
 
@@ -215,3 +216,58 @@ class GitSyncTests(unittest.TestCase):
         ]), 1)
         self.assertFalse((self.vault / "evidence" / "unexpected.md").exists())
         self.assertEqual(self.status()["status"], "validation-failed")
+
+    def test_fast_forward_does_not_overwrite_locally_ignored_files(self) -> None:
+        local_file = self.vault / "evidence" / "device-note.md"
+        local_file.write_text("# Local ignored note\n")
+        with (self.vault / ".git" / "info" / "exclude").open("a", encoding="utf-8") as handle:
+            handle.write("\n/evidence/device-note.md\n")
+        (self.peer / "evidence" / local_file.name).write_text("# Peer tracked note\n")
+        self.push_peer("Peer tracked note")
+        self.assertEqual(self.sync(), 1)
+        self.assertEqual(self.status()["status"], "local-update-pending")
+        self.assertEqual(local_file.read_text(), "# Local ignored note\n")
+
+    def test_process_restart_recovers_saved_changes_from_interrupted_task(self) -> None:
+        marker = self.root / "task-saved"
+        child = (
+            "import os,time; from pathlib import Path; "
+            "parent=os.getppid(); "
+            "Path('vault/evidence/interrupted.md').write_text('# Saved before restart\\n'); "
+            f"Path({str(marker)!r}).touch(); "
+            "exec('while os.getppid() == parent: time.sleep(0.05)')"
+        )
+        with subprocess.Popen([
+            sys.executable, "-m", "llm_wiki", "run", "--workspace", str(self.workspace),
+            "--mode", "write", "--", sys.executable, "-c", child,
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as process:
+            try:
+                deadline = time.monotonic() + 10
+                while not marker.exists() and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(marker.exists())
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=5)
+        self.assertEqual(self.sync(), 1)
+        status = self.status()
+        self.assertEqual(status["status"], "interrupted")
+        self.assertFalse((self.vault / "evidence" / "interrupted.md").exists())
+        self.assertEqual(self.sync("--resume", status["session"]), 0)
+        self.assertEqual(self.git(self.remote, "show", "main:evidence/interrupted.md"),
+                         "# Saved before restart")
+
+    def test_valid_manual_commit_cannot_silently_drop_previously_published_source(self) -> None:
+        input_file = self.root / "original.md"
+        input_file.write_text("# Immutable source\n")
+        registration = register_source(self.vault, input_file)
+        self.assertEqual(self.sync(), 0)
+        published = self.git(self.remote, "rev-parse", "main")
+        registration.path.unlink()
+        next((self.vault / "sources" / "library").rglob("*.md")).unlink()
+        self.git(self.vault, "add", "-A")
+        self.git(self.vault, "commit", "-m", "Remove previously published source")
+        self.assertEqual(self.sync(), 1)
+        self.assertEqual(self.status()["status"], "validation-failed")
+        self.assertEqual(self.git(self.remote, "rev-parse", "main"), published)
