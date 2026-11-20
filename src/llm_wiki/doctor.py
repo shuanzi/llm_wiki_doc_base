@@ -190,9 +190,14 @@ def _read_markdown(vault: Path, findings: list[Finding]) -> dict[Path, str]:
 
     for root, directories, names in os.walk(vault, onerror=traversal_error):
         parent = Path(root)
+        if parent != vault and ".git" in directories + names:
+            findings.append(
+                _finding("error", "vault.git-nested", "Git metadata must be at the Vault root", parent / ".git")
+            )
         directories[:] = [
             name for name in directories
-            if name != ".git" and not is_untrusted_vault_intake_path((parent / name).relative_to(vault))
+            if not (parent == vault and name == ".git")
+            and not is_untrusted_vault_intake_path((parent / name).relative_to(vault))
         ]
         for name in names:
             markdown = parent / name

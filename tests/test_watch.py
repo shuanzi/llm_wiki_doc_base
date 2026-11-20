@@ -1457,6 +1457,98 @@ class WatchTests(unittest.TestCase):
             "registered",
         )
 
+    @unittest.skipIf(os.name == "nt", "External symlink fixture requires POSIX")
+    def test_agent_nested_git_paths_are_rejected_before_publication(self) -> None:
+        (self.drop / "source.md").write_text("source", encoding="utf-8")
+        for root in ("wiki", "evidence"):
+            for symlink in (False, True):
+                with self.subTest(root=root, symlink=symlink):
+                    vault = self.base / f"vault-{root}-{symlink}"
+                    binding = self.base / f"binding-{root}-{symlink}"
+                    init_vault(vault, "Nested Git")
+                    attach(vault, binding, ["codex"])
+
+                    class NestedGitRuntime(FakeAgentRuntime):
+                        def run(inner_self, **kwargs: object) -> AgentRunResult:
+                            nested = kwargs["vault"] / root / ".git"
+                            nested.mkdir()
+                            if symlink:
+                                (nested / "outside").symlink_to(self.base, target_is_directory=True)
+                            else:
+                                (nested / "config").write_text("unexpected metadata", encoding="utf-8")
+                            return super().run(**kwargs)
+
+                    result = run_watch(
+                        binding, self.drop, settle_seconds=0, agent_runtime=NestedGitRuntime(),
+                    )
+                    self.assertEqual(result.details["jobs"].get("retry"), 1)
+                    self.assertFalse((vault / root / ".git").exists())
+
+    def test_root_git_metadata_is_excluded_but_nested_metadata_is_inspected(self) -> None:
+        from llm_wiki.watch import _vault_manifest
+
+        metadata = self.vault / ".git"
+        metadata.mkdir()
+        (metadata / "HEAD").write_text("Root metadata", encoding="utf-8")
+        nested = self.vault / "wiki/.git"
+        nested.mkdir()
+        (nested / "config").write_text("Nested metadata", encoding="utf-8")
+
+        manifest = _vault_manifest(self.vault)
+        self.assertNotIn(".git", manifest)
+        self.assertNotIn(".git/HEAD", manifest)
+        self.assertIn("wiki/.git/config", manifest)
+        staged = self.base / "staged"
+        _copy_vault_for_agent(self.vault, staged)
+        self.assertFalse((staged / ".git").exists())
+        self.assertEqual((staged / "wiki/.git/config").read_text(), "Nested metadata")
+
+    @unittest.skipUnless(
+        os.name != "nt" and hasattr(os, "mkfifo") and os.open in os.supports_dir_fd,
+        "FIFO replacement regression requires POSIX openat support",
+    )
+    def test_fifo_replacing_candidate_does_not_block_or_prevent_other_ingests(self) -> None:
+        (self.drop / "a-replaced.md").write_text("regular file", encoding="utf-8")
+        (self.drop / "b-stable.md").write_text("stable file", encoding="utf-8")
+        # Bound a real blocked open in a subprocess so a regression cannot hang the suite.
+        code = """
+import os
+import sys
+from pathlib import Path
+from unittest import mock
+sys.path[:0] = [sys.argv[1], str(Path(sys.argv[1]) / "src")]
+from llm_wiki import watch
+from tests.test_watch import FakeAgentRuntime
+
+original = watch._stage_candidate
+def replace_with_fifo(path, *args, **kwargs):
+    if path.name == "a-replaced.md":
+        path.unlink()
+        os.mkfifo(path)
+    return original(path, *args, **kwargs)
+
+with mock.patch.object(watch, "_stage_candidate", side_effect=replace_with_fifo):
+    result = watch.run_watch(
+        Path(sys.argv[2]), Path(sys.argv[3]), settle_seconds=0,
+        agent_runtime=FakeAgentRuntime(),
+    )
+assert result.details["deferred"] == 1, result.details
+assert result.details["ingested"] == 1, result.details
+assert result.details["errors"] == 0, result.details
+print("completed")
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(Path(__file__).resolve().parents[1]),
+             str(self.workspace), str(self.drop)],
+            capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("completed", result.stdout)
+        records = self.records()
+        self.assertEqual(len(records), 1)
+        metadata = parse_frontmatter(records[0].read_text(encoding="utf-8"))
+        self.assertEqual((self.vault / metadata["source_path"]).read_text(), "stable file")
+
     @unittest.skipIf(os.name == "nt", "openat symlink fencing is POSIX-specific")
     def test_recursive_parent_symlink_swap_cannot_escape_the_watch_root(self) -> None:
         nested = self.drop / "nested"

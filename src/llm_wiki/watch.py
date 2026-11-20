@@ -693,8 +693,13 @@ def _stage_candidate(
             for part in relative.parts[:-1]:
                 current_fd = os.open(part, directory_flags, dir_fd=current_fd)
                 directory_fds.append(current_fd)
-            file_fd = os.open(relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=current_fd)
+            file_fd = os.open(
+                relative.parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                dir_fd=current_fd,
+            )
             before = os.fstat(file_fd)
+            if not stat.S_ISREG(before.st_mode):
+                raise RuntimeError(f"Candidate changed to a non-regular file before staging: {path}")
             actual = _CandidateSnapshot(
                 before.st_dev,
                 before.st_ino,
@@ -772,9 +777,10 @@ def _vault_manifest(
     manifest: dict[str, tuple[str, str]] = {}
     for root, directories, files in os.walk(vault, followlinks=False):
         root_path = Path(root)
-        directories[:] = [name for name in directories if name != ".git"]
+        if root_path == vault:
+            directories[:] = [name for name in directories if name != ".git"]
         for name in sorted(directories + files):
-            if name == ".git":
+            if root_path == vault and name == ".git":
                 continue
             path = root_path / name
             relative = path.relative_to(vault).as_posix()
@@ -858,6 +864,7 @@ def _unexpected_agent_changes(
                 source_record_change_is_allowed = False
         if (
             not _is_publishable_agent_path(path)
+            or ".git" in Path(path).parts
             or (before_kind == "file" and after_kind != "file")
             or (
                 Path(path).parts[:2] == ("wiki", "sources")
@@ -894,7 +901,8 @@ def _publish_manifest(
 def _copy_vault_for_agent(vault: Path, staged_vault: Path) -> None:
     def ignore(directory: str, names: list[str]) -> set[str]:
         relative_directory = Path(directory).relative_to(vault)
-        return {".git"} | {
+        root_metadata = {".git"} if relative_directory == Path(".") else set()
+        return root_metadata | {
             intake_root.name
             for intake_root in UNTRUSTED_VAULT_INTAKE_ROOTS
             if intake_root.parent == relative_directory and intake_root.name in names

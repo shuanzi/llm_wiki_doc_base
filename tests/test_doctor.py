@@ -58,6 +58,21 @@ def _write_page(
 
 
 class DoctorTests(unittest.TestCase):
+    def test_git_metadata_is_allowed_only_at_the_vault_root(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory).resolve() / "vault"
+            init_vault(vault, "Git metadata")
+            (vault / ".git").mkdir()
+            (vault / ".git/ignored.md").write_text("[Broken](absent.md)", encoding="utf-8")
+            self.assertEqual(
+                [item for item in validate_vault(vault) if item.level in ("error", "warning")],
+                [],
+            )
+            nested = vault / "wiki/.git"
+            nested.mkdir()
+            findings = validate_vault(vault)
+            self.assertIn("vault.git-nested", {item.code for item in findings})
+
     def test_windows_reparse_intake_is_rejected_even_without_symlink_mode(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             vault = Path(directory).resolve() / "vault"
