@@ -15,6 +15,7 @@
 - `--force` 仅用于明确替换 Skill 目标，不授权删除真实 `binding/vault/` 用户目录；
 - `detach` 拒绝删除无管理身份的 Skill；
 - `update` 在完整预检和 staging 后才替换托管产物；copy drift 与旧 marker 先备份，任一提交步骤失败则恢复 Skill、文档与 Binding metadata；
+- `watch` 每次全量重扫输入目录，默认只注册并恢复 `.md` / `.markdown`；`--all-files` 才恢复旧的全文件行为。Vault 内仅允许根级 `Clippings/` 和 `sources/inbox/` 作为只读、不可信 intake root，其原始内容不进入 Agent staging 或 Doctor，发布事务也永不写回这些目录。队列、lease 和 Agent 输出只进入 Binding Runtime。Agent 按 Source 独立操作临时 Vault 副本，只有允许范围、Source/Hash/Log/Doctor/结构化结果全部通过才以带 Vault identity 的可恢复事务发布；`retry`、`needs-review`、`permanent-error` 或崩溃不会把临时修改留在 Durable Vault。队列丢失后从符合当前格式策略且仍为 `registered` 的 Source Record 恢复，不把 Agent 退出码当作 Ingest 成功；
 - 旧 Binding 元数据不能把已经变成真实目录的 `binding/vault/` 误判为可删除链接；
 - Managed Block 不重写用户文件其余部分，起止标记损坏时在其他写入前失败；
 - 生成文件、Skill 父目录、Source 和必需 Vault 路径检查符号链接逃逸；

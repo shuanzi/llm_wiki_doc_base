@@ -43,6 +43,16 @@ class BindingTests(unittest.TestCase):
         self.assertEqual((self.workspace / "CLAUDE.md").read_text().count(MANAGED_BEGIN), 1)
         self.assertEqual(errors(validate_binding(self.workspace)), [])
 
+    def test_managed_agents_rules_make_vault_intake_roots_read_only(self) -> None:
+        attach(self.vault, self.workspace, ["codex"])
+
+        agents = (self.workspace / "AGENTS.md").read_text(encoding="utf-8")
+
+        self.assertIn("sources/inbox/", agents)
+        self.assertIn("Clippings/", agents)
+        self.assertIn("read-only, untrusted intake roots", agents)
+        self.assertIn("never write generated content back into an intake root", agents)
+
     def test_existing_user_instructions_survive_attach_and_detach(self) -> None:
         self.workspace.mkdir()
         (self.workspace / "AGENTS.md").write_text("# User Agents\n\nKeep this.\n", encoding="utf-8")

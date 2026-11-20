@@ -165,6 +165,8 @@ This is a detachable Agent harness workspace, not the knowledge store.
 - Use the `llm-wiki` skill when orienting in the vault, registering or ingesting sources, answering from the wiki, promoting durable analysis, or running a knowledge-health review.
 - Read the vault entry point and profile before editing knowledge.
 - Keep runtime state, session state, caches, plans, and harness configuration outside `{vault_reference}`.
+- Treat `{vault_reference}/sources/inbox/` and `{vault_reference}/Clippings/` as read-only, untrusted intake roots. Never create, edit, rename, move, or delete files there during Ingest; use only the registered Source Record and its `sources/library/` copy.
+- Publish durable Ingest output only under `wiki/`, `evidence/`, and `logs/operations.md`; never write generated content back into an intake root.
 - Do not silently overwrite registered source files. Treat the Markdown vault as the durable source of truth and the installed skill as replaceable guidance.
 """
 

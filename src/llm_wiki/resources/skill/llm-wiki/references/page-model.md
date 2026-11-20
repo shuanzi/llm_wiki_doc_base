@@ -25,10 +25,12 @@ type: concept
 status: active
 created: 2026-08-31T00:00:00Z
 updated: 2026-08-31T00:00:00Z
+sources:
+  - ../sources/src-abc123.md
 ---
 ```
 
-只有在确有信息时再增加 `sources`、`aliases`、`tags`、`confidence`、`supersedes` 等字段。不要为了填满模板编造值。
+`sources` 只在页面实际消费 Source 时添加，并使用相对路径 block-list；不要使用 scalar 或 inline list。每项都必须在对应 Source Record 的精确 `## Affected pages` 段落中存在反向链接。Index 与 Knowledge Map 只有显式声明 `sources` 才是消费者，导航正文链接不算。其他 `aliases`、`tags`、`confidence`、`supersedes` 等字段只在确有信息时增加，不要为了填满模板编造值。
 
 ## 页面粒度
 

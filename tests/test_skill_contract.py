@@ -33,6 +33,9 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("register_repository.py", text)
         self.assertIn("Runtime Sidecar", text)
         self.assertIn("完成条件", text)
+        self.assertIn("frontmatter.sources", text)
+        self.assertIn("## Affected pages", text)
+        self.assertIn("完全相等", text)
 
     def test_cross_harness_eval_cases_cover_all_capabilities(self) -> None:
         cases = json.loads((PROJECT_ROOT / "evals/cases.json").read_text(encoding="utf-8"))

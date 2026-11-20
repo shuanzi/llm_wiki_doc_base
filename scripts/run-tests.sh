@@ -3,19 +3,20 @@ set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+TEST_PYTHON=${LLM_WIKI_TEST_PYTHON:-${LLM_WIKI_PACKAGING_PYTHON:-python3}}
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-python3 -m compileall -q src tests
-python3 -m unittest discover -s tests -t . -v 2>&1 | tee "$TMP/unittest.log"
-python3 -m llm_wiki doctor "$ROOT" --kind kit --strict 2>&1 | tee "$TMP/doctor.log"
+"$TEST_PYTHON" -m compileall -q src tests
+"$TEST_PYTHON" -m unittest discover -s tests -t . -v 2>&1 | tee "$TMP/unittest.log"
+"$TEST_PYTHON" -m llm_wiki doctor "$ROOT" --kind kit --strict 2>&1 | tee "$TMP/doctor.log"
 "$ROOT/scripts/acceptance-smoke.sh" 2>&1 | tee "$TMP/acceptance.log"
 "$ROOT/scripts/installed-smoke.sh" 2>&1 | tee "$TMP/installed.log"
 
 TEST_COUNT=$(sed -n 's/^Ran \([0-9][0-9]*\) tests.*$/\1/p' "$TMP/unittest.log" | tail -1)
 TEST_COUNT=${TEST_COUNT:-unknown}
-PYTHON_VERSION=$(python3 --version 2>&1)
-PLATFORM=$(python3 - <<'PY'
+PYTHON_VERSION=$("$TEST_PYTHON" --version 2>&1)
+PLATFORM=$("$TEST_PYTHON" - <<'PY'
 import platform
 print(platform.platform())
 PY
@@ -25,8 +26,8 @@ CLAUDE=$(command -v claude >/dev/null 2>&1 && claude --version 2>/dev/null | hea
 OPENCLAW=$(command -v openclaw >/dev/null 2>&1 && openclaw --version 2>/dev/null | head -1 || printf 'not installed')
 TIMESTAMP=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-export ROOT TEST_COUNT PYTHON_VERSION PLATFORM CODEX CLAUDE OPENCLAW TIMESTAMP
-python3 - <<'PYREPORT'
+export ROOT TEST_COUNT PYTHON_VERSION PLATFORM CODEX CLAUDE OPENCLAW TIMESTAMP TEST_PYTHON
+"$TEST_PYTHON" - <<'PYREPORT'
 from pathlib import Path
 import os
 
@@ -35,7 +36,7 @@ report = f"""# Test Report
 - Result: **PASS**
 - Executed at: `{os.environ['TIMESTAMP']}`
 - Platform: `{os.environ['PLATFORM']}`
-- Python: `{os.environ['PYTHON_VERSION']}`
+- Test Python: `{os.environ['PYTHON_VERSION']}`
 - Unit/integration tests: `{os.environ['TEST_COUNT']}` passed
 - Kit Doctor strict: PASS, 0 errors, 0 warnings
 - End-to-end acceptance smoke: PASS
@@ -46,6 +47,8 @@ report = f"""# Test Report
 - Standalone Vault initialization and Obsidian JSON generation;
 - UTF-8 Markdown structure and machine-discoverable Vault Profile;
 - Source copy, SHA-256 registration, idempotency, missing/tampered Source detection;
+- Symmetric frontmatter.sources/Affected pages validation, path fencing, body-only warnings, and exact 13-relation incident regression;
+- One-shot Watch Markdown-default scans, all-files compatibility, stability gate, SQLite queue/lease recovery, Codex Adapter protocol, and deterministic Ingest completion checks;
 - Repository URL normalization, root README registration, offline idempotency, and no source-code persistence;
 - Codex `.agents/skills`, Claude Code `.claude/skills`, OpenClaw `skills` bindings;
 - Copy and symlink Skill modes; symlink and pointer Vault modes;
@@ -61,13 +64,13 @@ report = f"""# Test Report
 
 ## External Agent execution
 
-The test container did not contain authenticated local Agent CLIs:
+The deterministic test suite deliberately did not execute a live Agent session. The locally visible CLI versions were:
 
 - Codex: `{os.environ['CODEX']}`
 - Claude Code: `{os.environ['CLAUDE']}`
 - OpenClaw: `{os.environ['OPENCLAW']}`
 
-Therefore no live model Session was executed. The binding directories and common Agent Skill format were verified deterministically against the implemented compatibility contract. Semantic Agent behavior is specified as reusable cross-Harness scenarios in `evals/cases.json`; those scenarios require the corresponding local Agent, account, model, and filesystem permissions.
+Authentication availability is checked by the production Adapter at runtime and is not inferred from these version probes. The binding directories and common Agent Skill format were verified deterministically against the implemented compatibility contract. Semantic Agent behavior is specified as reusable cross-Harness scenarios in `evals/cases.json`; those scenarios require the corresponding local Agent, account, model, and filesystem permissions.
 
 ## Commands
 

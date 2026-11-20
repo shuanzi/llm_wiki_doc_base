@@ -88,6 +88,12 @@ binding/
 
 Binding 与 Vault 必须是不同且互不包含的根目录。这样可以删除、重建或切换 Binding，而无需修改知识资产。Binding 中的 `vault` 链接只提供稳定入口，不授予 Sandbox 权限；真实 Vault 位于 Agent 默认可写根之外时，应通过 Harness 的目录授权或挂载配置开放。
 
+### 3.4 Source 关系闭环
+
+`src/llm_wiki/source_relations.py` 对 YAML 做窄解析，不改变通用 scalar-only `parse_frontmatter()`：普通 Wiki 页显式的 `sources` block-list 解析为 F，Source Record 精确 `## Affected pages` 段落中的 Markdown links 解析为 R。两侧相对路径都会 URL decode、resolve 并检查 Vault 边界和目标类型。
+
+Doctor 将 missing、stale、无效或逃逸关系视为 error，并将普通语义页只有正文 Source link、没有 frontmatter 声明的情况视为 warning。Index、Knowledge Map 与 Source Record 的导航正文链接豁免 body-only warning，但 Index/Map 若显式声明 `sources`，仍是普通消费者。
+
 ## 4. Agent 工作链路
 
 ```text
@@ -139,10 +145,11 @@ Skill 不要求唯一执行步骤，只要求 closure conditions。Agent 可以�
 
 - `init`：模板实例化和机器可发现 Profile；
 - `register-source`：复制、内容哈希、Source Record Stub 和日志；
+- `watch`：执行一次全量目录扫描、维护 Binding Runtime 队列，并通过 Codex Adapter 按 Source 串行调起独立 Agent；Agent 只写临时 Vault 副本，通过 Source Record preimage、F == R、Doctor strict 等 closure probe 后由 CLI 事务性发布，知识综合仍由 Agent 按 Skill 完成；
 - `attach`：Skill 复制/链接、薄指令和 Vault 引用；
 - `update`：按既有 Binding 事务式刷新托管 Skill/说明并备份 copy drift；
 - `detach`：安全移除托管 Harness；
-- `doctor`：检查可恢复性和边界；
+- `doctor`：检查可恢复性、边界和显式来源关系闭环；
 - `status`：读取 Binding 元数据。
 
 这让系统既 Agent-first，又对不可逆边界保持最小确定性保护。
@@ -153,7 +160,7 @@ Skill 不要求唯一执行步骤，只要求 closure conditions。Agent 可以�
 
 - `runtime/search/`：ripgrep、SQLite FTS、BM25、QMD、Vector Index；
 - MCP Search Server；
-- Source watcher 和批量摄取队列；
+- 原生文件事件 watcher（当前实现采用调度器驱动、默认 Markdown-only 的全量扫描）；
 - Git-based review UI；
 - 多 Agent 并发编辑的锁/claim sidecar；
 - 页面图谱、LSP、rename-aware 工具；

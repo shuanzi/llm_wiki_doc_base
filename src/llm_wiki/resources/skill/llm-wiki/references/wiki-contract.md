@@ -44,5 +44,6 @@ Contract 规定目标、边界和完成条件，不规定唯一执行序列。Ag
 - Harness 与 Vault 的物理边界；
 - Skill 绑定路径与可卸载性；
 - 关键配置可解析、引用路径不逃逸。
+- 普通 Wiki 页的 `frontmatter.sources` 与 Source Record 的精确 `## Affected pages` 段落构成完全对称、且不逃逸 Vault 的关系集合。
 
 主题分类、页面粒度、链接密度和综合方式由 Agent 与用户共同演进。

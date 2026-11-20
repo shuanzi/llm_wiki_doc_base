@@ -101,6 +101,7 @@ class RepositoryIngestTests(unittest.TestCase):
         self.assertEqual(metadata["source_kind"], "repository")
         self.assertEqual(metadata["repository_identity"], "github.com/Example/Repository")
         self.assertEqual(metadata["readme_path"], "README.md")
+        self.assertIn("\n## Affected pages\n", record.read_text(encoding="utf-8"))
         self.assertIn("repository-register | 示例项目", (self.vault / "logs/operations.md").read_text())
         self.assertFalse([item for item in validate_vault(self.vault) if item.level == "error"])
 

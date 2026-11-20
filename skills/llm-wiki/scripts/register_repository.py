@@ -359,7 +359,9 @@ Registered but not yet semantically ingested. An Agent should follow `references
 
 ## Agent notes
 
-_Add source-specific claims, limitations, cross-references, and affected pages here._
+_Add source-specific claims, limitations, and cross-references here._
+
+## Affected pages
 """ % (
         yaml_string(name), yaml_string("source"), yaml_string("registered"), yaml_string(source_id),
         yaml_string("repository"), yaml_string(timestamp), yaml_string(timestamp),

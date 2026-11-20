@@ -18,6 +18,7 @@ media_type: text/markdown
 
 ## Limitations
 
+<!-- Only pages whose frontmatter.sources declares this Source Record belong below. -->
 ## Affected pages
 
 ## Ingest status

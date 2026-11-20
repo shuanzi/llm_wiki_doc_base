@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
 from . import __version__
 from .binding import attach, detach, load_binding, update
 from .doctor import run_doctor
+from .git_sync import VaultSync
 from .models import Finding, OperationResult
 from .vault import init_vault, register_source
+from .watch import run_watch
 
 
 def _print_result(result: OperationResult, as_json: bool) -> None:
@@ -62,6 +66,32 @@ def build_parser() -> argparse.ArgumentParser:
     source_cmd.add_argument("--title")
     source_cmd.add_argument("--json", action="store_true")
 
+    watch_cmd = sub.add_parser(
+        "watch",
+        help="Run one full folder scan and ask Codex to ingest registered sources",
+    )
+    watch_cmd.add_argument("source_dir", type=Path)
+    watch_cmd.add_argument("--workspace", required=True, type=Path)
+    watch_cmd.add_argument("--harness", required=True, choices=["codex"])
+    watch_cmd.add_argument("--recursive", action="store_true")
+    watch_cmd.add_argument("--git-sync", action="store_true", help="Sync the bound Git Vault around Ingest")
+    format_group = watch_cmd.add_mutually_exclusive_group()
+    format_group.add_argument(
+        "--markdown-only",
+        dest="markdown_only",
+        action="store_true",
+        help="Process only .md and .markdown files (default)",
+    )
+    format_group.add_argument(
+        "--all-files",
+        dest="markdown_only",
+        action="store_false",
+        help="Process all regular files",
+    )
+    watch_cmd.set_defaults(markdown_only=True)
+    watch_cmd.add_argument("--settle-seconds", type=float, default=60)
+    watch_cmd.add_argument("--json", action="store_true")
+
     attach_cmd = sub.add_parser("attach", help="Create/update a detachable Agent binding workspace")
     attach_cmd.add_argument("--vault", required=True, type=Path)
     attach_cmd.add_argument("--workspace", required=True, type=Path)
@@ -101,6 +131,18 @@ def build_parser() -> argparse.ArgumentParser:
     status_cmd = sub.add_parser("status", help="Show binding metadata")
     status_cmd.add_argument("--workspace", required=True, type=Path)
     status_cmd.add_argument("--json", action="store_true")
+    sync_cmd = sub.add_parser("sync", help="Synchronize a Git-managed Vault with origin/main")
+    sync_cmd.add_argument("--workspace", required=True, type=Path)
+    sync_cmd.add_argument("--resume", help="Resume a resolved Git sync session")
+    sync_cmd.add_argument("--json", action="store_true")
+    sync_status = sub.add_parser("sync-status", help="Show local Git sync and recovery status")
+    sync_status.add_argument("--workspace", required=True, type=Path)
+    sync_status.add_argument("--json", action="store_true")
+    run_cmd = sub.add_parser("run", help="Run a task against a synchronized Vault snapshot")
+    run_cmd.add_argument("--workspace", required=True, type=Path)
+    run_cmd.add_argument("--mode", required=True, choices=("read", "write"))
+    run_cmd.add_argument("--json", action="store_true")
+    run_cmd.add_argument("argv", nargs=argparse.REMAINDER)
     return parser
 
 
@@ -108,11 +150,54 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command in ("sync", "sync-status"):
+            sync = VaultSync(args.workspace)
+            result = sync.status() if args.command == "sync-status" else sync.run(resume=args.resume)
+            _print_result(result, args.json)
+            return int(args.command == "sync" and result.details["status"] != "synced")
+        if args.command == "run":
+            command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
+            if not command:
+                raise ValueError("Provide a command after --")
+
+            def run_task(binding: Path, vault: Path) -> OperationResult:
+                env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+                env.update(LLM_WIKI_WORKSPACE=str(binding), LLM_WIKI_VAULT=str(vault))
+                result = subprocess.run(
+                    command, cwd=binding, env=env, stdout=sys.stderr if args.json else None,
+                )
+                return OperationResult("run", vault, {"exit_code": result.returncode})
+
+            result = VaultSync(args.workspace).run(operation=run_task, read_only=args.mode == "read")
+            _print_result(result, args.json)
+            return int(result.details["status"] != "synced")
         if args.command == "init":
             _print_result(init_vault(args.path, args.name, args.language), args.json)
             return 0
         if args.command == "register-source":
             _print_result(register_source(args.vault, args.source, args.title), args.json)
+            return 0
+        if args.command == "watch":
+            result = run_watch(
+                args.workspace,
+                args.source_dir,
+                harness=args.harness,
+                recursive=args.recursive,
+                markdown_only=args.markdown_only,
+                settle_seconds=args.settle_seconds,
+                git_sync=args.git_sync,
+            )
+            _print_result(result, args.json)
+            jobs = result.details.get("jobs", {})
+            sync = result.details.get("sync")
+            if sync and sync["status"] not in ("synced", "busy"):
+                return 1
+            if result.details.get("errors", 0):
+                return 1
+            if isinstance(jobs, dict) and any(
+                jobs.get(status, 0) for status in ("retry", "needs-review", "permanent-error")
+            ):
+                return 1
             return 0
         if args.command == "attach":
             _print_result(

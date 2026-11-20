@@ -51,6 +51,17 @@ REQUIRED_VAULT_DIRECTORIES = (
     "wiki/_templates",
 )
 REQUIRED_VAULT_PATHS = REQUIRED_VAULT_FILES + REQUIRED_VAULT_DIRECTORIES
+UNTRUSTED_VAULT_INTAKE_ROOTS = (
+    Path("sources/inbox"),
+    Path("Clippings"),
+)
+
+
+def is_untrusted_vault_intake_path(relative: Path) -> bool:
+    return any(
+        relative == root or root in relative.parents
+        for root in UNTRUSTED_VAULT_INTAKE_ROOTS
+    )
 
 
 def _vault_template_root():
@@ -303,7 +314,9 @@ Registered but not yet semantically ingested. An Agent should read the source, u
 
 ## Agent notes
 
-_Add source-specific takeaways, limitations, and affected pages here._
+_Add source-specific takeaways and limitations here._
+
+## Affected pages
 """
     log_path = vault / "logs" / "operations.md"
     resolved_log = log_path.resolve()
