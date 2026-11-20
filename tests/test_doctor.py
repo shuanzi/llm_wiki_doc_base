@@ -5,6 +5,8 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 from llm_wiki.binding import attach
 from llm_wiki.doctor import detect_kind, validate_binding, validate_kit, validate_vault
@@ -56,6 +58,25 @@ def _write_page(
 
 
 class DoctorTests(unittest.TestCase):
+    def test_windows_reparse_intake_is_rejected_even_without_symlink_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            vault = Path(directory).resolve() / "vault"
+            init_vault(vault, "Junction test")
+            intake = vault / "Clippings"
+            intake.mkdir()
+            original = Path.lstat
+
+            def reparse_metadata(path, *args, **kwargs):
+                metadata = original(path, *args, **kwargs)
+                if path == intake:
+                    return SimpleNamespace(
+                        st_mode=metadata.st_mode, st_file_attributes=0x00000400,
+                    )
+                return metadata
+
+            with mock.patch.object(Path, "lstat", reparse_metadata):
+                findings = validate_vault(vault)
+            self.assertIn("vault.intake-root-type", {item.code for item in findings})
     def test_original_13_missing_reverse_relations_are_all_reported(self) -> None:
         consumers = (
             ("analyses", "harness-agent-first-engineering"),
@@ -312,6 +333,36 @@ class DoctorTests(unittest.TestCase):
 
             self.assertEqual(len(warnings), 1, warnings)
             self.assertEqual(warnings[0].level, "warning")
+
+    def test_source_links_in_code_and_comments_are_not_body_references(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            vault = base / "vault"
+            init_vault(vault, "Code examples")
+            source = base / "source.md"
+            source.write_text("source", encoding="utf-8")
+            record = register_source(vault, source).path
+            link = f"[Example](../sources/{record.name})"
+            examples = (
+                f"```markdown\n{link}\n```\n",
+                f"   ~~~~markdown\n{link}\n~~~\n~~~~\n",
+                f"`{link}`\n",
+                f"``example ` {link} ``\n",
+                f"<!-- {link} -->\n",
+                f"<!--\n```\n{link}\n-->\n",
+            )
+            for body in examples:
+                with self.subTest(body=body):
+                    _write_page(vault, "wiki/concepts/examples.md", body=body)
+                    findings = [
+                        item for item in validate_vault(vault)
+                        if item.level in ("error", "warning")
+                    ]
+                    self.assertEqual(findings, [])
+
+            _write_page(vault, "wiki/concepts/examples.md", body="".join(examples) + link)
+            warnings = [item for item in validate_vault(vault) if item.code == "source.body-only"]
+            self.assertEqual(len(warnings), 1)
 
     def test_strict_doctor_blocks_body_only_warning(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

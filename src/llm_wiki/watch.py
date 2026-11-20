@@ -29,6 +29,8 @@ from .source_relations import (
 )
 from .utils import (
     atomic_write_json,
+    is_link_or_reparse as _is_link_or_reparse,
+    is_reparse_stat as _is_reparse_stat,
     is_relative_to,
     parse_frontmatter,
     safe_name,
@@ -62,18 +64,6 @@ JOB_STATES = (
 )
 _LOCAL_LOCK_GUARD = threading.Lock()
 _LOCAL_LOCKS: set[str] = set()
-
-
-def _is_reparse_stat(metadata: os.stat_result) -> bool:
-    return bool(getattr(metadata, "st_file_attributes", 0) & 0x00000400)
-
-
-def _is_link_or_reparse(path: Path) -> bool:
-    try:
-        metadata = path.lstat()
-    except OSError:
-        return path.is_symlink()
-    return path.is_symlink() or _is_reparse_stat(metadata)
 
 
 class _ProcessLock:
@@ -233,6 +223,10 @@ def _connect(queue_path: Path) -> sqlite3.Connection:
             owner TEXT NOT NULL,
             heartbeat_at REAL NOT NULL,
             expires_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS queue_vault (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            vault_id TEXT NOT NULL
         );
         """
     )
@@ -485,11 +479,14 @@ def _iter_candidates(
         with os.scandir(directory) as entries:
             ordered = sorted(entries, key=lambda entry: entry.name)
         for entry in ordered:
-            entry_metadata = entry.stat(follow_symlinks=False)
-            if entry.is_symlink() or _is_reparse_stat(entry_metadata):
+            try:
+                entry_metadata = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if stat.S_ISLNK(entry_metadata.st_mode) or _is_reparse_stat(entry_metadata):
                 continue
             path = Path(entry.path)
-            if entry.is_file(follow_symlinks=False):
+            if stat.S_ISREG(entry_metadata.st_mode):
                 if (
                     skip_packaged_inbox_marker
                     and directory == source
@@ -498,7 +495,7 @@ def _iter_candidates(
                 ):
                     continue
                 candidates.append(path)
-            elif recursive and entry.is_dir(follow_symlinks=False):
+            elif recursive and stat.S_ISDIR(entry_metadata.st_mode):
                 visit(path)
 
     visit(source)
@@ -724,6 +721,8 @@ def _stage_candidate(
                 before.st_mtime_ns,
             ) or _sha256_fd(file_fd) != sha256_file(staged):
                 raise RuntimeError(f"Candidate changed while staging: {path}")
+            if _directory_identity(source_root) != root_identity:
+                raise RuntimeError(f"Watch folder changed while staging: {source_root}")
         elif os.name == "nt":
             _stage_candidate_windows(
                 path,
@@ -859,6 +858,7 @@ def _unexpected_agent_changes(
                 source_record_change_is_allowed = False
         if (
             not _is_publishable_agent_path(path)
+            or (before_kind == "file" and after_kind != "file")
             or (
                 Path(path).parts[:2] == ("wiki", "sources")
                 and path != allowed_source_record
@@ -1103,11 +1103,13 @@ def _reconcile_registered_records(
     records_root = vault / "wiki" / "sources"
     eligible_source_ids: set[str] = set()
     format_filtered_source_ids: set[str] = set()
+    current_source_ids: set[str] = set()
     for record in sorted(records_root.glob("*.md")):
         try:
             metadata = _record_metadata(record)
         except RuntimeError:
             continue
+        current_source_ids.add(metadata["source_id"])
         if metadata.get("status") in ("registered", "ingested"):
             source_id = metadata["source_id"]
             source_path = Path(metadata.get("source_path", ""))
@@ -1120,6 +1122,12 @@ def _reconcile_registered_records(
                 continue
             eligible_source_ids.add(source_id)
             _upsert_job(connection, record)
+    for row in connection.execute("SELECT source_id, record_path FROM jobs").fetchall():
+        if (
+            row["source_id"] not in current_source_ids
+            and not is_relative_to(Path(row["record_path"]).resolve(), vault.resolve())
+        ):
+            connection.execute("DELETE FROM jobs WHERE source_id = ?", (row["source_id"],))
     connection.execute(
         "UPDATE jobs SET status = 'retry', updated_at = ? WHERE status = 'ingesting'",
         (utc_timestamp(),),
@@ -1686,6 +1694,15 @@ def _run_watch(
             workspace, source_dir, harness, strict=True
         )
         connection = _connect(queue_path)
+        vault_id = _vault_identity(vault)["vault_id"]
+        previous_vault = connection.execute("SELECT vault_id FROM queue_vault").fetchone()
+        if previous_vault is not None and previous_vault["vault_id"] != vault_id:
+            connection.execute("DELETE FROM jobs")
+        connection.execute(
+            "INSERT OR REPLACE INTO queue_vault(singleton, vault_id) VALUES (1, ?)",
+            (vault_id,),
+        )
+        connection.commit()
         _acquire_lease(connection, owner, clock())
         heartbeat = _LeaseHeartbeat(queue_path, owner)
         heartbeat.__enter__()
@@ -1914,8 +1931,6 @@ def _run_watch(
                                 errors[job.source_id],
                             )
                         else:
-                            _set_job_status(connection, current_jobs, "ingested")
-                            ingested_count += 1
                             if transaction is None:
                                 raise RuntimeError(
                                     "Watch publish transaction was not created"
@@ -1924,6 +1939,8 @@ def _run_watch(
                                 transaction / "state.json",
                                 _transaction_state("committed", vault),
                             )
+                            _set_job_status(connection, current_jobs, "ingested")
+                            ingested_count += 1
                             shutil.rmtree(transaction)
         status_counts: dict[str, int] = {}
         filtered_job_count = 0

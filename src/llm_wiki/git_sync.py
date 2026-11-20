@@ -243,13 +243,28 @@ class VaultSync:
     def _validate(self, path: Path, tree: str, bases: tuple[str, ...]) -> None:
         self._validate_tree(path, tree)
         _materialize_empty_dirs(path)
-        findings = [item for item in validate_vault(path) if item.level in ("error", "warning")]
-        if findings:
-            detail = "; ".join(f"{item.code}: {item.message} [{item.path}]" for item in findings[:10])
-            raise ValidationError(detail)
-        expected = read_json(self.vault / "profile/vault.json")["vault_id"]
-        if read_json(path / "profile/vault.json")["vault_id"] != expected:
-            raise ValidationError("Candidate changes the Vault identity")
+        # Inspect exactly what a new checkout receives, without ignored or
+        # untracked files from the managed task masking missing evidence.
+        with tempfile.TemporaryDirectory(prefix="validate-", dir=self.state_dir) as directory:
+            root = Path(directory)
+            materialized = root / "vault"
+            materialized.mkdir()
+            index = root / "index"
+            _git(path, "read-tree", tree, index=index)
+            _git(path, "checkout-index", "--all", f"--prefix={materialized}{os.sep}", index=index)
+            _materialize_empty_dirs(materialized)
+            findings = [
+                item for item in validate_vault(materialized)
+                if item.level in ("error", "warning")
+            ]
+            if findings:
+                detail = "; ".join(
+                    f"{item.code}: {item.message} [{item.path}]" for item in findings[:10]
+                )
+                raise ValidationError(detail)
+            expected = read_json(self.vault / "profile/vault.json")["vault_id"]
+            if read_json(materialized / "profile/vault.json")["vault_id"] != expected:
+                raise ValidationError("Candidate changes the Vault identity")
         self._validate_library(path, tree, bases)
 
     @staticmethod

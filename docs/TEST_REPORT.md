@@ -1,10 +1,10 @@
 # Test Report
 
 - Result: **PASS**
-- Executed at: `2026-11-11T03:48:00Z`
+- Executed at: `2026-11-20T03:06:20Z`
 - Platform: `macOS-27.2.1-arm64-arm-64bit`
 - Test Python: `Python 3.12.14`
-- Unit/integration tests: `175` passed
+- Unit/integration tests: `185` passed
 - Kit Doctor strict: PASS, 0 errors, 0 warnings
 - End-to-end acceptance smoke: PASS
 - Installed-package smoke in clean venv: PASS
@@ -33,8 +33,8 @@
 
 The deterministic test suite deliberately did not execute a live Agent session. The locally visible CLI versions were:
 
-- Codex: `codex-cli 0.167.0-alpha.3.2`
-- Claude Code: `2.1.322 (Claude Code)`
+- Codex: `codex-cli 0.169.0`
+- Claude Code: `2.1.328 (Claude Code)`
 - OpenClaw: `OpenClaw 2026.11.2 (b556fdf)`
 
 Authentication availability is checked by the production Adapter at runtime and is not inferred from these version probes. The binding directories and common Agent Skill format were verified deterministically against the implemented compatibility contract. Semantic Agent behavior is specified as reusable cross-Harness scenarios in `evals/cases.json`; those scenarios require the corresponding local Agent, account, model, and filesystem permissions.

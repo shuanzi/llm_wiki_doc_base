@@ -99,6 +99,18 @@ def is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
+def is_reparse_stat(metadata: os.stat_result) -> bool:
+    return bool(getattr(metadata, "st_file_attributes", 0) & 0x00000400)
+
+
+def is_link_or_reparse(path: Path) -> bool:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        return path.is_symlink()
+    return path.is_symlink() or is_reparse_stat(metadata)
+
+
 def ensure_separate_roots(vault: Path, workspace: Path) -> None:
     vault_r = vault.resolve()
     workspace_r = workspace.resolve()

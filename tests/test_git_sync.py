@@ -271,3 +271,31 @@ class GitSyncTests(unittest.TestCase):
         self.assertEqual(self.sync(), 1)
         self.assertEqual(self.status()["status"], "validation-failed")
         self.assertEqual(self.git(self.remote, "rev-parse", "main"), published)
+
+    def test_ignored_registered_source_cannot_mask_incomplete_candidate_tree(self) -> None:
+        (self.vault / ".gitignore").write_text("/sources/library/**\n")
+        self.assertEqual(self.sync(), 0)
+        published = self.git(self.remote, "rev-parse", "main")
+        source = self.root / "ignored-source.md"
+        source.write_text("# Source kept only in a working directory\n")
+        code = (
+            f"import sys; sys.path.insert(0, {str(Path(__file__).resolve().parents[1] / 'src')!r}); "
+            "from pathlib import Path; from llm_wiki.vault import register_source; "
+            f"register_source(Path('vault'), Path({str(source)!r}))"
+        )
+
+        self.assertEqual(main([
+            "run", "--workspace", str(self.workspace), "--mode", "write",
+            "--", sys.executable, "-c", code,
+        ]), 1)
+        status = self.status()
+        self.assertEqual(status["status"], "validation-failed")
+        self.assertIn("source.file-missing", status["error"])
+        self.assertEqual(self.git(self.remote, "rev-parse", "main"), published)
+        stage = Path(status["worktree"])
+        self.assertEqual(len(list((stage / "sources/library").rglob("*.md"))), 1)
+        # Explicitly admitting the evidence makes the same recoverable session publishable.
+        self.git(stage, "add", "-f", "sources/library")
+        self.assertEqual(self.sync("--resume", status["session"]), 0)
+        self.git(self.peer, "pull", "--ff-only")
+        self.assertEqual(len(list((self.peer / "sources/library").rglob("*.md"))), 1)

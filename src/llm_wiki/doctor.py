@@ -24,6 +24,7 @@ from .source_relations import validate_source_relations
 from .utils import (
     contains_managed_block,
     directory_fingerprint,
+    is_link_or_reparse,
     is_relative_to,
     parse_frontmatter,
     read_json,
@@ -485,9 +486,9 @@ def validate_vault(vault: Path) -> list[Finding]:
 
     for relative in UNTRUSTED_VAULT_INTAKE_ROOTS:
         target = vault / relative
-        if not target.exists() and not target.is_symlink():
+        if not target.exists() and not is_link_or_reparse(target):
             continue
-        if target.is_symlink() or not target.is_dir():
+        if is_link_or_reparse(target) or not target.is_dir():
             findings.append(
                 _finding(
                     "error",

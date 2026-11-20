@@ -270,6 +270,42 @@ class WatchTests(unittest.TestCase):
             "ingested",
         )
 
+    def test_reattaching_binding_discards_old_vault_queue_and_paused_state(self) -> None:
+        source = self.base / "source.md"
+        source.write_text("shared source", encoding="utf-8")
+        old_record = register_source(self.vault, source).path
+        self.watch(FakeAgentRuntime("needs-review", complete=False))
+        other = self.base / "new-vault"
+        init_vault(other, "New Vault")
+        register_source(other, source)
+        extra = self.base / "old-only.md"
+        extra.write_text("old-only source", encoding="utf-8")
+        register_source(self.vault, extra)
+        self.watch(FakeAgentRuntime("retry", complete=False))
+
+        attach(other, self.workspace, ["codex"])
+        runtime = FakeAgentRuntime()
+        result = self.watch(runtime)
+
+        self.assertEqual(result.details["jobs"], {"ingested": 1})
+        self.assertEqual(len(runtime.calls), 1)
+        self.assertEqual(runtime.calls[0][2][0].name, old_record.name)
+
+    def test_legacy_queue_discards_rows_without_current_source_records(self) -> None:
+        source = self.base / "old.md"
+        source.write_text("old source", encoding="utf-8")
+        register_source(self.vault, source)
+        self.watch(FakeAgentRuntime("retry", complete=False))
+        queue_path = self.workspace / ".llm-wiki-binding/runtime/watch/queue.sqlite3"
+        with sqlite3.connect(queue_path) as queue:
+            queue.execute("DROP TABLE IF EXISTS queue_vault")
+        other = self.base / "new-vault"
+        init_vault(other, "New Vault")
+        attach(other, self.workspace, ["codex"])
+
+        result = self.watch(FakeAgentRuntime())
+        self.assertEqual(result.details["jobs"], {})
+
     def test_default_recovery_filters_non_markdown_without_deleting_queue_state(self) -> None:
         source = self.base / "registered.bin"
         source.write_bytes(b"registered before markdown-only default")
@@ -470,6 +506,72 @@ class WatchTests(unittest.TestCase):
                 agent_runtime=FakeAgentRuntime(),
             )
 
+        self.assertEqual(self.records(), [])
+
+    def test_child_vanishing_during_enumeration_does_not_abort_stable_files(self) -> None:
+        (self.drop / "stable.md").write_text("stable", encoding="utf-8")
+        vanished = self.drop / "vanished.md"
+        vanished.write_text("temporary", encoding="utf-8")
+        original_scandir = os.scandir
+        drop_root = self.drop.resolve()
+
+        def racing_scandir(directory):
+            if isinstance(directory, int) or Path(directory).resolve() != drop_root:
+                return original_scandir(directory)
+            with original_scandir(directory) as entries:
+                ordered = list(entries)
+            for index, entry in enumerate(ordered):
+                if entry.name == vanished.name:
+                    proxy = mock.Mock(wraps=entry)
+                    proxy.name = entry.name
+                    proxy.path = entry.path
+
+                    def vanish(**_kwargs):
+                        vanished.unlink()
+                        raise FileNotFoundError(str(vanished))
+
+                    proxy.stat.side_effect = vanish
+                    ordered[index] = proxy
+            result = mock.MagicMock()
+            result.__enter__.return_value = iter(ordered)
+            return result
+
+        with mock.patch("llm_wiki.watch.os.scandir", side_effect=racing_scandir):
+            result = self.watch(FakeAgentRuntime())
+        self.assertEqual(result.details["jobs"], {"ingested": 1})
+
+    def test_required_recursive_subtree_scan_failure_still_aborts(self) -> None:
+        nested = self.drop / "nested"
+        nested.mkdir()
+        original_scandir = os.scandir
+        nested_root = nested.resolve()
+
+        def unreadable_subtree(directory):
+            if not isinstance(directory, int) and Path(directory).resolve() == nested_root:
+                raise PermissionError("Required subtree is inaccessible")
+            return original_scandir(directory)
+
+        with mock.patch("llm_wiki.watch.os.scandir", side_effect=unreadable_subtree):
+            with self.assertRaises(PermissionError):
+                self.watch(FakeAgentRuntime(), recursive=True)
+
+    @unittest.skipUnless(
+        os.name != "nt" and hasattr(os, "O_NOFOLLOW") and os.open in os.supports_dir_fd,
+        "Descriptor staging requires POSIX openat support",
+    )
+    def test_watch_root_replaced_while_copying_last_candidate_is_rejected(self) -> None:
+        (self.drop / "last.md").write_text("old root contents", encoding="utf-8")
+        detached = self.base / "detached-drop"
+        original_copy = shutil.copyfileobj
+
+        def replace_root(source, target, **kwargs):
+            original_copy(source, target, **kwargs)
+            self.drop.rename(detached)
+            self.drop.mkdir()
+
+        with mock.patch("llm_wiki.watch.shutil.copyfileobj", side_effect=replace_root):
+            with self.assertRaisesRegex(RuntimeError, "Watch folder changed while staging"):
+                self.watch(FakeAgentRuntime())
         self.assertEqual(self.records(), [])
 
     def test_recursive_flag_controls_nested_files(self) -> None:
@@ -1098,6 +1200,25 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(result.details["jobs"]["ingested"], 1)
         self.assertEqual(arrived.read_text(encoding="utf-8"), "arrived while agent ran")
 
+    def test_unattended_ingest_preserves_existing_pages_and_evidence(self) -> None:
+        (self.drop / "current.md").write_text("current", encoding="utf-8")
+        existing = ("wiki/concepts/optional.md", "evidence/optional.bin")
+        for relative in existing:
+            (self.vault / relative).write_bytes(b"Durable knowledge\n")
+        before = {relative: (self.vault / relative).read_bytes() for relative in existing}
+
+        for target in existing:
+            with self.subTest(target=target):
+                class DeletingRuntime(FakeAgentRuntime):
+                    def run(inner_self, **kwargs: object) -> AgentRunResult:
+                        (kwargs["vault"] / target).unlink()
+                        return super().run(**kwargs)
+
+                result = self.watch(DeletingRuntime())
+                self.assertEqual(result.details["jobs"].get("retry"), 1)
+                for relative, contents in before.items():
+                    self.assertEqual((self.vault / relative).read_bytes(), contents)
+
     @unittest.skipIf(os.name == "nt", "POSIX mode assertion")
     def test_private_source_permissions_are_not_widened_by_staging(self) -> None:
         source = self.drop / "private.txt"
@@ -1423,6 +1544,37 @@ class WatchTests(unittest.TestCase):
 
         self.assertIn("committed", index.read_text(encoding="utf-8"))
         self.assertFalse(transaction.exists())
+
+    def test_completed_retry_repair_survives_crash_after_terminal_queue_write(self) -> None:
+        from llm_wiki import watch as watch_module
+
+        (self.drop / "retry.md").write_text("repair source", encoding="utf-8")
+        self.watch(FakeAgentRuntime("retry", complete=False))
+        _set_ingested(self.vault, self.records())
+        repair = Path("wiki/concepts/repaired.md")
+
+        class RepairRuntime(FakeAgentRuntime):
+            def run(inner_self, **kwargs: object) -> AgentRunResult:
+                (kwargs["vault"] / repair).write_text("# Durable repair\n", encoding="utf-8")
+                return super().run(**kwargs)
+
+        class Crash(BaseException):
+            pass
+
+        original = watch_module._set_job_status
+
+        def crash_after_terminal_write(connection, jobs, status, *args, **kwargs):
+            original(connection, jobs, status, *args, **kwargs)
+            if status == "ingested":
+                raise Crash()
+
+        with mock.patch("llm_wiki.watch._set_job_status", side_effect=crash_after_terminal_write):
+            with self.assertRaises(Crash):
+                self.watch(RepairRuntime())
+
+        result = self.watch(RepairRuntime())
+        self.assertEqual(result.details["jobs"]["ingested"], 1)
+        self.assertEqual((self.vault / repair).read_text(encoding="utf-8"), "# Durable repair\n")
 
     def test_transaction_for_another_vault_is_never_restored(self) -> None:
         transaction = self._create_publish_transaction("prepared")

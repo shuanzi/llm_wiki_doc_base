@@ -36,6 +36,9 @@ class SourceRelationReport:
 _AFFECTED_HEADING = "## Affected pages"
 _AFFECTED_LINK = re.compile(r"^[ \t]*-[ \t]+\[[^\]\n]*\]\((.*)\)[ \t]*$")
 _LOCAL_LINK_START = re.compile(r"!?\[[^\]\n]*\]\(")
+_NONPROSE_START = re.compile(
+    r"(?m)^ {0,3}(?P<fence>`{3,}|~{3,})[^\n]*|<!--|`+|\\[\\`\[\]]"
+)
 _NAVIGATION_BODY_EXEMPT = (
     Path("wiki/INDEX.md"),
     Path("wiki/maps/Knowledge Map.md"),
@@ -125,7 +128,43 @@ def parse_sources_block(text: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     return tuple(values), tuple(errors)
 
 
+def _markdown_link_text(text: str) -> str:
+    """Mask code spans, fenced blocks, comments and escaped link delimiters."""
+
+    pieces: list[str] = []
+    position = 0
+    while match := _NONPROSE_START.search(text, position):
+        pieces.append(text[position:match.start()])
+        token = match.group()
+        fence = match.group("fence")
+        if fence:
+            closing = re.search(
+                r"(?m)^ {0,3}" + re.escape(fence[0]) + r"{" + str(len(fence)) + r",}[ \t]*\r?$",
+                text[match.end():],
+            )
+            end = match.end() + closing.end() if closing else len(text)
+        elif token == "<!--":
+            closing_index = text.find("-->", match.end())
+            end = closing_index + 3 if closing_index >= 0 else len(text)
+        elif token.startswith("`"):
+            closing = re.search(
+                r"(?<!`)" + re.escape(token) + r"(?!`)", text[match.end():]
+            )
+            if closing is None:
+                pieces.append(token)
+                position = match.end()
+                continue
+            end = match.end() + closing.end()
+        else:
+            end = match.end()
+        pieces.append("".join("\n" if char == "\n" else " " for char in text[match.start():end]))
+        position = end
+    pieces.append(text[position:])
+    return "".join(pieces)
+
+
 def _iter_markdown_link_targets(text: str):
+    text = _markdown_link_text(text)
     for match in _LOCAL_LINK_START.finditer(text):
         start = match.end()
         depth = 0
